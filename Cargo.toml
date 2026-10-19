@@ -16,9 +16,11 @@ egui = { version = "0.36", default-features = false }
 eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "accesskit", "wayland", "x11"] }
 
 # Foundation (PROMPT.md 4.2): key order and number text survive round trips.
+postguy-util = { path = "crates/util", version = "0.1.0" }
 serde = { version = "1", default-features = false, features = ["std", "derive"] }
 serde_json = { version = "1", features = ["preserve_order", "unbounded_depth"] }
 thiserror = "2"
+uuid = { version = "1", default-features = false, features = ["v4"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

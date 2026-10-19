@@ -89,7 +89,7 @@ Planned observation requests:
 
 #### M1 Model, variables, storage, Postman import/export
 
-- [ ] M1.1 `util`: size-capped readers, depth-limited JSON walker, ring buffer, fractional ordering, atomic file helpers.
+- [x] M1.1 `util`: size-capped readers, depth-limited JSON walker, ring buffer, fractional ordering, atomic file helpers.
 - [ ] M1.2 `model`: all types in PROMPT.md 4.5, serde, `extras` preservation, ids.
 - [ ] M1.3 `urlkit`: parse/build, per-component percent-encoding (Appendix D), query to params two-way sync, path variables, host-pattern matching. Property tests.
 - [ ] M1.4 `vars`: scopes and precedence, recursive resolver (depth 10, cycle guard), dynamic variables (Appendix A, word lists written for the project), secret masking. Property tests.
