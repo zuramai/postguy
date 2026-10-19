@@ -1,0 +1,8 @@
+{
+  "name": "globals",
+  "_postman_variable_scope": "globals",
+  "values": [
+    { "key": "workspace", "value": "face" },
+    { "key": "adminPass", "value": "{{admin_pass}}", "type": "secret" }
+  ]
+}

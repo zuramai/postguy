@@ -105,12 +105,8 @@ impl From<PostmanError> for postguy_util::Error {
     fn from(err: PostmanError) -> Self {
         match err {
             PostmanError::File { source, .. } | PostmanError::InvalidJson { source, .. } => source,
-            PostmanError::NotPostman { what } | PostmanError::MissingField { field: what } => {
-                postguy_util::Error::Unusable { what }
-            }
-            PostmanError::UnsupportedFormat { format, instructions } => postguy_util::Error::Unusable {
-                what: format!("{format}: {instructions}"),
-            },
+            PostmanError::NotPostman { what } | PostmanError::MissingField { field: what } => postguy_util::Error::Unusable { what },
+            PostmanError::UnsupportedFormat { format, instructions } => postguy_util::Error::Unusable { what: format!("{format}: {instructions}") },
         }
     }
 }

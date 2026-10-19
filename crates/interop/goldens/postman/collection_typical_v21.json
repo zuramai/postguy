@@ -1,0 +1,185 @@
+{
+  "info": {
+    "_postman_id": "5f8d5f28-8827-4b52-9b35-2f4220e9b101",
+    "name": "Face Service",
+    "description": "Typical v2.1 collection with folders, auth scripts, variables and examples.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "basic",
+    "basic": [
+      { "key": "username", "value": "face-service-user" },
+      { "key": "password", "value": "{{basic_password}}" }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "console.log('before collection');"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.test('status ok', () => pm.response.code === 200);"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "https://{{face-host}}" },
+    { "key": "apiToken", "value": "{{real_token}}", "type": "secret" },
+    { "key": "staleFlag", "value": "off", "disabled": true }
+  ],
+  "protocolProfileBehavior": {
+    "fancyTopLevel": 1
+  },
+  "item": [
+    {
+      "name": "v1",
+      "description": "The versioned root folder.",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "console.log('before folder v1');"
+            ]
+          }
+        }
+      ],
+      "item": [
+        {
+          "name": "Create Face",
+          "auth": { "type": "noauth" },
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "https://{{face-host}}/v1/:id?force=1&dup=1&dup=2",
+              "protocol": "https",
+              "host": ["{{face-host}}"],
+              "path": ["v1", ":id"],
+              "query": [
+                { "key": "force", "value": "1" },
+                { "key": "dup", "value": "1" },
+                { "key": "dup", "value": "2" }
+              ],
+              "variable": [
+                { "key": "id", "value": "{{idvar}}" }
+              ]
+            },
+            "header": [
+              { "key": "X-Trace", "value": "{{trace}}" },
+              { "key": "X-Dropped", "value": "gone", "disabled": true }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "name", "value": "Ada" },
+                { "key": "badge", "value": "{{badge}}", "disabled": true }
+              ]
+            },
+            "description": "Create one face."
+          }
+        },
+        {
+          "name": "Form Upload",
+          "request": {
+            "method": "PUT",
+            "url": { "raw": "https://{{face-host}}/upload", "host": ["{{face-host}}"], "path": ["upload"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "textRow", "value": "hi", "type": "text" },
+                { "key": "fileRow", "src": "files/face.png", "type": "file", "contentType": "image/png" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GraphQL Probe",
+          "request": {
+            "method": "POST",
+            "url": "https://{{face-host}}/graphql",
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query { me { id } }",
+                "variables": { "limit": 1 },
+                "operationName": "me"
+              }
+            }
+          }
+        },
+        {
+          "name": "File Body",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "https://{{face-host}}/v1/upload", "host": ["{{face-host}}"], "path": ["v1", "upload"] },
+            "body": { "mode": "file", "file": { "src": "files/face.png" } }
+          },
+          "response": [
+              {
+                "name": "201 uploaded",
+                "originalRequest": {
+                  "method": "POST",
+                  "url": { "raw": "https://{{face-host}}/v1/upload", "host": ["{{face-host}}"], "path": ["v1", "upload"] },
+                  "body": { "mode": "file", "file": { "src": "files/face.png" } }
+                },
+                "code": 201,
+                "status": "Created",
+                "header": [
+                  { "key": "Location", "value": "/faces/99" }
+                ],
+                "cookie": [
+                  { "key": "session", "value": "orb" }
+                ],
+                "body": "{\"ok\":true}",
+                "_postman_previewlanguage": "json"
+              }
+            ]
+        },
+        {
+          "name": "Raw Body Json",
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "https://{{face-host}}/v1/tune", "host": ["{{face-host}}"], "path": ["v1", "tune"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"depth\": 2}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Runner Settings",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "https://{{face-host}}/health", "host": ["{{face-host}}"], "path": ["health"] },
+            "protocolProfileBehavior": {
+              "followRedirects": false,
+              "maxRedirects": 30,
+              "timeout": 60,
+              "fancyBehavior": true
+            }
+          },
+          "response": [
+            {
+              "name": "200 healthy",
+              "code": 200,
+              "status": "OK",
+              "body": "all good"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

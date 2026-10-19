@@ -1,0 +1,106 @@
+{
+  "info": {
+    "_postman_id": "c0ffee00-0000-4000-8000-1234567890ab",
+    "name": "Corrupt Extras",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "fancyInfo": { "sub": [true, 2] }
+  },
+  "description": { "content": "Root description object.", "type": "text/plain" },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "id": "script-id-1",
+        "exec": [""]
+      }
+    }
+  ],
+  "variable": [
+    { "key": "fancyVar", "value": "x", "fancyVarKey": 7 }
+  ],
+  "auth": {
+    "type": "jwt",
+    "jwt": [
+      { "key": "algorithm", "value": "RS256" },
+      { "key": "payload", "value": "{\"sub\":\"face\"}" },
+      { "key": "fancyAuth", "value": "z" }
+    ]
+  },
+  "item": [
+    {
+      "name": "Apikey Folder",
+      "fancyItemKey": "top",
+      "auth": {
+        "type": "apikey",
+        "apikey": [
+          { "key": "key", "value": "X-Weird" },
+          { "key": "value", "value": "v" },
+          { "key": "in", "value": "in-query-weird" }
+        ]
+      },
+      "description": { "content": "Folder description object.", "type": "text/x" },
+      "item": [
+        {
+          "name": "Weird Request",
+          "fancyRequestLevel": { "a": [] },
+          "request": {
+            "method": "COPY",
+            "description": { "content": "A COPY request.", "type": "text/plain" },
+            "url": {
+              "raw": "https://{{weird}}/a?q=%2Fplain",
+              "fancyUrlKey": true,
+              "query": [
+                { "key": "q", "value": "/plain", "fancyRowKey": ["n", 1] }
+              ]
+            },
+            "header": [
+              { "key": "X-Fancy", "value": "1", "fancyHeaderKey": 3 }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "payload",
+              "options": {
+                "raw": { "language": "yolo" },
+                "fancyOptionsKey": 9
+              }
+            },
+            "event": [
+              {
+                "listen": "test",
+                "script": {
+                  "type": "text/javascript",
+                  "exec": ["pm.test('ok', () => true);", "console.log(1);"]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "Empty Exec Script",
+          "protocolProfileBehavior": {
+            "strictSSL": false,
+            "fancyPpb": "keep"
+          },
+          "request": {
+            "method": "OPTIONS",
+            "url": "https://{{weird}}/b"
+          },
+          "response": [
+            {
+              "name": "204 nothing",
+              "code": 204,
+              "status": "No Content",
+              "fancyResponseKey": { "deep": true },
+              "_postman_previewlanguage": "talky",
+              "originalRequest": {
+                "method": "OPTIONS",
+                "url": "https://{{weird}}/b"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

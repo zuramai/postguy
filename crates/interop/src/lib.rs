@@ -18,6 +18,8 @@
 
 pub mod curl;
 pub mod error;
+pub mod postman;
 
 pub use curl::{ParsedCurl, generate_curl, parse_curl, parse_curl_from_str};
-pub use error::{CurlError, Result};
+pub use error::{CurlError, PostmanError, Result};
+pub use postman::{ImportReport, Imported, MapOutcome, export_collection, export_environment, import_value};
