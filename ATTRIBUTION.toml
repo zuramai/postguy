@@ -1,0 +1,64 @@
+# Asset attribution (AGENTS.md 1.3): the single source of truth.
+# `cargo xtask assets --write` regenerates ATTRIBUTION.md from this and verifies every
+# SHA-256, licence and licence file. Add an entry here BEFORE committing an asset, and run
+# the gate. `postman_data = true` entries are on a closed list approved by the owner only.
+
+# ==========================================================================================
+# Committed assets ([[asset]]): files in this repository.
+# ==========================================================================================
+
+# (contributor-original entries are added as the project creates assets: the M0.5 logo,
+# the first Lucide icons used by the M0.3 icon spike, demo collections, word lists.)
+
+# ==========================================================================================
+# Bundled by Cargo dependencies ([[bundled]]): files a crates.io dependency compiles into
+# Postguy. egui's default fonts (v1 uses them per AGENTS.md 1.4; no font files are committed).
+# ==========================================================================================
+
+[[bundled]]
+crate = "epaint_default_fonts"
+version = "0.36.2"
+path = "fonts/Ubuntu-Light.ttf"
+title = "Ubuntu Light (proportional UI font)"
+author = "Canonical Ltd. and the Ubuntu Font Project"
+source = "crates.io/crates/epaint_default_fonts/0.36.2 (fonts/Ubuntu-Light.ttf)"
+licence = "Ubuntu-font-1.0"
+kind = "font"
+usage = "egui's default proportional font, embedded whenever the app builds"
+sha256 = "80307b8da7649aa4ee4d484b232140e3ce1ec0ca093073d3c53c8f5a5ced7a70"
+
+[[bundled]]
+crate = "epaint_default_fonts"
+version = "0.36.2"
+path = "fonts/Hack-Regular.ttf"
+title = "Hack Regular (monospace font)"
+author = "Source Foundry Authors (Hack), Bitstream Inc. (Vera Sans Mono base); DejaVu contributions to the public domain"
+source = "crates.io/crates/epaint_default_fonts/0.36.2 (fonts/Hack-Regular.ttf)"
+licence = "MIT OR Bitstream-Vera"
+kind = "font"
+usage = "egui's default monospace font, embedded whenever the app builds"
+sha256 = "15f55cc0c85a2988d2b4b3a8cdb5d77fdfbaf319e1bb5309d725db9818fb7125"
+
+[[bundled]]
+crate = "epaint_default_fonts"
+version = "0.36.2"
+path = "fonts/NotoEmoji-Regular.ttf"
+title = "Noto Emoji (monochrome emoji)"
+author = "Google LLC and the Noto Project authors"
+source = "crates.io/crates/epaint_default_fonts/0.36.2 (fonts/NotoEmoji-Regular.ttf)"
+licence = "OFL-1.1"
+kind = "font"
+usage = "emoji fallback glyphs in the default egui font stack"
+sha256 = "415dc6290378574135b64c808dc640c1df7531973290c4970c51fdeb849cb0c5"
+
+[[bundled]]
+crate = "epaint_default_fonts"
+version = "0.36.2"
+path = "fonts/emoji-icon-font.ttf"
+title = "emoji-icon-font (pictographic fallback glyphs)"
+author = "The emoji-icon-font authors"
+source = "crates.io/crates/epaint_default_fonts/0.36.2 (fonts/emoji-icon-font.ttf)"
+licence = "MIT"
+kind = "font"
+usage = "symbol fallback glyphs in the default egui font stack"
+sha256 = "f426bec371f484646d002717e2c555a95cd5145e635d83a48bbef83f3abf18ca"
