@@ -9,3 +9,8 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+fastrand.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
