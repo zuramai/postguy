@@ -14,6 +14,7 @@ pub mod readers;
 pub mod ring;
 pub mod time;
 
+pub use atomic::{atomic_remove, atomic_write};
 pub use error::{Error, Result};
 pub use readers::{read_file_capped, read_string_capped};
 pub use ring::Ring;

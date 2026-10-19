@@ -2467,6 +2467,12 @@ version = "0.1.0"
 [[package]]
 name = "postguy-interop"
 version = "0.1.0"
+dependencies = [
+ "postguy-model",
+ "postguy-util",
+ "proptest",
+ "serde_json",
+]
 
 [[package]]
 name = "postguy-model"
@@ -2497,6 +2503,13 @@ version = "0.1.0"
 [[package]]
 name = "postguy-store"
 version = "0.1.0"
+dependencies = [
+ "postguy-model",
+ "postguy-util",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
 
 [[package]]
 name = "postguy-testkit"

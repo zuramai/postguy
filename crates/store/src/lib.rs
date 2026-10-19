@@ -1,4 +1,37 @@
-//! Workspace on disk: load/save, atomic writes with .bak, lock file, trash, history, session and settings files, secrets split
+//! Postguy store (L2): the workspace on disk (PROMPT.md 4.4) and the config-dir files.
 //!
-//! Status: skeleton (planned M1.5). See the crate README and PROMPT.md for the scope.
+//! Layout (one folder = one workspace):
+//!
+//! ```text
+//! <workspace>/
+//!   postguy.json               schema, collection order, environment order, active environment id
+//!   collections/<id>.json      one file per collection
+//!   environments/<id>.json
+//!   globals.json
+//!   protos/<name>/...
+//!   files/                     the default working directory
+//!   history.jsonl              append-only, rotated, capped
+//!   .trash/                    soft-deleted items with deletedAt metadata
+//!   .postguy/
+//!     secrets.json             0600; values of variables marked secret
+//!     lock                     workspace lock with stale detection
+//! ```
+//!
+//! Rules enforced here: atomic writes with `.bak` (via `postguy-util`), corrupt files renamed
+//! `.corrupt-<time>` so the app starts without them and can say so, saves never lose previous
+//! data on a failed write, secrets never sit inside collection or environment files, history
+//! caps itself at 5000 entries by rotation.
+
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
+
+pub mod change;
+pub mod config_dir;
+pub mod history;
+pub mod lock;
+pub mod paths;
+pub mod secrets;
+pub mod trash;
+pub mod workspace_file;
+
+pub use paths::StorePaths;
+pub use workspace_file::Workspace;
