@@ -21,6 +21,11 @@ serde = { version = "1", default-features = false, features = ["std", "derive"] 
 serde_json = { version = "1", features = ["preserve_order", "unbounded_depth"] }
 thiserror = "2"
 uuid = { version = "1", default-features = false, features = ["v4"] }
+# IDNA for non-ASCII hosts (PROMPT.md Appendix D); licences: Unicode-3.0/MIT/Apache.
+idna = { version = "1", default-features = false, features = ["std", "compiled_data"] }
+
+# Testing
+proptest = "1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

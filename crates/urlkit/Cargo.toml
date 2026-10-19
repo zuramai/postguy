@@ -9,3 +9,8 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+serde.workspace = true
+idna.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
