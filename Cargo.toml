@@ -23,6 +23,8 @@ thiserror = "2"
 uuid = { version = "1", default-features = false, features = ["v4"] }
 # IDNA for non-ASCII hosts (PROMPT.md Appendix D); licences: Unicode-3.0/MIT/Apache.
 idna = { version = "1", default-features = false, features = ["std", "compiled_data"] }
+# Pseudo-random text for dynamic variables (MIT/Apache-2.0).
+fastrand = "2"
 
 # Testing
 proptest = "1"

@@ -2529,6 +2529,11 @@ dependencies = [
 [[package]]
 name = "postguy-vars"
 version = "0.1.0"
+dependencies = [
+ "fastrand",
+ "proptest",
+ "uuid",
+]
 
 [[package]]
 name = "postguy-ws"
