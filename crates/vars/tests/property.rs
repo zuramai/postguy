@@ -1,7 +1,7 @@
 //! Property tests (PLAN.md M1.4): resolution always terminates, never invents text outside
 //! the templates+values it was given, and hostile inputs degrade to literal text.
 
-use postguy_vars::{Resolution, Resolver, Scope, ScopeKind, resolve_text};
+use postguy_vars::{Resolver, Scope, ScopeKind, resolve_text};
 
 proptest::proptest! {
     /// Resolution terminates on ANY text (cycle + depth guards engage silently) and each
