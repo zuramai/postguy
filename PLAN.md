@@ -25,6 +25,8 @@ Status legend: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 **Open until the owner answers:** permission to `cargo install cargo-deny cargo-bloat` (otherwise `xtask deny` and `xtask size` implement the checks themselves), and confirmation that `prompt_images/` moves to `plan/postman/` in M0.1.
 
+**Resolution recorded 2026-10-19 (M0 session, defaults per this file):** the tools were not installed, so `xtask deny` (licence/source checks; cargo-deny still runs in CI) and `xtask size` implement the checks themselves; `prompt_images/` moved to `plan/postman/` as this file and AGENTS.md specify. The script-engine memory-cap gap is a new owner decision, recorded in ADR 0004 and `plan/STATUS.md`.
+
 ---
 
 ## 1. Working method (every task)
@@ -61,14 +63,14 @@ Planned observation requests:
 
 ### Phase 0: M0 Bootstrap (about 1-2 days, no features)
 
-- [ ] **M0.1 Repo hygiene.** `git init`. `.gitignore` (`target/`, `dist/`, `plan/`, `prompt_images/`, `fuzz-out/`, `.DS_Store`). Move `prompt_images/` to `plan/postman/`. `LICENSE-MIT`, `LICENSE-APACHE`, `NOTICE`, `README.md`, `ROADMAP.md`, `deny.toml`, `clippy.toml` (allow unwrap/expect/panic in tests; `disallowed-methods` for egui checkbox/radio), `rustfmt.toml` (`max_width = 150`, `use_small_heuristics = "Max"`), `.cargo/config.toml` (`xtask` alias).
-- [ ] **M0.2 Workspace skeleton.**
+- [x] **M0.1 Repo hygiene.** `git init`. `.gitignore` (`target/`, `dist/`, `plan/`, `prompt_images/`, `fuzz-out/`, `.DS_Store`). Move `prompt_images/` to `plan/postman/`. `LICENSE-MIT`, `LICENSE-APACHE`, `NOTICE`, `README.md`, `ROADMAP.md`, `deny.toml`, `clippy.toml` (allow unwrap/expect/panic in tests; `disallowed-methods` for egui checkbox/radio), `rustfmt.toml` (`max_width = 150`, `use_small_heuristics = "Max"`), `.cargo/config.toml` (`xtask` alias).
+- [x] **M0.2 Workspace skeleton.**
   - Root `Cargo.toml`: `resolver = "3"`, edition 2024, `MIT OR Apache-2.0`, `unsafe_code = "forbid"`, release profile (`opt-level = "s"`, `lto = "fat"`, `codegen-units = 1`, `strip = "symbols"`, `panic = "unwind"`), dev profile like pdfcraft.
   - Empty crates, each with README and the never-crash `#![deny(...)]` header: `model`, `util`, `vars`, `urlkit`, `auth`, `interop`, `store`, `http`, `grpc`, `ws`, `script`, `snippets`, `runner`, `engine`, `platform`, `ui-egui`, `automation`, `testkit`. Apps `postguy`, `postguy-cli`.
   - `xtask`: `ci`, `layers`, `assets`, `parity`, `deny`, `size`, `icons`, `fuzz`, `screenshots`, adapted from pdfcraft. `layers` encodes the PROMPT.md 4.1 table.
   - `ATTRIBUTION.toml` plus generated `ATTRIBUTION.md`; entries for egui's default fonts as Cargo-dependency assets.
   - CI workflow (fmt, clippy `-D warnings`, tests, layers, assets, deny) on macOS, Linux, Windows; PR template.
-- [ ] **M0.3 Spikes, each ending in an ADR in `plan/adr/` with measured numbers.**
+- [x] **M0.3 Spikes, each ending in an ADR in `plan/adr/` with measured numbers.**
 
 | Spike | Method | Pass bar |
 |---|---|---|
@@ -78,8 +80,8 @@ Planned observation requests:
 | Icons | `xtask icons`: Lucide SVG to path data, drawn with the egui painter; also the "P" logo as vector geometry | No SVG renderer in the binary |
 | Large-JSON viewer | 10 MB body, off-thread line index, virtualised rows | First frame within 200 ms, 60 fps scrolling |
 
-- [ ] **M0.4 Tracking docs.** `plan/STATUS.md`, `plan/execution-plan.md` (derived from this file), `parity/postman-features.toml` (one `planned` entry per feature in PROMPT.md), `docs/{architecture,development,roadmap,gaps}.md`.
-- [ ] **M0.5 Logo.** Original "P" mark: SVG source, PNG sizes via `xtask`, `ATTRIBUTION.toml` entry as contributor-original, with the check that it differs from any Postman mark.
+- [x] **M0.4 Tracking docs.** `plan/STATUS.md`, `plan/execution-plan.md` (derived from this file), `parity/postman-features.toml` (one `planned` entry per feature in PROMPT.md), `docs/{architecture,development,roadmap,gaps}.md`.
+- [x] **M0.5 Logo.** Original "P" mark: SVG source, PNG sizes via `xtask`, `ATTRIBUTION.toml` entry as contributor-original, with the check that it differs from any Postman mark.
 
 **Exit criteria:** `cargo xtask ci` green on the empty workspace; ADRs written; a window opens with the spike renderer. **REVIEW STOP 1 (owner).**
 
@@ -220,5 +222,6 @@ Engine API exists; automation tool exists with an end-to-end test; UI exists and
 
 ## 7. Immediate next steps
 
-1. Owner answers the two open questions in section 0 (tool installs, moving `prompt_images/`).
-2. Start M0.1.
+1. ~~Owner answers the two open questions in section 0 (tool installs, moving `prompt_images/`).~~ Defaults applied per section 0 (see the resolution note); the tool installs stay open for the owner.
+2. ~~Start M0.1.~~ M0.1-M0.5 done (2026-10-19). **REVIEW STOP 1: owner reviews the skeleton, the ADRs (`plan/adr/0001-0005`) and the open script-engine decision before M1 starts.**
+3. Owner's Postman observation request 1 (PLAN.md §2) is next on the owner's side; M1.6 consumes it.

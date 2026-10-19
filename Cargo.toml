@@ -1,0 +1,41 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/*", "xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+repository = "https://github.com/postguy/postguy"
+
+[workspace.dependencies]
+# UI stack (L7 only; enforced by cargo xtask layers). The app pulls eframe with the glow
+# backend and egui's default fonts; ui-egui works on plain egui.
+egui = { version = "0.36", default-features = false }
+eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "accesskit", "wayland", "x11"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+
+# Dependencies keep only line-table debug info so backtraces still show file and line while
+# test binaries stay small; our own crates keep full debug info.
+[profile.dev.package."*"]
+opt-level = 2
+debug = "line-tables-only"
+
+[profile.dev]
+opt-level = 1
+
+# Release profile per PROMPT.md 8. `panic = "unwind"` is required by AGENTS.md 4 so the
+# catch_unwind guards work; never set `panic = "abort"`.
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+debug = false
+panic = "unwind"

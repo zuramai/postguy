@@ -1,0 +1,1054 @@
+# Postguy parity checklist vs Postman (offline feature set). Generated from PROMPT.md; maintained
+# by hand. Validated and reported by `cargo xtask parity`; schema below.
+#
+# Status rules: `shipped` = usable today with at least one cited passing test (AGENTS.md 3);
+# `partial` = part exists (notes say what is missing); `planned` = not started; `na` = Postman
+# cloud-only, with the reason (or the local alternative) in notes. "Shipped" means exists and
+# tested, not "as good as Postman".
+# `commands` lists registry ids from crates/engine (only once they exist); `tools` lists
+# crates/automation tool names (only once they exist); `evidence` cites
+# path/to/file.rs::test_name of passing tests.
+[schema]
+version = 1
+statuses = ["planned", "partial", "shipped", "na"]
+tiers = ["P0", "P1", "P2", "P3", "N/A"]
+areas = { A = "collections", B = "environments-and-variables", C = "http", D = "grpc", E = "websocket", F = "automation", G = "imports-and-exports", H = "ui-shell", I = "platform-packaging" }
+
+# ==================================================================================================
+# A. Collections and folders
+# ==================================================================================================
+
+[[feature]]
+id = "a.tree-view"
+title = "Collections tree with carets, nesting and method labels"
+area = "A"
+tier = "P0"
+milestone = "M3.2"
+status = "planned"
+notes = "Rows ~26 px, caret toggles only, name click opens a preview tab; examples nested collapsed."
+
+[[feature]]
+id = "a.create-organise"
+title = "Create/rename/duplicate/delete collections, folders, requests"
+area = "A"
+tier = "P0"
+milestone = "M3.2"
+status = "planned"
+notes = "Delete goes to trash; duplicates deep-copy with new ids; New request asks the protocol."
+
+[[feature]]
+id = "a.drag-and-drop"
+title = "Drag and drop reorder and nest with drop indicator"
+area = "A"
+tier = "P0"
+milestone = "M3.2"
+status = "planned"
+notes = "Cmd/Ctrl-drag copies; OS files dropping opens the import dialog."
+
+[[feature]]
+id = "a.keyboard-and-multiselect"
+title = "Keyboard navigation and multi-select (Cmd/Ctrl, Shift)"
+area = "A"
+tier = "P0"
+milestone = "M3.2"
+status = "planned"
+notes = "Arrows, Enter, F2, Delete, copy/cut/paste, bulk delete/move."
+
+[[feature]]
+id = "a.context-menus"
+title = "Context menus per tree row exactly as PROMPT.md 5.1"
+area = "A"
+tier = "P0"
+milestone = "M3.2"
+status = "planned"
+notes = "Collection/folder/request/example/environment tables; `...` on hover opens the same menu."
+
+[[feature]]
+id = "a.filter"
+title = "Sidebar live filter (name and URL)"
+area = "A"
+tier = "P0"
+milestone = "M3.2"
+status = "planned"
+notes = "Under one frame for 10 000 items; keeps parents of matches visible."
+
+[[feature]]
+id = "a.variables"
+title = "Collection variables applied to all descendants"
+area = "A"
+tier = "P0"
+milestone = "M3.7"
+status = "planned"
+notes = "Resolution rules are 5.2; the Variables tab shows a dot when any exist."
+
+[[feature]]
+id = "a.collection-auth"
+title = "Collection-level auth inherited by requests and folders"
+area = "A"
+tier = "P0"
+milestone = "M3.7"
+status = "planned"
+notes = "First non-Inherit wins up the chain; request inherits show the resolved parent type."
+
+[[feature]]
+id = "a.folder-variables-scripts"
+title = "Folder variables, auth and scripts"
+area = "A"
+tier = "P1"
+milestone = "M3.7"
+status = "planned"
+notes = "Scripts attach in M8; the folder detail tabs ship in M3.7."
+
+[[feature]]
+id = "a.overview-tab"
+title = "Collection detail tab: Overview (description, counts, times)"
+area = "A"
+tier = "P1"
+milestone = "M3.7"
+status = "planned"
+notes = "Markdown edit/preview; Run button; `...` menu (rename, duplicate, export, delete)."
+
+[[feature]]
+id = "a.favourites-sort"
+title = "Favourites and A-Z sort"
+area = "A"
+tier = "P1"
+milestone = "M3.7"
+status = "planned"
+notes = "Star on collection rows pinned to top; Sort A-Z in the collection menu; no auto-sort."
+
+[[feature]]
+id = "a.runs-tab"
+title = "Collection Runs tab (past runs, open results, delete)"
+area = "A"
+tier = "P1"
+milestone = "M9.2"
+status = "planned"
+notes = "Summary only per run; bodies only when persisted and small; capped."
+
+[[feature]]
+id = "a.pinned-environment"
+title = "Pinned environment per collection"
+area = "A"
+tier = "P2"
+milestone = "M3.7"
+status = "planned"
+notes = "Default-environment picker in Overview; activates on send unless overridden."
+
+# ==================================================================================================
+# B. Environments, globals and variables (PROMPT.md 5.2)
+# ==================================================================================================
+
+[[feature]]
+id = "b.environments-crud"
+title = "Environments: create/rename/duplicate/delete, variable table"
+area = "B"
+tier = "P0"
+milestone = "M3.6"
+status = "planned"
+notes = "Autosaves; secret rows masked with reveal; drag reorder; add-by-typing placeholder row."
+
+[[feature]]
+id = "b.selector"
+title = "Active environment selector at the tab strip end"
+area = "B"
+tier = "P0"
+milestone = "M3.6"
+status = "planned"
+notes = "Search, No Environment, list with check, create-new at the bottom."
+
+[[feature]]
+id = "b.quickenvironment-look"
+title = "Variables quick-look popover"
+area = "B"
+tier = "P1"
+milestone = "M3.6"
+status = "planned"
+notes = "Active env + globals + collection variables, grouped, masked, edited in place."
+
+[[feature]]
+id = "b.globals"
+title = "Globals file and editor tab"
+area = "B"
+tier = "P0"
+milestone = "M3.6"
+status = "planned"
+notes = "Lowest precedence scope; opened from the bottom bar."
+
+[[feature]]
+id = "b.secrets"
+title = "Secret variables: masked, stored in the secrets file only"
+area = "B"
+tier = "P0"
+milestone = "M1.5"
+status = "planned"
+notes = "Never written into collection/environment/export files; `.postguy/secrets.json` 0600."
+
+[[feature]]
+id = "b.resolution"
+title = "{{var}} resolution: scopes, recursion depth 10, cycle guard"
+area = "B"
+tier = "P0"
+milestone = "M1.4"
+status = "planned"
+notes = "Precedence global < collection < folder < environment < data < local; unresolved stay literal; unresolved scheme/host blocks Send."
+
+[[feature]]
+id = "b.dynamic-variables"
+title = "Dynamic variables (Appendix A, ~40) fresh per occurrence"
+area = "B"
+tier = "P0"
+milestone = "M1.4"
+status = "planned"
+notes = "Word lists written for this project; shapes and ranges, not other tools' exact values."
+
+[[feature]]
+id = "b.chips-and-autocomplete"
+title = "{{var}} chips, autocomplete on `{{`, hover popover"
+area = "B"
+tier = "P1"
+milestone = "M3.4"
+status = "planned"
+notes = "Scope badges, overridden warning, editable value, add-to menu; unresolved chips red-tinted."
+
+[[feature]]
+id = "b.set-as-variable"
+title = "Right-click: Set as variable (name, value, scope)"
+area = "B"
+tier = "P1"
+milestone = "M3.4"
+status = "planned"
+notes = "On any variable-accepting field's selected text."
+
+# ==================================================================================================
+# C. HTTP (PROMPT.md 5.3.2, 5.4, 5.5)
+# ==================================================================================================
+
+[[feature]]
+id = "c.send-pipeline"
+title = "12-step send pipeline with history, console and runtime ownership"
+area = "C"
+tier = "P0"
+milestone = "M2.8"
+status = "planned"
+notes = "Steps unit-testable; scripts as no-op hooks until M8; panic-to-error wrapping."
+
+[[feature]]
+id = "c.connector"
+title = "HTTP connector: DNS/TCP/TLS phases, ALPN h1/h2, rustls"
+area = "C"
+tier = "P0"
+milestone = "M2.2"
+status = "planned"
+notes = "Native roots plus optional CA PEM; verify toggle; cancellation; timeouts."
+
+[[feature]]
+id = "c.request-line"
+title = "Request line: method dropdown, URL field, Send/Cancel with timer"
+area = "C"
+tier = "P0"
+milestone = "M3.4"
+status = "planned"
+notes = "Enter sends; unsaved scheme gets http://; cURL paste converts with an undo hint; URL autocomplete."
+
+[[feature]]
+id = "c.params-tab"
+title = "Params tab: query params and path variables two-way sync"
+area = "C"
+tier = "P0"
+milestone = "M3.4"
+status = "planned"
+notes = "URL string is the source of truth; unchecked rows kept; bulk edit; path vars per :segment."
+
+[[feature]]
+id = "c.headers-tab"
+title = "Headers tab: rows, automatic headers, presets, bulk edit"
+area = "C"
+tier = "P0"
+milestone = "M3.4"
+status = "planned"
+notes = "User headers win; no request-token header; hide-auto toggle; value autocomplete."
+
+[[feature]]
+id = "c.body-modes"
+title = "Body: none, form-data, urlencoded, raw, binary, GraphQL"
+area = "C"
+tier = "P0"
+milestone = "M2.3"
+status = "planned"
+notes = "GraphQL UI lands in M5.4; switching type keeps other modes' data until save."
+
+[[feature]]
+id = "c.auth-p0"
+title = "Auth: No Auth, Inherit, API Key, Basic, Bearer"
+area = "C"
+tier = "P0"
+milestone = "M2.3"
+status = "planned"
+notes = "Applied like the rest of the pipeline; generated headers previewable, never saved."
+
+[[feature]]
+id = "c.auth-m5"
+title = "Auth: Digest, JWT, OAuth 1.0, OAuth 2.0, AWS Sig v4, Hawk"
+area = "C"
+tier = "P1"
+milestone = "M5"
+status = "planned"
+notes = "Digest retries once on challenge; OAuth 2.0 loopback listener opened only on demand. NTLM/EdgeGrid/ASAP are P2."
+
+[[feature]]
+id = "c.redirects"
+title = "Manual redirects: per-hop record, method rules, credential drop"
+area = "C"
+tier = "P0"
+milestone = "M2.5"
+status = "planned"
+notes = "Cap 10 and loop detection mandatory; settings per request."
+
+[[feature]]
+id = "c.compression"
+title = "Decode gzip/deflate/br/zstd with decoded-size and ratio caps"
+area = "C"
+tier = "P0"
+milestone = "M2.4"
+status = "planned"
+notes = "Compression-bomb regression tests; truncated banner above the max-response-size setting."
+
+[[feature]]
+id = "c.cookies"
+title = "Cookie jar (RFC 6265): persistence, every hop, per-request disable"
+area = "C"
+tier = "P0"
+milestone = "M2.6"
+status = "planned"
+notes = "Jar in `.postguy/cookies.json`; manual Cookie header merged; allowlist governs scripts."
+
+[[feature]]
+id = "c.cookies-manager"
+title = "Cookies manager UI (manage + domain allowlist)"
+area = "C"
+tier = "P1"
+milestone = "M3.9"
+status = "planned"
+notes = "Add/edit/delete cookies and domains; templates; clear all."
+
+[[feature]]
+id = "c.proxy"
+title = "Proxy: system, custom HTTP/SOCKS5, bypass list, per-request off"
+area = "C"
+tier = "P0"
+milestone = "M2.7"
+status = "planned"
+notes = "Effective proxy logged in the Console; custom wins over system; forces h1 for plain HTTP."
+
+[[feature]]
+id = "c.tls-certs"
+title = "Client certificates (PEM, PFX) and CA bundle UI"
+area = "C"
+tier = "P1"
+milestone = "M5.3"
+status = "planned"
+notes = "Per host pattern; passphrases never written to disk in v1; TLS 1.2 minimum."
+
+[[feature]]
+id = "c.settings-tab"
+title = "Per-request Settings tab (HTTP version, redirects, size, timeout...)"
+area = "C"
+tier = "P1"
+milestone = "M5.3"
+status = "planned"
+notes = "Each setting has a one-line description and Restore default; inherits global defaults."
+
+[[feature]]
+id = "c.response-viewer"
+title = "Response viewer: Pretty/Raw/Preview/Hex, strip chips"
+area = "C"
+tier = "P0"
+milestone = "M3.5"
+status = "planned"
+notes = "Search with regex toggles; clickable URLs; no web view for HTML; image preview only for tree-present decoders."
+
+[[feature]]
+id = "c.large-bodies"
+title = "Large bodies: off-thread line index, virtualised rows"
+area = "C"
+tier = "P0"
+milestone = "M3.5"
+status = "planned"
+notes = "10 MB: first Raw frame <= 200 ms, Pretty off-thread <= 1.5 s, 60 fps scroll; token re-indenter, no Value tree."
+
+[[feature]]
+id = "c.response-tabs"
+title = "Response tabs: Headers, Cookies, Test Results, Timeline"
+area = "C"
+tier = "P1"
+milestone = "M3.5"
+status = "planned"
+notes = "Hover info for headers; tests arrived in M8; timeline P2."
+
+[[feature]]
+id = "c.timings"
+title = "Phase timings with hover breakdown"
+area = "C"
+tier = "P0"
+milestone = "M2.2"
+status = "planned"
+notes = "Prepare, DNS, TCP, TLS, request, waiting, download; network/lock icon shows TLS and addresses."
+
+[[feature]]
+id = "c.save-response"
+title = "Save Response: example, file; Send and Download streaming"
+area = "C"
+tier = "P1"
+milestone = "M3.9"
+status = "planned"
+notes = "Example bodies capped at 5 MB; Send and Download never holds the body in memory."
+
+[[feature]]
+id = "c.examples"
+title = "Examples (saved responses) under a request"
+area = "C"
+tier = "P1"
+milestone = "M5.5"
+status = "planned"
+notes = "Nested rows collapsed by default; Open as request; snapshot keeps the original request."
+
+[[feature]]
+id = "c.cancel-timeouts"
+title = "Cancellation and per-request timeouts"
+area = "C"
+tier = "P0"
+milestone = "M2.2"
+status = "planned"
+notes = "Esc or Cancel aborts cleanly with partial data discarded; 0 = no timeout."
+
+[[feature]]
+id = "c.response-filter"
+title = "JSONPath / XPath response filter"
+area = "C"
+tier = "P1"
+milestone = "M5.5"
+status = "planned"
+notes = "Yellow underline = no match, red = invalid."
+
+[[feature]]
+id = "c.history-panel-and-trash"
+title = "History sidebar, trash, single undo for tree operations"
+area = "C"
+tier = "P1"
+milestone = "M3.9"
+status = "planned"
+notes = "History from user sends only, grouped by day; runner never writes it; trash retention 30 days."
+
+# ==================================================================================================
+# D. gRPC (PROMPT.md 5.3.3)
+# ==================================================================================================
+
+[[feature]]
+id = "d.proto-definitions"
+title = "Service definitions: import .proto files with import paths"
+area = "D"
+tier = "P0"
+milestone = "M7.1"
+status = "planned"
+notes = "protox compile, copied into <workspace>/protos/<name>/, reusable, per-file errors with line and column."
+
+[[feature]]
+id = "d.unary-invoke"
+title = "Unary invoke with dynamic codec (no codegen)"
+area = "D"
+tier = "P0"
+milestone = "M7.2"
+status = "planned"
+notes = "JSON mapping per proto3 rules; example message generator with guards."
+
+[[feature]]
+id = "d.method-selector"
+title = "Method selector grouped by service with type icons"
+area = "D"
+tier = "P0"
+milestone = "M7.6"
+status = "planned"
+notes = "Unary/server/client/bidi glyphs (Lucide-based); footer shows the definition in use."
+
+[[feature]]
+id = "d.message-editor"
+title = "Message editor with proto-aware autocomplete and tooltips"
+area = "D"
+tier = "P1"
+milestone = "M7.6"
+status = "planned"
+notes = "Field names at the cursor path, enum values in value position; saved messages."
+
+[[feature]]
+id = "d.metadata"
+title = "Metadata key/value table; -bin base64; lowercased keys"
+area = "D"
+tier = "P0"
+milestone = "M7.2"
+status = "planned"
+notes = "Auth results join the metadata, never saved."
+
+[[feature]]
+id = "d.reflection"
+title = "Server reflection (v1, then v1alpha) with Try again"
+area = "D"
+tier = "P1"
+milestone = "M7.4"
+status = "planned"
+notes = "Same TLS/metadata/auth as the call; failures say what to check."
+
+[[feature]]
+id = "d.streaming"
+title = "Server, client and bidirectional streaming with End streaming"
+area = "D"
+tier = "P1"
+milestone = "M7.3"
+status = "planned"
+notes = "Reverse-chronological timeline, ring-buffer caps, Save example after stream end."
+
+[[feature]]
+id = "d.status-trailers"
+title = "Status code, trailers and grpc-status-details-bin decoding"
+area = "D"
+tier = "P1"
+milestone = "M7.2"
+status = "planned"
+notes = "Full status table (Appendix F) coloured by class; UNAVAILABLE hints."
+
+[[feature]]
+id = "d.tls-and-certs"
+title = "gRPC TLS toggle, server-name override, client certs"
+area = "D"
+tier = "P0"
+milestone = "M7.2"
+status = "planned"
+notes = "Explicit toggle only; grpcs:// sets it on."
+
+[[feature]]
+id = "d.grpcurl-snippet"
+title = "grpcurl code snippet"
+area = "D"
+tier = "P1"
+milestone = "M7.6"
+status = "planned"
+notes = "Generated live in the right panel like the HTTP languages."
+
+[[feature]]
+id = "d.generate-collection"
+title = "Generate collection from a service"
+area = "D"
+tier = "P2"
+milestone = "M7.6"
+status = "planned"
+notes = "One request per method with example messages."
+
+# ==================================================================================================
+# E. WebSocket (PROMPT.md 5.3.4)
+# ==================================================================================================
+
+[[feature]]
+id = "e.connect"
+title = "Connect/Disconnect with handshake headers, params, subprotocols"
+area = "E"
+tier = "P0"
+milestone = "M6.1"
+status = "planned"
+notes = "Managed headers warned about; redirects followed with the timer reset; proxy and TLS as HTTP."
+
+[[feature]]
+id = "e.composer"
+title = "Message composer: Text/JSON/XML/HTML/Binary (Base64/Hex)"
+area = "E"
+tier = "P0"
+milestone = "M6.3"
+status = "planned"
+notes = "Send keeps text; save to saved messages; variables resolve at send time."
+
+[[feature]]
+id = "e.timeline"
+title = "Message timeline with network events, search, filters"
+area = "E"
+tier = "P0"
+milestone = "M6.3"
+status = "planned"
+notes = "Follow-bottom unless scrolled up; clear with Restore; select two messages for the time difference."
+
+[[feature]]
+id = "e.binary"
+title = "Binary messages with hexdump view"
+area = "E"
+tier = "P1"
+milestone = "M6.3"
+status = "planned"
+notes = "Show hexdump / show message toggle; size caps from settings."
+
+[[feature]]
+id = "e.saved-messages"
+title = "Saved messages stored with the request"
+area = "E"
+tier = "P1"
+milestone = "M6.3"
+status = "planned"
+notes = "Name, load, delete, add blank."
+
+[[feature]]
+id = "e.settings"
+title = "WS settings: verify, timeouts, reconnects, max message size"
+area = "E"
+tier = "P1"
+milestone = "M6.1"
+status = "planned"
+notes = "Ping/pong answered automatically and shown; permessage-deflate explicitly unsupported in v1."
+
+[[feature]]
+id = "e.subprotocols"
+title = "Subprotocols sent and negotiated"
+area = "E"
+tier = "P1"
+milestone = "M6.1"
+status = "planned"
+notes = "Sec-WebSocket-Protocol field on the request."
+
+# ==================================================================================================
+# F. Automation: scripts, runner, CLI, agent tools (PROMPT.md 5.6)
+# ==================================================================================================
+
+[[feature]]
+id = "f.scripts"
+title = "Pre-request and post-response scripts with the pm API subset"
+area = "F"
+tier = "P1"
+milestone = "M8.1"
+status = "planned"
+notes = "boa sandbox; wall-clock 5 s default, loop/recursion/memory limits; sync order collection > folders > request."
+
+[[feature]]
+id = "f.expect"
+title = "pm.test with Chai-compatible expect"
+area = "F"
+tier = "P1"
+milestone = "M8.2"
+status = "planned"
+notes = "Rust-native, no JS prelude; Chai wording on failures; a passing test counts once."
+
+[[feature]]
+id = "f.test-results"
+title = "Test results model and response-area tab"
+area = "F"
+tier = "P1"
+milestone = "M8.3"
+status = "planned"
+notes = "Passed/failed/skipped filters, badges, messages, refresh re-runs post-response scripts."
+
+[[feature]]
+id = "f.script-ui"
+title = "Script editors: numbers, colouring, snippets, autocomplete"
+area = "F"
+tier = "P1"
+milestone = "M8.4"
+status = "planned"
+notes = "Error banner with phase, level and line; console integration."
+
+[[feature]]
+id = "f.sandbox-hardening"
+title = "Sandbox limits and hostile-script regression tests"
+area = "F"
+tier = "P1"
+milestone = "M8.5"
+status = "planned"
+notes = "Infinite loop, memory blowup, deep recursion; fuzzing; disable-scripts global switch."
+
+[[feature]]
+id = "f.runner"
+title = "Collection runner: GUI config and streaming results"
+area = "F"
+tier = "P1"
+milestone = "M9.2"
+status = "planned"
+notes = "Order, iterations, delay, data files, stop-on-error options; sequential, never concurrent."
+
+[[feature]]
+id = "f.runner-cli"
+title = "CLI runner `postguy-cli run` with cli/json/junit/html reporters"
+area = "F"
+tier = "P1"
+milestone = "M9.3"
+status = "planned"
+notes = "Exit codes 0/1/2; Newman-like summary table."
+
+[[feature]]
+id = "f.run-script"
+title = "`postguy-cli run --script steps.json --root DIR` engine harness"
+area = "F"
+tier = "P0"
+milestone = "M1.8"
+status = "planned"
+notes = "The way agents and tests drive the engine; tools also callable one at a time."
+
+[[feature]]
+id = "f.agent-tools"
+title = "Automation tool table over the engine"
+area = "F"
+tier = "P0"
+milestone = "M1.8"
+status = "planned"
+notes = "workspace_/collection_/folder_/request_/env_/import_/export_ etc.; `--root` confined; end-to-end tested."
+
+[[feature]]
+id = "f.mcp"
+title = "Opt-in MCP server (stdio, postguy-cli mcp)"
+area = "F"
+tier = "P1"
+milestone = "M9.5"
+status = "planned"
+notes = "Same tool table; never started by the app, CLI or installers; loopback+token for any future transport."
+
+[[feature]]
+id = "f.ui-control"
+title = "Opt-in UI control channel (--control) and postguy-cli ui"
+area = "F"
+tier = "P1"
+milestone = "M3.10"
+status = "planned"
+notes = "Loopback, fresh random token per launch in an owner-only file; never on by default; never logged."
+
+# ==================================================================================================
+# G. Imports and exports (PROMPT.md 5.7, 5.8)
+# ==================================================================================================
+
+[[feature]]
+id = "g.postman-collection"
+title = "Postman Collection v2.1/v2.0 import and export"
+area = "G"
+tier = "P0"
+milestone = "M1.6"
+status = "planned"
+notes = "Round-trip preserves every schema-defined and unknown field; goldens written by us; vendored v2.1 schema as test data."
+
+[[feature]]
+id = "g.postman-env"
+title = "Postman environment and globals import/export"
+area = "G"
+tier = "P0"
+milestone = "M1.6"
+status = "planned"
+notes = "Tolerant of missing type/enabled/id; secret type maps to secret variables."
+
+[[feature]]
+id = "g.curl"
+title = "cURL import (paste and dialog) and export"
+area = "G"
+tier = "P0"
+milestone = "M1.7"
+status = "planned"
+notes = "All flags in PROMPT.md 5.7; quoting forms; multiple commands; property test parse->generate->parse."
+
+[[feature]]
+id = "g.import-dialog"
+title = "Import dialog: paste, files, folders, drop anywhere, report"
+area = "G"
+tier = "P0"
+milestone = "M4.1"
+status = "planned"
+notes = "Auto-detect, name-clash suffixes, explicit replace, CountImportReport warnings."
+
+[[feature]]
+id = "g.openapi"
+title = "OpenAPI 3.x / Swagger 2.0 importer (JSON and YAML)"
+area = "G"
+tier = "P1"
+milestone = "M9.4"
+status = "planned"
+notes = "Tag or path folders, baseUrl variable, ref resolution with cycle guard, security schemes to auth."
+
+[[feature]]
+id = "g.har"
+title = "HAR 1.2 importer"
+area = "G"
+tier = "P1"
+milestone = "M9.4"
+status = "planned"
+notes = "Entries become requests; pseudo-headers skipped."
+
+[[feature]]
+id = "g.proto-import"
+title = ".proto import dialog as a service definition"
+area = "G"
+tier = "P1"
+milestone = "M9.4"
+status = "planned"
+notes = "Same path as the gRPC Service definition tab; reuse."
+
+[[feature]]
+id = "g.native-format"
+title = "Postguy native collection format export"
+area = "G"
+tier = "P0"
+milestone = "M1.6"
+status = "planned"
+notes = "<workspace>/collections/<id>.json is already native; export dialog offers it beside v2.1."
+
+[[feature]]
+id = "g.run-results-export"
+title = "Run results export: JSON, JUnit, HTML"
+area = "G"
+tier = "P1"
+milestone = "M9.3"
+status = "planned"
+notes = "HTML is a single self-contained file generated by Rust, no JS."
+
+[[feature]]
+id = "g.all-data-zip"
+title = "Export all workspace data as a zip; import it back"
+area = "G"
+tier = "P1"
+milestone = "M4.3"
+status = "planned"
+notes = "Also the Settings > Data import path."
+
+[[feature]]
+id = "g.response-body-export"
+title = "Save a single response body to file"
+area = "G"
+tier = "P0"
+milestone = "M3.5"
+status = "planned"
+notes = "Suggested name from Content-Disposition or URL; raw bytes."
+
+[[feature]]
+id = "g.snippets"
+title = "Code snippets: cURL, HTTP, fetch, requests, Go, reqwest, PowerShell, axios"
+area = "G"
+tier = "P0"
+milestone = "M4.2"
+status = "planned"
+notes = "Golden tests per language; variables resolved or kept per toggle; grpcurl snippet in M7.6."
+
+# ==================================================================================================
+# H. UI shell (PROMPT.md 6)
+# ==================================================================================================
+
+[[feature]]
+id = "h.window"
+title = "Window shell: header, min size, remembered geometry"
+area = "H"
+tier = "P0"
+milestone = "M3.1"
+status = "planned"
+notes = "32 px header with back/forward, workspace name, palette search, settings gear."
+
+[[feature]]
+id = "h.widgets"
+title = "Widget set: checkbox, radio, switch, select, split button, dialogs, tables"
+area = "H"
+tier = "P0"
+milestone = "M3.1"
+status = "planned"
+notes = "kittest tests each; egui's default checkbox/radio disallowed via clippy.toml."
+
+[[feature]]
+id = "h.widgets-heavy"
+title = "KeyValueTable, CodeEditor, LargeTextView, Timeline, Tree components"
+area = "H"
+tier = "P0"
+milestone = "M3.1"
+status = "planned"
+notes = "Built once, reused by WS/gRPC/scripts; virtualised; chunk-edit caches."
+
+[[feature]]
+id = "h.sidebar"
+title = "Sidebar sections COLLECTIONS / ENVIRONMENTS / HISTORY"
+area = "H"
+tier = "P0"
+milestone = "M3.2"
+status = "planned"
+notes = "Collapsible headers, splitter, persisted open state; nothing else ever."
+
+[[feature]]
+id = "h.tabs"
+title = "Tab strip: preview, dirty dot, drag, overflow, context menu"
+area = "H"
+tier = "P0"
+milestone = "M3.3"
+status = "planned"
+notes = "Middle-click close, reopen closed, dirty close asks; session and drafts restore."
+
+[[feature]]
+id = "h.crash-recovery"
+title = "Crash recovery: drafts in session.json, restored with a notice"
+area = "H"
+tier = "P0"
+milestone = "M3.3"
+status = "planned"
+notes = "Autosave of drafts every few seconds when dirty; a launch saves no sockets (test)."
+
+[[feature]]
+id = "h.builder"
+title = "Request builder detail (tabs, indicators, save flows, chips)"
+area = "H"
+tier = "P0"
+milestone = "M3.4"
+status = "planned"
+notes = "Breadcrumb, Docs/Params/Auth/Headers/Body/Scripts/Settings tabs; Save dropdown; dirty dot."
+
+[[feature]]
+id = "h.env-editor"
+title = "Environment editor and globals tabs"
+area = "H"
+tier = "P0"
+milestone = "M3.6"
+status = "planned"
+notes = "Table with secret toggles, reorder, description column toggle, quick-look beside the selector."
+
+[[feature]]
+id = "h.detail-tabs"
+title = "Collection and folder detail tabs"
+area = "H"
+tier = "P1"
+milestone = "M3.7"
+status = "planned"
+notes = "Overview, Authorization (dot), Variables (dot), Scripts shell, Runs shell; inheritance display."
+
+[[feature]]
+id = "h.palette"
+title = "Command registry, command palette, shortcuts table"
+area = "H"
+tier = "P1"
+milestone = "M3.8"
+status = "planned"
+notes = "One registry for menus, palette, control channel; conflictsOS-checked shortcut table."
+
+[[feature]]
+id = "h.console"
+title = "Console panel with filters, masking, ring buffer"
+area = "H"
+tier = "P1"
+milestone = "M3.9"
+status = "planned"
+notes = "5000 entries / 24 h; bodies truncated at 1 MB; secrets masked."
+
+[[feature]]
+id = "h.cookies-manager-ui"
+title = "Cookies manager (see c.cookies-manager); bottom bar; settings tab"
+area = "H"
+tier = "P1"
+milestone = "M3.9"
+status = "planned"
+notes = "Settings tab with General/Themes/Data/Certificates/Proxy/About; unknown keys preserved."
+
+[[feature]]
+id = "h.themes"
+title = "Theme tokens: light, dark, system (live on macOS/Windows)"
+area = "H"
+tier = "P0"
+milestone = "M3.1"
+status = "planned"
+notes = "Semantic tokens from PROMPT.md 6.6; contrast >= 4.5:1."
+
+[[feature]]
+id = "h.two-pane"
+title = "Two-pane layout and resizable response splitter"
+area = "H"
+tier = "P1"
+milestone = "M3.9"
+status = "planned"
+notes = "Toggle Cmd/Ctrl+Alt+V; splitter position persisted."
+
+[[feature]]
+id = "h.control-channel-ui"
+title = "`--control` channel wired to the running UI"
+area = "H"
+tier = "P1"
+milestone = "M3.10"
+status = "planned"
+notes = "inspect/click/key/type/set/command/screenshot; kittest-based tests in control.rs."
+
+# ==================================================================================================
+# I. Platform, packaging, budgets (PROMPT.md 8, M10)
+# ==================================================================================================
+
+[[feature]]
+id = "i.platform-services"
+title = "OS services: dirs, dialogs, reveal, open URL, clipboard, proxy discovery"
+area = "I"
+tier = "P0"
+milestone = "M3.1"
+status = "planned"
+notes = "platform crate at L7; engine never depends on it (frontends inject)."
+
+[[feature]]
+id = "i.workspaces"
+title = "Workspace folder handling, lock file, config dir layout"
+area = "I"
+tier = "P0"
+milestone = "M1.5"
+status = "planned"
+notes = "postguy.json, collections/, environments/, history, trash, secrets, cookies, responses."
+
+[[feature]]
+id = "i.atomic-saves"
+title = "Atomic writes with .bak, corrupt-file handling, change detection"
+area = "I"
+tier = "P0"
+milestone = "M1.5"
+status = "planned"
+notes = "Debounced autosave writes only the changed file; failed saves keep dirty state; watcher reloads."
+
+[[feature]]
+id = "i.session-restore"
+title = "Session file: tabs, drafts, geometry, expanded nodes"
+area = "I"
+tier = "P0"
+milestone = "M3.3"
+status = "planned"
+notes = "Also recent workspaces and certificate list."
+
+[[feature]]
+id = "i.budgets"
+title = "Budgets enforced in CI (size, bench); duplicate-dep check"
+area = "I"
+tier = "P0"
+milestone = "M10.1"
+status = "planned"
+notes = "18 MB app, <= 250 ms cold start, ~0% idle; margins recorded per machine."
+
+[[feature]]
+id = "i.a11y"
+title = "Accessibility pass: accesskit, keyboard operability, contrast"
+area = "I"
+tier = "P0"
+milestone = "M10.2"
+status = "planned"
+notes = "UI zoom 80-200%."
+
+[[feature]]
+id = "i.packaging"
+title = "Packaging: macOS .app/dmg, Windows MSI/zip, Linux tar/deb/AppImage, FreeBSD"
+area = "I"
+tier = "P0"
+milestone = "M10.3"
+status = "planned"
+notes = "Original P icon in all sizes; bundle id placeholder dev.postguy.app."
+
+[[feature]]
+id = "i.docs-and-releases"
+title = "Release workflow, user docs from our own UI, licence list"
+area = "I"
+tier = "P0"
+milestone = "M10.4"
+status = "planned"
+notes = "Security review and final gaps list close v1.0."
+
+# ==================================================================================================
+# na: Postman cloud-only capabilities — no local equivalent planned
+# ==================================================================================================
+
+[[feature]]
+id = "na.cloud"
+title = "Cloud workspaces, sync, sharing, Postbot, Monitors, Mock servers, Flows, API network"
+area = "I"
+tier = "N/A"
+milestone = ""
+status = "na"
+notes = "Out of scope by design (PROMPT.md 1.2): Postguy is offline and local; the non-goals list is the reason."

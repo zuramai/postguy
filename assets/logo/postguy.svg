@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1F2328" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Postguy mark: original geometric "P" with a circuit-trace tick (contributor-original).
+       Drawn for this project; see ATTRIBUTION.toml. Not derived from any existing mark. -->
+  <path d="M7 21 V3 H14.5 A5.5 5.5 0 0 1 14.5 14 H7"/>
+  <path d="M17.5 8.5 H21"/>
+  <path d="M21.6 7.9 h0.8 v1.2 h-0.8 z"/>
+</svg>

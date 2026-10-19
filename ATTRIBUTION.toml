@@ -1,0 +1,204 @@
+# Asset attribution (AGENTS.md 1.3): the single source of truth.
+# `cargo xtask assets --write` regenerates ATTRIBUTION.md from this and verifies every
+# SHA-256, licence and licence file. Add an entry here BEFORE committing an asset, and run
+# the gate. `postman_data = true` entries are on a closed list approved by the owner only.
+
+# ==========================================================================================
+# Committed assets ([[asset]]): files in this repository.
+# ==========================================================================================
+
+[[asset]]
+path = "assets/icons/arrow-right.svg"
+title = "Lucide icon: arrow-right"
+author = "Lucide contributors"
+source = "github.com/lucide-icons/lucide at tag 1.59.0 (icons/arrow-right.svg)"
+licence = "ISC"
+licence_file = "assets/icons/LICENSE-lucide.txt"
+kind = "icon"
+usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.rs)"
+sha256 = "288397fdb73bb4f783cf9eabb726ff47357df1d4e3f1201dd748090579f108b9"
+
+[[asset]]
+path = "assets/icons/circle-check.svg"
+title = "Lucide icon: circle-check"
+author = "Lucide contributors"
+source = "github.com/lucide-icons/lucide at tag 1.59.0 (icons/circle-check.svg)"
+licence = "ISC"
+licence_file = "assets/icons/LICENSE-lucide.txt"
+kind = "icon"
+usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.rs)"
+sha256 = "9711e045a5999f8a3b0782eb88e09b04e0559bc7b379dcc0a4ae645223e10345"
+
+[[asset]]
+path = "assets/icons/plus.svg"
+title = "Lucide icon: plus"
+author = "Lucide contributors"
+source = "github.com/lucide-icons/lucide at tag 1.59.0 (icons/plus.svg)"
+licence = "ISC"
+licence_file = "assets/icons/LICENSE-lucide.txt"
+kind = "icon"
+usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.rs)"
+sha256 = "7f6af73bf1ff6c4bca3f18351c8d1bdec6749c0c2530c4de5da85d520c21df17"
+
+[[asset]]
+path = "assets/icons/send.svg"
+title = "Lucide icon: send"
+author = "Lucide contributors"
+source = "github.com/lucide-icons/lucide at tag 1.59.0 (icons/send.svg)"
+licence = "ISC"
+licence_file = "assets/icons/LICENSE-lucide.txt"
+kind = "icon"
+usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.rs)"
+sha256 = "a489257f447b808ab6b258ae888fa49686885bbc30a7a2774d97a01f11f9cd5e"
+
+[[asset]]
+path = "assets/icons/settings.svg"
+title = "Lucide icon: settings"
+author = "Lucide contributors"
+source = "github.com/lucide-icons/lucide at tag 1.59.0 (icons/settings.svg)"
+licence = "ISC"
+licence_file = "assets/icons/LICENSE-lucide.txt"
+kind = "icon"
+usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.rs)"
+sha256 = "0ae27fd0f81999229e3127ac96c5b32edfea448e291d509e76212b917551d66b"
+
+[[asset]]
+path = "assets/icons/x.svg"
+title = "Lucide icon: x"
+author = "Lucide contributors"
+source = "github.com/lucide-icons/lucide at tag 1.59.0 (icons/x.svg)"
+licence = "ISC"
+licence_file = "assets/icons/LICENSE-lucide.txt"
+kind = "icon"
+usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.rs)"
+sha256 = "4a9cdab38fbb96162e7dace28e33f4ca0e49d8963a6162abc3d4691b7d675117"
+
+[[asset]]
+path = "assets/logo/postguy.svg"
+title = "Postguy mark (vector source)"
+author = "The Postguy authors"
+source = "contributor-original; drawn for this project in this repository (XTask logo pipeline)"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "logo"
+usage = "the app icon and logo; rendered to the PNG sizes by `cargo xtask logo`"
+sha256 = "e39eedc4619751cc8fc46c9f4f961cd22ab444e02c943873b5d837bd2b0d4d66"
+
+[[asset]]
+path = "assets/logo/postguy-16.png"
+title = "Postguy mark (16 px PNG)"
+author = "The Postguy authors"
+source = "contributor-original; rasterized by `cargo xtask logo` from assets/logo/postguy.svg"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "logo"
+usage = "small icon size for packaging and window chrome"
+sha256 = "012756c7adbbaf4149795304b0ea1b4ff865fda7dd04b59c6d9ad1600ae09771"
+
+[[asset]]
+path = "assets/logo/postguy-32.png"
+title = "Postguy mark (32 px PNG)"
+author = "The Postguy authors"
+source = "contributor-original; rasterized by `cargo xtask logo` from assets/logo/postguy.svg"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "logo"
+usage = "small icon size for packaging and toolbars"
+sha256 = "0dc9bd0299ebc0b568732cc3b88a5149b769b289d916baaca4d4d7e083aac8e2"
+
+[[asset]]
+path = "assets/logo/postguy-64.png"
+title = "Postguy mark (64 px PNG)"
+author = "The Postguy authors"
+source = "contributor-original; rasterized by `cargo xtask logo` from assets/logo/postguy.svg"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "logo"
+usage = "icon size for dock/tray usage"
+sha256 = "645ea109106a5a0d5f9aedca9b86a3d3abacc784a8fef0dd93c9a78add422fde"
+
+[[asset]]
+path = "assets/logo/postguy-128.png"
+title = "Postguy mark (128 px PNG)"
+author = "The Postguy authors"
+source = "contributor-original; rasterized by `cargo xtask logo` from assets/logo/postguy.svg"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "logo"
+usage = "medium icon size for macOS and Linux window managers"
+sha256 = "79b692122e572567cea419836df3c78a303ad42b0f2672ab3ad6f6cdec6f1e9f"
+
+[[asset]]
+path = "assets/logo/postguy-256.png"
+title = "Postguy mark (256 px PNG)"
+author = "The Postguy authors"
+source = "contributor-original; rasterized by `cargo xtask logo` from assets/logo/postguy.svg"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "logo"
+usage = "icon size for Windows resources and file associations"
+sha256 = "f857482cb0de67918f2b7448f758e97fd41baad93b19e5e10e39a281887736d1"
+
+[[asset]]
+path = "assets/logo/postguy-512.png"
+title = "Postguy mark (512 px PNG)"
+author = "The Postguy authors"
+source = "contributor-original; rasterized by `cargo xtask logo` from assets/logo/postguy.svg"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "logo"
+usage = "large icon size for installers and stores"
+sha256 = "3a64fc74a564bbea724d86891024edf6b6c4492d524c12d4bcc95407b47a4b79"
+
+# ==========================================================================================
+# Bundled by Cargo dependencies ([[bundled]]): files a crates.io dependency compiles into
+# Postguy. egui's default fonts (v1 uses them per AGENTS.md 1.4; no font files are committed).
+# ==========================================================================================
+
+[[bundled]]
+crate = "epaint_default_fonts"
+version = "0.36.2"
+path = "fonts/Ubuntu-Light.ttf"
+title = "Ubuntu Light (proportional UI font)"
+author = "Canonical Ltd. and the Ubuntu Font Project"
+source = "crates.io/crates/epaint_default_fonts/0.36.2 (fonts/Ubuntu-Light.ttf)"
+licence = "Ubuntu-font-1.0"
+kind = "font"
+usage = "egui's default proportional font, embedded whenever the app builds"
+sha256 = "80307b8da7649aa4ee4d484b232140e3ce1ec0ca093073d3c53c8f5a5ced7a70"
+
+[[bundled]]
+crate = "epaint_default_fonts"
+version = "0.36.2"
+path = "fonts/Hack-Regular.ttf"
+title = "Hack Regular (monospace font)"
+author = "Source Foundry Authors (Hack), Bitstream Inc. (Vera Sans Mono base); DejaVu contributions to the public domain"
+source = "crates.io/crates/epaint_default_fonts/0.36.2 (fonts/Hack-Regular.ttf)"
+licence = "MIT OR Bitstream-Vera"
+kind = "font"
+usage = "egui's default monospace font, embedded whenever the app builds"
+sha256 = "15f55cc0c85a2988d2b4b3a8cdb5d77fdfbaf319e1bb5309d725db9818fb7125"
+
+[[bundled]]
+crate = "epaint_default_fonts"
+version = "0.36.2"
+path = "fonts/NotoEmoji-Regular.ttf"
+title = "Noto Emoji (monochrome emoji)"
+author = "Google LLC and the Noto Project authors"
+source = "crates.io/crates/epaint_default_fonts/0.36.2 (fonts/NotoEmoji-Regular.ttf)"
+licence = "OFL-1.1"
+kind = "font"
+usage = "emoji fallback glyphs in the default egui font stack"
+sha256 = "415dc6290378574135b64c808dc640c1df7531973290c4970c51fdeb849cb0c5"
+
+[[bundled]]
+crate = "epaint_default_fonts"
+version = "0.36.2"
+path = "fonts/emoji-icon-font.ttf"
+title = "emoji-icon-font (pictographic fallback glyphs)"
+author = "The emoji-icon-font authors"
+source = "crates.io/crates/epaint_default_fonts/0.36.2 (fonts/emoji-icon-font.ttf)"
+licence = "MIT"
+kind = "font"
+usage = "symbol fallback glyphs in the default egui font stack"
+sha256 = "f426bec371f484646d002717e2c555a95cd5145e635d83a48bbef83f3abf18ca"
