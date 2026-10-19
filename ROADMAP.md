@@ -21,6 +21,15 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-20 (M1.6, M1.9):** M1.6 Postman import/export landed with the vendored official
+  v2.1.0/v2.0.0 schemas (Apache-2.0 test data, the AGENTS.md 1.1 closed-list pair, `postman_data`
+  + attribution entries), typed auth mapping per Appendix C (jwt/asap read through verbatim),
+  environment/globals scopes, `ImportReport`, and five fidelity goldens (typical v2.1, minimal
+  v2.0, extras-at-every-level v2.1, env, globals) asserted twice for export stability. Gaps
+  recorded: proxy/certificate blocks stay in extras (M5); unknown enum spellings degrade the
+  auth block to Unknown verbatim; non-UTF-8 example bodies emit nothing. M1.9 fuzz targets for
+  `url`, `vars`, `curl` wired through `postguy-cli fuzz-target` with attributed seed files; a
+  45 s session ran ~360 executions with zero findings. `cargo xtask ci` green after both merges.
 - **2026-10-19 (M1.4, M1.5, M1.7):** M1.4 vars: scope resolver with depth-10+cycle guards and
   spans for chips; 66 Appendix A dynamic variables with project-written word lists; secret
   masking helper; property tests for termination and idempotence over safe text. M1.5 store:
