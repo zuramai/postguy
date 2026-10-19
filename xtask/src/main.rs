@@ -8,6 +8,7 @@ mod fuzz;
 mod gates;
 mod icons;
 mod layers;
+mod logo;
 mod parity;
 mod screenshots;
 mod size;
@@ -23,6 +24,7 @@ const COMMANDS: &[(&str, &str, Command)] = &[
     ("deny", "Dependency licences and sources (deny.toml; delegates to cargo-deny when installed)", deny::run),
     ("size", "Measure the release binaries against the PROMPT.md 8 budgets", size::run),
     ("icons", "Regenerate crates/ui-egui/src/icons_gen.rs from assets/icons/*.svg (--check verifies)", icons::run),
+    ("logo", "Rasterize assets/logo/postguy.svg into the packaging PNG sizes (--check verifies)", logo::run),
     ("fuzz", "Mutation-fuzz the parsers and importers in child processes; findings in fuzz-out/ (--time 300)", fuzz::run),
     ("screenshots", "Regenerate the docs screenshots from our own UI with demo data", screenshots::run),
     ("version", "Print the workspace version", version::run),
