@@ -2451,6 +2451,12 @@ version = "0.1.0"
 [[package]]
 name = "postguy-cli"
 version = "0.1.0"
+dependencies = [
+ "postguy-interop",
+ "postguy-urlkit",
+ "postguy-util",
+ "postguy-vars",
+]
 
 [[package]]
 name = "postguy-engine"
@@ -2469,6 +2475,7 @@ name = "postguy-interop"
 version = "0.1.0"
 dependencies = [
  "postguy-model",
+ "postguy-urlkit",
  "postguy-util",
  "proptest",
  "serde_json",

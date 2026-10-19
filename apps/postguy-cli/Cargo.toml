@@ -9,3 +9,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+postguy-util = { workspace = true }
+postguy-urlkit = { workspace = true }
+postguy-vars = { workspace = true }
+postguy-interop = { workspace = true }
