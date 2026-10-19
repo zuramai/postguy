@@ -1,0 +1,13 @@
+# Local-only planning, observation notes and spike code (AGENTS.md, PLAN.md)
+/plan/
+/prompt_images/
+
+# Build artefacts
+/target/
+/dist/
+
+# Mutation-fuzzing output (never commit corpus-derived files)
+/fuzz-out/
+
+# Editor and OS noise
+.DS_Store

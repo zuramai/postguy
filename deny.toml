@@ -1,0 +1,56 @@
+# cargo-deny policy (PLAN M0.1). Run with `cargo xtask deny`; part of `cargo xtask ci`.
+# Code dependencies follow the same rule as assets (AGENTS.md): permissive licences only.
+# Copyleft (GPL, AGPL, LGPL) is never linked; such tools run only as external oracle processes.
+# When cargo-deny is not installed, `cargo xtask deny` enforces the licence allowlist itself
+# from `cargo metadata` and refuses the craft-* internal dependencies.
+
+[graph]
+all-features = true
+
+[licenses]
+confidence-threshold = 0.9
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "BSL-1.0",
+    "CC0-1.0",
+]
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[bans.workspaces]
+# Internal dependencies of another team (PROMPT.md 4.2); a dependency on them is a rules breach.
+deny = [
+    { name = "craft-ui" },
+    { name = "craft-libs" },
+    { name = "craft-print" },
+    { name = "craft-quit" },
+    { name = "craft-docpath" },
+    { name = "craft-fonts" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+
+[advisories]
+yanked = "warn"
+
+# egui's default UI fonts (Ubuntu-Light, Hack, Noto Emoji, emoji-icon-font): font licences on the
+# AGENTS.md 1.2 allowlist, attributed in ATTRIBUTION.toml as dependency-bundled assets.
+[[licenses.exceptions]]
+crate = "epaint_default_fonts"
+allow = ["OFL-1.1", "Ubuntu-font-1.0"]
