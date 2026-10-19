@@ -35,8 +35,9 @@ pub const ALLOWED_LICENCES: &[&str] = &[
 
 /// The closed list of Postman-authored, non-visual technical data (AGENTS.md 1.1), as repo paths.
 /// Adding anything needs the owner's explicit approval; anything else with `postman_data = true`
-/// fails here.
-pub const POSTMAN_DATA_ALLOWED: &[&str] = &[];
+/// fails here. The two entries are the externally published Collection Format schemas
+/// (Apache-2.0), which AGENTS.md 1.1 authorizes for import/export validation.
+pub const POSTMAN_DATA_ALLOWED: &[&str] = &["crates/interop/testdata/collection-v21.json", "crates/interop/testdata/collection-v20.json"];
 
 /// File extensions that count as assets wherever they appear in the repository.
 const ASSET_EXTENSIONS: &[&str] = &[

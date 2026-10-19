@@ -85,10 +85,73 @@ usage = "the Appendix A dynamic variables (crates/vars/src/dynamic.rs); no other
 sha256 = "4fe1a91c672faf7a09e0a0a8712ec456a24e0d19ca68dac3389895b5c5f8d10b"
 
 [[asset]]
+path = "fuzz/seeds/url/sample.seed"
+title = "Fuzz seed: request URL text with variables"
+author = "The Postguy authors"
+source = "contributor-original; written in this repository for the M1.9 fuzz targets"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "data"
+usage = "seed corpus for the `url` fuzz target (postguy-cli fuzz-target url)"
+sha256 = "5a93be6c5518657d9d210cb82c2a2356c4dd4e97c9f30134364294d0f6cba681"
+
+[[asset]]
+path = "fuzz/seeds/vars/sample.seed"
+title = "Fuzz seed: variable-resolution template"
+author = "The Postguy authors"
+source = "contributor-original; written in this repository for the M1.9 fuzz targets"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "data"
+usage = "seed corpus for the `vars` fuzz target (postguy-cli fuzz-target vars)"
+sha256 = "97391ba32946c20087a87fb0088d5e08fed838cab37b7a855ce3bd5c0ee7b834"
+
+[[asset]]
+path = "fuzz/seeds/curl/sample.seed"
+title = "Fuzz seed: cURL command line"
+author = "The Postguy authors"
+source = "contributor-original; written in this repository for the M1.9 fuzz targets"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "data"
+usage = "seed corpus for the `curl` fuzz target (postguy-cli fuzz-target curl)"
+sha256 = "8c7d6b3fe9639207d8a179515d99d655d464461242c08c06fc11569a57d17b00"
+
+# ==========================================================================================
+# Postman-authored, NON-VISUAL technical data (AGENTS.md 1.1): the officially published
+# Collection Format JSON schemas, Apache-2.0, vendored ONLY as test data. The closed list in
+# `xtask/src/assets.rs` names exactly these paths; adding others needs the owner's approval.
+# ==========================================================================================
+
+[[asset]]
+path = "crates/interop/testdata/collection-v21.json"
+title = "Postman Collection Format JSON schema, v2.1.0"
+author = "Postman, Inc."
+source = "schema.postman.com/json/collection/v2.1.0/collection.json (fetched 2026-10-20; the closed-list item AGENTS.md 1.1 allows)"
+licence = "Apache-2.0"
+licence_file = "crates/interop/testdata/SCHEMA-LICENSE.txt"
+kind = "data"
+usage = "test fixture for the Postman import/export mapper (import never reads it at runtime)"
+postman_data = true
+sha256 = "0b99c704ae77a22cdedc841b67212eae9d72cc1fe24389d21b8c6e9ec05889df"
+
+[[asset]]
+path = "crates/interop/testdata/collection-v20.json"
+title = "Postman Collection Format JSON schema, v2.0.0"
+author = "Postman, Inc."
+source = "schema.getpostman.com/json/collection/v2.0.0/collection.json (fetched 2026-10-20; the closed-list item AGENTS.md 1.1 allows)"
+licence = "Apache-2.0"
+licence_file = "crates/interop/testdata/SCHEMA-LICENSE.txt"
+kind = "data"
+usage = "test fixture for the Postman import/export mapper (import never reads it at runtime)"
+postman_data = true
+sha256 = "c69c390a1160f74453b0291c4387326905f0eed48c238f6d09cfed3f71266e5c"
+
+[[asset]]
 path = "assets/logo/postguy.svg"
 title = "Postguy mark (vector source)"
 author = "The Postguy authors"
-source = "contributor-original; drawn for this project in this repository (XTask logo pipeline)"
+source = "contributor-original; drawn for this project in this repository (xtask logo pipeline)"
 licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "logo"

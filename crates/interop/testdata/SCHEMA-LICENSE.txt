@@ -1,0 +1,24 @@
+Licence for the vendored Postman Collection Format JSON schemas
+(crates/interop/testdata/collection-v21.json, collection-v20.json)
+
+These test-data files are the Postman-published, non-visual technical schemas listed in
+AGENTS.md §1.1 as the ONLY Postman-authored material allowed in this repository. They are
+downloaded from the official URLs recorded in ATTRIBUTION.toml and used as read-only test
+fixtures for import/export validation; the import path never reads them at runtime.
+
+The Postman Collection Schema files are published under Apache-2.0. The full licence text is
+the standard Apache License, Version 2.0, reproduced verbatim in this repository's
+LICENSE-APACHE file and required here by reference:
+
+    This work is licensed under the Apache License, Version 2.0 (the "License"); you may not
+    use this file except in compliance with the License. You may obtain a copy of the License
+    at http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software distributed under the
+    License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+    either express or implied. See the License for the specific language governing permissions
+    and limitations under the License.
+
+Note (clean-room boundary, AGENTS.md §2): the schema files describe the FILE FORMAT, not
+behavior. Behaviour sources for the mapper are this schema plus the Postman public
+documentation and black-box observation with synthetic data only (PLAN.md §2).

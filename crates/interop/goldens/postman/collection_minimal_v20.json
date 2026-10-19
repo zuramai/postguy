@@ -1,0 +1,12 @@
+{
+  "info": {
+    "name": "minimal v2.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.0.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Plain Get",
+      "request": "https://api.example.com/plain?x=1"
+    }
+  ]
+}

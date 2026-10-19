@@ -1,0 +1,10 @@
+{
+  "name": "Face Environment",
+  "_postman_variable_scope": "environment",
+  "values": [
+    { "key": "baseUrl", "value": "https://face.dev" },
+    { "key": "apiToken", "value": "{{token}}", "type": "secret" },
+    { "key": "retryOn", "value": "no", "disabled": true }
+  ],
+  "fancyEnvKey": "kept"
+}

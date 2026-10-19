@@ -1,0 +1,4 @@
+curl --location --request POST 'https://{{host}}/login' \
+  --header 'Content-Type: application/json' \
+  --data-raw '{"user": "u", "pass": "p"}' \
+  --cookie jar=k=/tmp/jar.txt

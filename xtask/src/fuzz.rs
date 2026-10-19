@@ -13,16 +13,21 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 
 struct Target {
-    /// Tool-facing name, used for the findings directory.
+    /// Tool-facing name, used for the findings directory AND the `postguy-cli fuzz-target <name>` arg.
     name: &'static str,
-    /// Directory of seed files, relative to the repo root.
+    /// Directory of seed files, relative to the repo root (committed, contributor-original data).
     seeds: &'static str,
-    /// `postguy-cli` arguments; `{input}` is replaced with the mutated file's path.
+    /// `postguy-cli` arguments; `{target}` and `{input}` are replaced per run.
     args: &'static [&'static str],
 }
 
-/// The fuzz targets. Empty until the first parsers exist; `cargo xtask fuzz` says so honestly.
-const TARGETS: &[Target] = &[];
+/// The fuzz targets (PLAN.md M1.9). Each runs `postguy-cli fuzz-target <name> <file>`; the
+/// CLI's `fuzz_targets.rs` dispatch is the single place that grows as importers land.
+const TARGETS: &[Target] = &[
+    Target { name: "url", seeds: "fuzz/seeds/url", args: &["fuzz-target", "url", "{input}"] },
+    Target { name: "vars", seeds: "fuzz/seeds/vars", args: &["fuzz-target", "vars", "{input}"] },
+    Target { name: "curl", seeds: "fuzz/seeds/curl", args: &["fuzz-target", "curl", "{input}"] },
+];
 
 const DEFAULT_TIME_SECS: u64 = 300;
 const EXEC_TIMEOUT: Duration = Duration::from_secs(10);
@@ -31,10 +36,6 @@ pub fn run(args: &[String]) -> Result<()> {
     let time_secs = flag_num(args, "--time").unwrap_or(DEFAULT_TIME_SECS);
     let seed = flag_num(args, "--seed")
         .unwrap_or_else(|| (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64) | 1);
-    if TARGETS.is_empty() {
-        println!("fuzz: no targets registered yet (the first importer targets arrive with M1.9, PLAN.md); nothing to fuzz");
-        return Ok(());
-    }
 
     let mut cmd = std::process::Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
     cmd.current_dir(crate::gates::root()).args(["build", "--release", "-p", "postguy-cli"]);
@@ -71,7 +72,8 @@ pub fn run(args: &[String]) -> Result<()> {
             let work_file = work_dir.join(format!("{}-input.bin", target.name));
             std::fs::write(&work_file, &mutated)?;
 
-            let exec_args: Vec<String> = target.args.iter().map(|a| a.replace("{input}", &work_file.to_string_lossy())).collect();
+            let exec_args: Vec<String> =
+                target.args.iter().map(|a| a.replace("{input}", &work_file.to_string_lossy()).replace("{target}", target.name)).collect();
             execs += 1;
             match exec(&cli, &exec_args) {
                 Outcome::Ok => {}

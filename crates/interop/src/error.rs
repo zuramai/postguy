@@ -55,3 +55,58 @@ impl From<CurlError> for postguy_util::Error {
         }
     }
 }
+
+/// The Postman importer/exporter's error vocabulary: actionable, no panic paths. The cURL
+/// module keeps its [`CurlError`]; the Postman module gets its own so failure modes are named
+/// precisely (PROMPT.md 5.7: every input branch tells the user exactly what to do next).
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum PostmanError {
+    /// The top-level value was not a Postman collection/environment/globals document.
+    NotPostman { what: String },
+    /// The document is a v1 Collection Format (or another generation we cannot convert).
+    UnsupportedFormat { format: &'static str, instructions: String },
+    /// A required Postman key was missing (or of the wrong shape).
+    MissingField { field: String },
+    /// A JSON file could not be read (I/O or size cap; from the capped readers).
+    File { what: String, source: postguy_util::Error },
+    /// The input is not valid JSON (or blew the nesting cap) before Postman shapes were seen.
+    InvalidJson { what: String, source: postguy_util::Error },
+}
+
+impl fmt::Display for PostmanError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PostmanError::NotPostman { what } => {
+                write!(f, "this does not look like a Postman collection/environment/globals file: {what}")
+            }
+            PostmanError::UnsupportedFormat { format, instructions } => {
+                write!(f, "{format} is not supported: {instructions}")
+            }
+            PostmanError::MissingField { field } => {
+                write!(f, "the Postman document is missing `{field}`; this does not look like a complete Postman file")
+            }
+            PostmanError::File { what, source } => write!(f, "could not read {what}: {source}"),
+            PostmanError::InvalidJson { what, source } => write!(f, "{what} is not valid JSON: {source}"),
+        }
+    }
+}
+
+impl std::error::Error for PostmanError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            PostmanError::File { source, .. } | PostmanError::InvalidJson { source, .. } => Some(source),
+            _ => None,
+        }
+    }
+}
+
+impl From<PostmanError> for postguy_util::Error {
+    fn from(err: PostmanError) -> Self {
+        match err {
+            PostmanError::File { source, .. } | PostmanError::InvalidJson { source, .. } => source,
+            PostmanError::NotPostman { what } | PostmanError::MissingField { field: what } => postguy_util::Error::Unusable { what },
+            PostmanError::UnsupportedFormat { format, instructions } => postguy_util::Error::Unusable { what: format!("{format}: {instructions}") },
+        }
+    }
+}
