@@ -152,7 +152,9 @@ pub fn run(args: &[String]) -> Result<()> {
         check_file_hash(&root, &rel, &entry.sha256, &mut problems);
     }
     for entry in &manifest.asset {
-        if !files.iter().any(|f| f.strip_prefix(&root).is_ok_and(|p| p.to_string_lossy().replace('\\', "/") == entry.path)) {
+        // Existence is a filesystem check (word lists live in source files, which the
+        // asset-extension scan does not drop into `files`).
+        if !root.join(&entry.path).exists() {
             problems.push(format!("ATTRIBUTION.toml entry `{}` names a missing file {}", entry.title, entry.path));
         }
         check_entry(

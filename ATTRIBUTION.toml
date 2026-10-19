@@ -74,6 +74,17 @@ usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.r
 sha256 = "4a9cdab38fbb96162e7dace28e33f4ca0e49d8963a6162abc3d4691b7d675117"
 
 [[asset]]
+path = "crates/vars/src/words.rs"
+title = "Dynamic-variable word lists (first/last names, cities, streets, countries, currencies, colors, lorem, files, user agents)"
+author = "The Postguy authors"
+source = "contributor-original; lists written for this project in this repository"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "data"
+usage = "the Appendix A dynamic variables (crates/vars/src/dynamic.rs); no other tool's lists were read"
+sha256 = "4fe1a91c672faf7a09e0a0a8712ec456a24e0d19ca68dac3389895b5c5f8d10b"
+
+[[asset]]
 path = "assets/logo/postguy.svg"
 title = "Postguy mark (vector source)"
 author = "The Postguy authors"

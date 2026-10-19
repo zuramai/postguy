@@ -21,6 +21,16 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-19 (M1.4, M1.5, M1.7):** M1.4 vars: scope resolver with depth-10+cycle guards and
+  spans for chips; 66 Appendix A dynamic variables with project-written word lists; secret
+  masking helper; property tests for termination and idempotence over safe text. M1.5 store:
+  the full workspace tree with atomic saves (`.bak`), corrupt-file quarantine (`.corrupt-<ns>`
+  + recover-with-default), lock file with pid liveness + takeover, `.trash` with sidecar
+  metadata + restore, rotating history (cap 5000), 0600 secrets split, change snapshots,
+  config-dir settings/session with quarantine. M1.7 (agent-built, verified): cURL parse +
+  generate in `interop` covering the whole PROMPT.md 5.7 flag table with quoting torture,
+  warnings-not-errors, 22 unit + 3 property tests, clippy/fmt/layers clean. All gates green;
+  `xtask ci` full sweep passes on `main` with everything merged.
 - **2026-10-19 (M0.3-M0.5):** All five spikes measured with ADRs (`plan/adr/0001-0005`, local:
   glow renderer adopted; large-body strategy adopted; hyper-direct adopted; boa kept with the
   wall-clock/memory gap escalated to the owner at REVIEW STOP 1; icon/logo pipeline adopted).
