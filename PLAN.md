@@ -95,9 +95,9 @@ Planned observation requests:
 - [x] M1.4 `vars`: scopes and precedence, recursive resolver (depth 10, cycle guard), dynamic variables (Appendix A, word lists written for the project), secret masking. Property tests.
 - [x] M1.5 `store`: workspace layout, atomic writes with `.bak`, lock file with stale detection, trash, secrets split, history file, settings and session files with corrupt-file handling, change detection.
 - [x] M1.7 `interop` cURL: parse (all flags in PROMPT.md 5.7) and generate. Property test: parse, generate, parse.
-- [ ] M1.6 `interop` Postman: v2.0/v2.1 collection import and export, environment and globals, `ImportReport`, size/nesting caps, round-trip goldens written by us, vendored v2.1 schema as test data (`postman_data = true` entry). Observation request 1 (section 2).
+- [x] M1.6 `interop` Postman: v2.0/v2.1 collection import and export, environment and globals, `ImportReport`, size/nesting caps, round-trip goldens written by us, vendored v2.1 schema as test data (`postman_data = true` entry). Observation request 1 (section 2).
 - [ ] M1.8 `automation` skeleton and `postguy-cli tools|call|run --script`: `workspace_*`, `collection_*`, `folder_*`, `request_*`, `env_*`, `import_*`, `export_*`; `--root` confinement with the identical refusal for existing and missing paths. End-to-end tests.
-- [ ] M1.9 Fuzz harness for importers, URL and cookie parsers, resolver (`xtask fuzz`).
+- [x] M1.9 Fuzz harness for importers, URL and cookie parsers, resolver (`xtask fuzz`).
 
 **Exit:** Postman v2.1 round trip preserves every schema-defined and unknown field; exports validate against the official schema; fuzz runs clean for 5 minutes; crates clean under the never-crash lints.
 
