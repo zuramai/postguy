@@ -39,12 +39,20 @@ pub const TABLE: &[(&str, u8)] = &[
 /// these through its normal-dependency closure.
 pub const UI_CRATES: &[&str] = &["egui", "eframe", "winit", "glow", "glutin", "wgpu", "accesskit", "rfd", "egui_kittest", "egui_extras", "smithay"];
 
+/// Allowed same-layer edges (peer dependencies). Everything same-layer not listed here is a
+/// violation, so the layer graph stays a tree deep-down and editors can see what couples.
+pub const SIDEWAYS: &[(&str, &str)] = &[("model", "util")];
+
 pub fn short_name(pkg: &str) -> &str {
     pkg.strip_prefix("postguy-").unwrap_or(pkg)
 }
 
 pub fn layer_of(short: &str) -> Option<u8> {
     TABLE.iter().find(|(n, _)| *n == short).map(|(_, l)| *l)
+}
+
+fn sideways_allowed(from: &str, to: &str) -> bool {
+    SIDEWAYS.contains(&(from, to))
 }
 
 fn is_ui_crate(name: &str) -> bool {
@@ -66,7 +74,7 @@ pub fn layer_violations(crates: &BTreeMap<String, Node>) -> Vec<String> {
         let Some(from) = node.layer else { continue };
         for dep in &node.deps {
             let Some(to) = crates.get(dep).and_then(|n| n.layer) else { continue };
-            if to > from {
+            if to > from || (to == from && !sideways_allowed(short_name(name), short_name(dep))) {
                 out.push(format!("{} depends on {}", crate_label(name), crate_label(dep)));
             }
         }
@@ -170,6 +178,19 @@ mod tests {
         crates.insert("postguy-model".into(), node(Some(0), &[]));
         crates.insert("postguy-engine".into(), node(Some(6), &["postguy-model"]));
         assert!(layer_violations(&crates).is_empty());
+    }
+
+    #[test]
+    fn same_layer_needs_a_listed_sideways_edge() {
+        let mut crates = BTreeMap::new();
+        crates.insert("postguy-model".into(), node(Some(0), &["postguy-util"]));
+        crates.insert("postguy-util".into(), node(Some(0), &[]));
+        assert!(layer_violations(&crates).is_empty(), "model->util is the listed edge");
+        crates.insert("postguy-urlkit".into(), node(Some(1), &["postguy-vars"]));
+        crates.insert("postguy-vars".into(), node(Some(1), &[]));
+        let violations = layer_violations(&crates);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(violations[0].contains("postguy-urlkit (L1) depends on postguy-vars (L1)"));
     }
 
     #[test]

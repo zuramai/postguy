@@ -15,6 +15,18 @@ repository = "https://github.com/postguy/postguy"
 egui = { version = "0.36", default-features = false }
 eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "accesskit", "wayland", "x11"] }
 
+# Foundation (PROMPT.md 4.2): key order and number text survive round trips.
+postguy-util = { path = "crates/util", version = "0.1.0" }
+serde = { version = "1", default-features = false, features = ["std", "derive"] }
+serde_json = { version = "1", features = ["preserve_order", "unbounded_depth"] }
+thiserror = "2"
+uuid = { version = "1", default-features = false, features = ["v4"] }
+# IDNA for non-ASCII hosts (PROMPT.md Appendix D); licences: Unicode-3.0/MIT/Apache.
+idna = { version = "1", default-features = false, features = ["std", "compiled_data"] }
+
+# Testing
+proptest = "1"
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 
