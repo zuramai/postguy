@@ -21,6 +21,15 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-20 (M3.5, core):** Response viewer wired to the engine's cached send: status/time/
+  size chips with phase, size and network popovers; Body/Cookies/Headers tabs; Pretty (JSON
+  re-indent), Raw, Preview (text/binary message) and virtualised Hex; wrap toggle; search with a
+  match count; Save Response to `<workspace>/files/` (also for Send and Download), Copy body/
+  headers and Clear. Bodies use the precomputed-line LargeTextView; Pretty is capped at 5 MB.
+  Sends land in the pane through a background thread, with cancellation and status messages.
+  4 response UI tests + app send/download/save/clear tests. Still missing: syntax colours,
+  image previews, search navigation/regex, off-thread indexing, file picker and streaming
+  download.
 - **2026-10-20 (M3.4, core):** Request builder: breadcrumb and editable name; method menu with
   REST colours; URL field with `{{var}}` chips, variable autocomplete and cURL paste detection
   (interop import in the app); Enter sends; split Send and Cancel with an elapsed timer; Save

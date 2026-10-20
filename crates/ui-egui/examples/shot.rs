@@ -6,6 +6,7 @@ use egui_kittest::Harness;
 use postguy_model::{Collection, Environment, HistoryEntry, HttpMethod, HttpRequest, Id, Item, KeyValue, Request, RequestKind, Variable};
 use postguy_ui_egui::PostguyShell;
 use postguy_ui_egui::builder::{BodyDrafts, BuilderTab, RequestBuilder};
+use postguy_ui_egui::response::{ResponseData, ResponseViewerState, response_view};
 use postguy_ui_egui::sidebar::SidebarData;
 use postguy_ui_egui::tabs::TabDoc;
 
@@ -17,6 +18,8 @@ struct DemoState {
     bodies: BodyDrafts,
     dirty: bool,
     tab: BuilderTab,
+    response: ResponseData,
+    viewer: ResponseViewerState,
 }
 
 impl DemoState {
@@ -38,6 +41,34 @@ impl DemoState {
             bodies: BodyDrafts::default(),
             dirty: true,
             tab: BuilderTab::Params,
+            response: ResponseData {
+                status: 200,
+                status_text: "OK".into(),
+                http_version: "HTTP/2".into(),
+                headers: vec![
+                    ("content-type".into(), "application/json".into()),
+                    ("set-cookie".into(), "session=abc123; Path=/; HttpOnly; Secure".into()),
+                ],
+                body: br#"{
+  "data": [
+    {"id": "pay_1", "amount": 2500, "currency": "usd", "status": "settled"},
+    {"id": "pay_2", "amount": 990, "currency": "usd", "status": "pending"}
+  ],
+  "hasMore": false
+}"#
+                .to_vec(),
+                header_bytes: 284,
+                body_encoded_bytes: 412,
+                body_decoded_bytes: 214,
+                content_encoding: Some("gzip".into()),
+                connect_ms: 18,
+                ttfb_ms: 122,
+                total_ms: 148,
+                download_ms: 26,
+                redirects: 0,
+                proxy: None,
+            },
+            viewer: ResponseViewerState::default(),
         }
     }
 }
@@ -136,8 +167,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     tab: &mut state.tab,
                     variables: &[],
                     sending: None,
+                    undo_paste: false,
                 };
-                builder.show(ui)
+                let total = ui.available_height();
+                let request_height = (total * 0.52).max(170.0);
+                let action = ui
+                    .allocate_ui_with_layout(egui::vec2(ui.available_width(), request_height), egui::Layout::top_down(egui::Align::Min), |ui| {
+                        builder.show(ui)
+                    })
+                    .inner;
+                ui.separator();
+                let _ = response_view(ui, &mut state.response, &mut state.viewer);
+                action
             };
             state.shell.ui_with(ui, Some(&mut panel));
         },

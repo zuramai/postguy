@@ -365,36 +365,36 @@ title = "Response viewer: Pretty/Raw/Preview/Hex, strip chips"
 area = "C"
 tier = "P0"
 milestone = "M3.5"
-status = "planned"
-notes = "Search with regex toggles; clickable URLs; no web view for HTML; image preview only for tree-present decoders."
-
+status = "partial"
+notes = "Status/time/size chips with phase and size popovers, Body/Cookies/Headers tabs, Pretty/Raw/Preview/Hex, wrap toggle, a search box with a match count, Save Response (workspace file) and Copy/Clear menus. Missing: syntax colours in Pretty, image previews, search navigation/regex/whole-word, clickable URLs and a file-picker save dialog."
+evidence = ["crates/ui-egui/tests/response.rs::the_strip_shows_status_time_size_and_the_json_pretty_view", "crates/ui-egui/tests/response.rs::raw_hex_headers_and_cookies_are_reachable", "crates/ui-egui/tests/response.rs::the_menu_saves_and_clears_and_the_popovers_explain_the_numbers", "apps/postguy/src/main.rs::sending_runs_off_the_ui_thread_and_reports_the_status"]
 [[feature]]
 id = "c.large-bodies"
 title = "Large bodies: off-thread line index, virtualised rows"
 area = "C"
 tier = "P0"
 milestone = "M3.5"
-status = "planned"
-notes = "10 MB: first Raw frame <= 200 ms, Pretty off-thread <= 1.5 s, 60 fps scroll; token re-indenter, no Value tree."
-
+status = "partial"
+notes = "LargeTextView precomputes line starts and lays out only visible rows; hex rows are generated per visible line; Pretty is disabled above 5 MB with a banner. Missing: the line index off the UI thread, the token-level JSON re-indenter (no Value tree) and the measured 10 MB/60 fps budget run."
+evidence = ["crates/ui-egui/tests/response.rs::raw_hex_headers_and_cookies_are_reachable", "crates/ui-egui/tests/widgets.rs::large_text_view_virtualises_many_lines"]
 [[feature]]
 id = "c.response-tabs"
 title = "Response tabs: Headers, Cookies, Test Results, Timeline"
 area = "C"
 tier = "P1"
 milestone = "M3.5"
-status = "planned"
-notes = "Hover info for headers; tests arrived in M8; timeline P2."
-
+status = "partial"
+notes = "Headers and Cookies (parsed Set-Cookie display) tabs exist; header values are selectable. Test Results arrives with scripts (M8); the Timeline tab is P2; hover details for header rows are not drawn."
+evidence = ["crates/ui-egui/tests/response.rs::raw_hex_headers_and_cookies_are_reachable"]
 [[feature]]
 id = "c.timings"
 title = "Phase timings with hover breakdown"
 area = "C"
 tier = "P0"
 milestone = "M2.2"
-status = "planned"
-notes = "Prepare, DNS, TCP, TLS, request, waiting, download; network/lock icon shows TLS and addresses."
-
+status = "partial"
+notes = "Connect (DNS+TCP+TLS combined from the engine), waiting/TTFB, download and total are shown on hover. Missing the separate Prepare/DNS/TCP/TLS rows and per-redirect hop timings in the hover."
+evidence = ["crates/ui-egui/tests/response.rs::the_menu_saves_and_clears_and_the_popovers_explain_the_numbers"]
 [[feature]]
 id = "c.save-response"
 title = "Save Response: example, file; Send and Download streaming"
@@ -817,9 +817,9 @@ title = "Save a single response body to file"
 area = "G"
 tier = "P0"
 milestone = "M3.5"
-status = "planned"
-notes = "Suggested name from Content-Disposition or URL; raw bytes."
-
+status = "partial"
+notes = "Save Response / Send and Download write the decoded bytes atomically into `<workspace>/files/response-<tab>.bin`. Missing: a file picker, Content-Disposition/URL-suggested names, raw wire bytes when decoding was applied, and true streaming download."
+evidence = ["apps/postguy/src/main.rs::save_and_clear_response_actions_work_from_the_viewer"]
 [[feature]]
 id = "g.snippets"
 title = "Code snippets: cURL, HTTP, fetch, requests, Go, reqwest, PowerShell, axios"

@@ -2830,6 +2830,7 @@ dependencies = [
  "postguy-store",
  "postguy-testkit",
  "postguy-ui-egui",
+ "postguy-util",
  "serde",
  "serde_json",
  "tempfile",

@@ -218,6 +218,11 @@ impl LargeTextView {
         self
     }
 
+    pub fn wrap(mut self, wrap: bool) -> Self {
+        self.wrap = wrap;
+        self
+    }
+
     pub fn line_count(&self) -> usize {
         self.line_starts.len()
     }

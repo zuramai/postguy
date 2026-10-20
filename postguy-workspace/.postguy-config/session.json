@@ -1,0 +1,21 @@
+{
+  "tabs": {
+    "tabs": [],
+    "active": null,
+    "closed": [],
+    "nextId": 0,
+    "drafts": {}
+  },
+  "sidebarSections": [
+    false,
+    true,
+    true
+  ],
+  "sidebarHeights": [
+    320.0,
+    140.0,
+    160.0
+  ],
+  "theme": "system",
+  "cleanExit": true
+}

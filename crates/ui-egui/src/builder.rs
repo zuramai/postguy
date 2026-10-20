@@ -62,6 +62,8 @@ pub enum BuilderAction {
     Cancel,
     /// The URL field contains a pasted cURL command; the app parses and replaces the draft.
     ParseCurl(String),
+    /// Restore the draft from before the last cURL import.
+    UndoPaste,
 }
 
 /// Everything the builder needs for one frame.
@@ -76,6 +78,8 @@ pub struct RequestBuilder<'a> {
     /// Variable names for the URL autocomplete, already merged from the visible scopes.
     pub variables: &'a [String],
     pub sending: Option<SendProgress>,
+    /// True after a cURL import so the inline "Undo" hint can be offered.
+    pub undo_paste: bool,
 }
 
 impl RequestBuilder<'_> {
@@ -83,6 +87,14 @@ impl RequestBuilder<'_> {
         let theme = Theme::current(ui.ctx());
         let mut action = None;
         self.top_row(ui, &theme, &mut action);
+        if self.undo_paste {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("cURL imported.").small().color(theme.palette.text_muted));
+                if ui.add(egui::Button::new(RichText::new("Undo").small()).frame(false)).clicked() {
+                    action = Some(BuilderAction::UndoPaste);
+                }
+            });
+        }
         ui.separator();
         self.tabs(ui, &theme);
         ui.separator();

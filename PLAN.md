@@ -121,7 +121,7 @@ Planned observation requests:
 - [x] M3.2 Sidebar: collections tree (carets, preview-open, keyboard, multi-select, drag and drop, context menus exactly as PROMPT.md 5.1), environments, history, filter.
 - [x] M3.3 Tab strip: preview tabs, dirty dot, drag reorder, middle-click, overflow search, context menu, closed-tab reopen, session and draft restore, crash recovery.
 - [~] M3.4 Request builder (core; header presets/bulk edit pending): breadcrumb, URL field (chips, autocomplete, cURL paste), Params and path variables, Headers (auto-generated rows, presets, bulk edit), Body (all modes, Beautify), Authorization (No Auth, Inherit, Basic, Bearer, API Key), Settings, Docs, Save flows, send/cancel states.
-- [ ] M3.5 Response viewer: header strip with popovers, Pretty/Raw/Preview/Hex, large-body strategy, search, headers/cookies tabs, Save Response, Send and Download. Frame-time and memory checks against section 8.
+- [~] M3.5 Response viewer (core; syntax colours/search navigation/file picker pending): header strip with popovers, Pretty/Raw/Preview/Hex, large-body strategy, search, headers/cookies tabs, Save Response, Send and Download. Frame-time and memory checks against section 8.
 - [ ] M3.6 Environment editor, selector, quick-look, Globals; variable hover popover and "Set as variable".
 - [ ] M3.7 Collection and folder detail tabs (Overview, Authorization, Variables, Scripts shell, Runs shell), inheritance display.
 - [ ] M3.8 Command registry, command palette, trash view, tree undo.
