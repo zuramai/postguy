@@ -37,6 +37,32 @@ pub fn append(path: &Path, entry: &postguy_model::HistoryEntry) -> Result<()> {
     atomic_write(path, out.as_bytes())
 }
 
+/// Append ONE entry without reading the file (the common path: O(1) per send). A torn final
+/// line from a crash is skipped by [`latest`], so the log stays usable.
+pub fn append_line(path: &Path, entry: &postguy_model::HistoryEntry) -> Result<()> {
+    use std::io::Write as _;
+    let line = serde_json::to_string(&Line { entry: entry.clone() })
+        .map_err(|err| postguy_util::Error::JsonSyntax { what: format!("serializing history entry into {}", path.display()), source: err })?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|source| postguy_util::Error::Io { operation: format!("creating {}", parent.display()), source })?;
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|source| postguy_util::Error::Io { operation: format!("opening {}", path.display()), source })?;
+    file.write_all(line.as_bytes())
+        .and_then(|()| file.write_all(b"\n"))
+        .and_then(|()| file.sync_data())
+        .map_err(|source| postguy_util::Error::Io { operation: format!("appending to {}", path.display()), source })
+}
+
+/// Remove every history entry (the History panel's Clear and the `history_clear` tool). The
+/// file is rewritten atomically, so a failed clear leaves the old history intact.
+pub fn clear(path: &Path) -> Result<()> {
+    postguy_util::atomic_write(path, b"")
+}
+
 /// The `limit` newest entries (newest last, as the file order writes them). A malformed line
 /// is skipped and reported as ONE warning string, appended to the result's log.
 pub fn latest(path: &Path, limit: usize) -> Result<Vec<postguy_model::HistoryEntry>> {
@@ -88,6 +114,18 @@ mod tests {
         // 5250 written, newest 5000 kept: ids 250..=5249 survive, first = h250, last = h5249.
         assert_eq!(all.first().unwrap().id.0, "h250");
         assert_eq!(all.last().unwrap().id.0, "h5249");
+        Ok(())
+    }
+
+    #[test]
+    fn clear_empties_the_file() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let path: PathBuf = dir.path().join("history.jsonl");
+        append(&path, &entry(1))?;
+        append(&path, &entry(2))?;
+        assert_eq!(latest(&path, usize::MAX)?.len(), 2);
+        clear(&path)?;
+        assert!(latest(&path, usize::MAX)?.is_empty());
         Ok(())
     }
 

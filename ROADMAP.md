@@ -21,6 +21,15 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-20 (M2.9):** Automation tools over the engine: `request_send`/`request_cancel`
+  (send outside the session lock so cancellation reaches in-flight work), response cache by
+  history id with `response_get`/`save`/`render_body` (1 MiB echo cap), `cookies_*`,
+  `history_*` (including atomic clear), `console_*` and `variables_resolve` with scope
+  attribution. History appends are O(1) until the cap rotates, and the jar is rewritten only
+  when a hop set cookies. M2 exit proved through the tools: redirect loop, gzip decode,
+  self-signed TLS with the verify toggle, response cap and in-flight cancellation; the real CLI
+  binary sends to the testkit via `run --script`. Send overhead (release, loopback, 100 KiB
+  JSON): prepare < 1 ms, record ~4 ms, engine total ~5 ms vs bare client ~0.2 ms.
 - **2026-10-20 (M2.8):** Engine send pipeline: scope chain (globals/collection/folders/
   environment with secrets from the secrets store), explicit no-op script hooks, inherited
   P0 auth, URL building (path vars, query merge, IDNA, Appendix D encoding), body and automatic

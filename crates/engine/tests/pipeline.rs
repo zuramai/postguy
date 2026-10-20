@@ -2,8 +2,6 @@
 //! requests, scope resolution, inherited auth, path/query building, cookies across sessions,
 //! history/console recording, secret masking, cancellation and the response cap.
 
-use std::path::PathBuf;
-
 use base64::Engine as _;
 
 use postguy_engine::{Engine, SendOptions, SendTarget};
@@ -315,7 +313,3 @@ fn resolve_variables_uses_the_active_environment_and_globals() {
     let resolution = engine.resolve_variables("{{name}} {{edition}} {{nope}}").expect("resolve");
     assert_eq!(resolution.text, "postguy desktop {{nope}}");
 }
-
-/// Keep the `PathBuf` import honest (the fixture uses it for the outside-path case).
-#[allow(dead_code)]
-fn _path_type(_: Option<PathBuf>) {}

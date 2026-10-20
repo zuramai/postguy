@@ -88,3 +88,70 @@ fn an_outside_script_is_refused_with_the_same_message_shape() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("is outside the allowed directory"), "{stderr}");
 }
+
+/// The M2.9 exit: the REAL binary sends a stored request to the loopback testkit through
+/// `postguy-cli run --script --root`, with the response tools reading the same outcome.
+#[test]
+fn run_script_sends_through_the_engine_to_loopback() {
+    let server = postguy_testkit::Server::start();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+
+    // Each `run --script` is one process, so an agent chains steps inside one script; the
+    // helper returns each step's result object.
+    let mut counter = 0usize;
+    let mut run_steps = |steps: serde_json::Value| -> Vec<serde_json::Value> {
+        counter += 1;
+        let script = write_script(dir.path(), &format!("steps-{counter}.json"), steps);
+        let output = cli().args(["run", "--script"]).arg(&script).arg("--root").arg(root).output().expect("run script");
+        assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|line| line["ok"] == true && line.get("result").is_some())
+            .map(|line| line["result"].clone())
+            .collect()
+    };
+
+    let created = run_steps(serde_json::json!([
+        {"tool": "workspace_open", "args": {"path": "work"}},
+        {"tool": "collection_create", "args": {"name": "CLI smoke"}}
+    ]));
+    let collection = created.last().expect("a result")["collection"].as_str().expect("collection id").to_string();
+
+    let created = run_steps(serde_json::json!([
+        {"tool": "workspace_open", "args": {"path": "work"}},
+        {"tool": "request_create", "args": {"collection": collection, "kind": "http", "name": "Echo"}}
+    ]));
+    let request = created.last().expect("a result")["request"].as_str().expect("request id").to_string();
+
+    let got = run_steps(serde_json::json!([
+        {"tool": "workspace_open", "args": {"path": "work"}},
+        {"tool": "request_get", "args": {"collection": collection, "request": request}}
+    ]));
+    let mut definition = got.last().expect("a result")["request"]["kind"].clone();
+    definition["url"] = serde_json::json!(format!("{}/echo?cli=1", server.base_url()));
+    definition["method"] = serde_json::json!("GET");
+    run_steps(serde_json::json!([
+        {"tool": "workspace_open", "args": {"path": "work"}},
+        {"tool": "request_update", "args": {"collection": collection, "request": request, "definition": definition}}
+    ]));
+
+    let script = write_script(
+        dir.path(),
+        "send.json",
+        serde_json::json!([
+            {"tool": "workspace_open", "args": {"path": "work"}},
+            {"tool": "request_send", "args": {"collection": collection, "request": request}},
+            {"tool": "response_get", "args": {}},
+            {"tool": "history_list", "args": {"limit": 5}}
+        ]),
+    );
+    let output = cli().args(["run", "--script"]).arg(&script).arg("--root").arg(root).output().expect("run script");
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains(r#""status":200"#), "{stdout}");
+    assert!(stdout.contains(r#"cli=1"#), "the echo body came back: {stdout}");
+    assert!(stdout.contains(r#""historyId""#), "{stdout}");
+    assert!(stdout.contains(r#""ok":true,"steps":4}"#), "{stdout}");
+}

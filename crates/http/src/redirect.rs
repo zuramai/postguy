@@ -55,6 +55,9 @@ pub struct RedirectHop {
 pub struct RedirectOutcome {
     pub response: ResponseData,
     pub hops: Vec<RedirectHop>,
+    /// How many `Set-Cookie` values were stored across all hops (0 = the jar is unchanged and
+    /// the caller need not rewrite it).
+    pub cookies_stored: usize,
 }
 
 impl Client {
@@ -89,6 +92,7 @@ impl Client {
         let mut hops: Vec<RedirectHop> = Vec::new();
         let mut seen: Vec<(String, String)> = Vec::new();
         let mut crossed_hosts = false;
+        let mut cookies_stored = 0usize;
         loop {
             let method_key = current.method.as_str().to_string();
             if !seen.iter().any(|(method, url)| *method == method_key && *url == current.url) {
@@ -121,17 +125,18 @@ impl Client {
                     && let Ok(mut jar) = jar.lock()
                 {
                     jar.store_from_headers(&current.url, set_cookies.iter().map(String::as_str));
+                    cookies_stored = cookies_stored.saturating_add(set_cookies.len());
                 }
             }
             let status = response.status.as_u16();
             let location = response.headers.iter().find(|(name, _)| name == "location").map(|(_, value)| value.clone());
             let redirect = matches!(status, 301 | 302 | 303 | 307 | 308);
             if !policy.follow || !redirect {
-                return Ok(RedirectOutcome { response, hops });
+                return Ok(RedirectOutcome { response, hops, cookies_stored });
             }
             let Some(location) = location else {
                 // A 3xx without Location is final (the viewer shows it as-is).
-                return Ok(RedirectOutcome { response, hops });
+                return Ok(RedirectOutcome { response, hops, cookies_stored });
             };
             hops.push(RedirectHop { url: current.url.clone(), status, location: Some(location.clone()) });
             if hops.len() as u32 > policy.max_redirects {

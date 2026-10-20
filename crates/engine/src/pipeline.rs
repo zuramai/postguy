@@ -67,6 +67,18 @@ pub struct ResponseView {
     pub timings: ResponseTimings,
 }
 
+/// Stages of one send, for the Console/timeline and the send-overhead budget (PROMPT.md 8):
+/// `prepare` is steps 1–7 (click to first byte written), `network` is the round trip,
+/// `record` is steps 9–12 (last byte to the model the viewer renders).
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PipelineTimings {
+    pub prepare_ms: u64,
+    pub network_ms: u64,
+    pub record_ms: u64,
+    pub total_ms: u64,
+}
+
 /// One completed send.
 #[derive(Debug, Clone)]
 pub struct SendOutcome {
@@ -74,6 +86,7 @@ pub struct SendOutcome {
     pub response: ResponseView,
     pub history: HistoryEntry,
     pub warnings: Vec<String>,
+    pub timings: PipelineTimings,
 }
 
 /// The request plus everything that supplies scopes, auth and scripts around it.
@@ -85,6 +98,7 @@ struct Located {
 
 /// Run one send (async core; [`Engine::send`] adds panic protection and a blocking facade).
 pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOptions) -> Result<SendOutcome> {
+    let started = std::time::Instant::now();
     let global = engine.settings();
     let mut warnings: Vec<String> = Vec::new();
 
@@ -154,14 +168,22 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
         remove_referer_on_redirect: request.settings.remove_referer_on_redirect,
         max_redirects: request.settings.max_redirects,
     };
+    let prepare_ms = millis(started.elapsed());
+    let send_started = std::time::Instant::now();
     let cancel = options.cancel.clone().unwrap_or_default();
     let outcome = {
         let jar = engine.jar();
         client.send_with_cookies(spec, policy, jar, request.settings.cookie_jar_disabled, &cancel).await?
     };
 
-    // 9. Persist the jar (atomic; a failure is a warning, never a lost response).
-    if let Err(err) = engine.save_jar() {
+    let network_ms = millis(send_started.elapsed());
+    let record_started = std::time::Instant::now();
+
+    // 9. Persist the jar only when a hop actually set a cookie (a no-change atomic rewrite
+    // per send would dominate the send-overhead budget).
+    if outcome.cookies_stored > 0
+        && let Err(err) = engine.save_jar()
+    {
         warnings.push(format!("could not save the cookie jar: {err}"));
     }
 
@@ -243,7 +265,18 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
         proxy,
         redirect_hops: outcome.hops,
     };
-    Ok(SendOutcome { request: sent, response, history, warnings })
+    let record_ms = millis(record_started.elapsed());
+    Ok(SendOutcome {
+        request: sent,
+        response,
+        history,
+        warnings,
+        timings: PipelineTimings { prepare_ms, network_ms, record_ms, total_ms: millis(started.elapsed()) },
+    })
+}
+
+fn millis(duration: std::time::Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
 fn scripts_present(located: &Located) -> bool {

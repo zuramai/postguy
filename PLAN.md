@@ -111,9 +111,9 @@ Planned observation requests:
 - [x] M2.6 Cookie jar (RFC 6265): persistence, `Set-Cookie` on every hop, per-request disable, allowlist storage.
 - [x] M2.7 Proxy: env vars, custom HTTP and SOCKS5, bypass list. Auth: Basic, Bearer, API key. Observation request 2.
 - [x] M2.8 Send pipeline in `engine` (12 steps, scripts as no-op hooks), history and console models, runtime ownership, panic-to-error wrapping.
-- [ ] M2.9 Tools: `request_send`, `request_cancel`, `response_*`, `cookies_*`, `history_*`, `console_*`, `variables_resolve`. End-to-end tests against testkit.
+- [x] M2.9 Tools: `request_send`, `request_cancel`, `response_*`, `cookies_*`, `history_*`, `console_*`, `variables_resolve`. End-to-end tests against testkit.
 
-**Exit:** `postguy-cli run --script` sends to loopback: redirect loops, cookies, all compressions, self-signed TLS, slow and huge bodies, cancel; regression tests for compression bomb and redirect cap; send overhead budget measured.
+**Exit (met):** `postguy-cli run --script` sends to loopback: redirect loops, cookies, all compressions, self-signed TLS, slow and huge bodies, cancel; regression tests for compression bomb and redirect cap; send overhead budget measured.
 
 #### M3 Desktop shell and HTTP UI (ten sub-steps; commit per sub-step)
 

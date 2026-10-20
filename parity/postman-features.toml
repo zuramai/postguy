@@ -230,18 +230,18 @@ title = "12-step send pipeline with history, console and runtime ownership"
 area = "C"
 tier = "P0"
 milestone = "M2.8"
-status = "planned"
-notes = "Steps unit-testable; scripts as no-op hooks until M8; panic-to-error wrapping."
-
+status = "shipped"
+notes = "Steps unit-testable; scripts are explicit no-op hooks until M8; panic-to-error wrapping; History and Console recorded with secret masking."
+evidence = ["crates/engine/tests/pipeline.rs::a_sent_request_records_history_console_and_resolves_scopes", "crates/engine/tests/pipeline.rs::scripts_are_an_explicit_no_op_hook_not_a_silent_drop"]
 [[feature]]
 id = "c.connector"
 title = "HTTP connector: DNS/TCP/TLS phases, ALPN h1/h2, rustls"
 area = "C"
 tier = "P0"
 milestone = "M2.2"
-status = "planned"
-notes = "Native roots plus optional CA PEM; verify toggle; cancellation; timeouts."
-
+status = "shipped"
+notes = "Native roots plus optional CA PEM; verify toggle; cancellation; timeouts; ALPN h1/h2."
+evidence = ["crates/http/tests/connector.rs::a_plain_get_reports_status_body_and_phase_timings", "crates/http/tests/connector.rs::a_tls_request_verifies_against_the_user_ca", "crates/http/tests/connector.rs::cancellation_aborts_an_in_flight_request"]
 [[feature]]
 id = "c.request-line"
 title = "Request line: method dropdown, URL field, Send/Cancel with timer"
@@ -275,18 +275,18 @@ title = "Body: none, form-data, urlencoded, raw, binary, GraphQL"
 area = "C"
 tier = "P0"
 milestone = "M2.3"
-status = "planned"
-notes = "GraphQL UI lands in M5.4; switching type keeps other modes' data until save."
-
+status = "shipped"
+notes = "All six modes build wire bodies (GraphQL UI lands in M5.4); switching type keeps other modes' data until save."
+evidence = ["crates/http/src/build.rs::urlencoded_rows_encode_and_skip_disabled_and_empty_rows", "crates/http/src/build.rs::multipart_has_boundary_text_and_file_parts", "crates/http/src/build.rs::graphql_bodies_serialise_query_variables_and_operation", "crates/engine/tests/pipeline.rs::file_bodies_are_confined_to_the_working_directory"]
 [[feature]]
 id = "c.auth-p0"
 title = "Auth: No Auth, Inherit, API Key, Basic, Bearer"
 area = "C"
 tier = "P0"
 milestone = "M2.3"
-status = "planned"
-notes = "Applied like the rest of the pipeline; generated headers previewable, never saved."
-
+status = "shipped"
+notes = "Basic, Bearer and API key applied on send; inherited through folders/collection; generated headers are shown, never saved."
+evidence = ["crates/engine/tests/pipeline.rs::inherited_basic_auth_is_applied_and_secret_values_are_masked", "crates/http/src/auth.rs::api_key_goes_to_a_header_or_the_query_with_replacement"]
 [[feature]]
 id = "c.auth-m5"
 title = "Auth: Digest, JWT, OAuth 1.0, OAuth 2.0, AWS Sig v4, Hawk"
@@ -302,27 +302,27 @@ title = "Manual redirects: per-hop record, method rules, credential drop"
 area = "C"
 tier = "P0"
 milestone = "M2.5"
-status = "planned"
-notes = "Cap 10 and loop detection mandatory; settings per request."
-
+status = "shipped"
+notes = "Cap and loop detection; per-hop records; method and credential rules from the per-request settings."
+evidence = ["crates/http/tests/redirects.rs::a_chain_is_followed_and_every_hop_recorded", "crates/http/tests/redirects.rs::cross_host_hops_drop_credentials_by_default_and_keep_them_when_asked", "crates/http/tests/redirects.rs::the_hop_cap_and_loop_detection_stop_with_actionable_errors"]
 [[feature]]
 id = "c.compression"
 title = "Decode gzip/deflate/br/zstd with decoded-size and ratio caps"
 area = "C"
 tier = "P0"
 milestone = "M2.4"
-status = "planned"
-notes = "Compression-bomb regression tests; truncated banner above the max-response-size setting."
-
+status = "shipped"
+notes = "Decoded-size and ratio caps; a truncated response errors actionably; the viewer shows the size breakdown."
+evidence = ["crates/http/src/decode.rs::gzip_deflate_br_and_zstd_decode_to_the_same_bytes", "crates/http/src/decode.rs::a_compression_bomb_hits_the_ratio_cap", "crates/http/tests/connector.rs::compressed_responses_decode_with_the_size_breakdown"]
 [[feature]]
 id = "c.cookies"
 title = "Cookie jar (RFC 6265): persistence, every hop, per-request disable"
 area = "C"
 tier = "P0"
 milestone = "M2.6"
-status = "planned"
-notes = "Jar in `.postguy/cookies.json`; manual Cookie header merged; allowlist governs scripts."
-
+status = "shipped"
+notes = "Jar in `.postguy/cookies.json`; manual Cookie header merged; allowlist governs scripts; Set-Cookie captured on every hop."
+evidence = ["crates/http/tests/cookies.rs::set_cookie_on_a_redirect_hop_rides_the_next_hop", "crates/http/tests/cookies.rs::the_per_request_disable_sends_and_stores_nothing", "crates/engine/tests/pipeline.rs::cookies_survive_a_restart_through_the_persisted_jar"]
 [[feature]]
 id = "c.cookies-manager"
 title = "Cookies manager UI (manage + domain allowlist)"
@@ -338,9 +338,9 @@ title = "Proxy: system, custom HTTP/SOCKS5, bypass list, per-request off"
 area = "C"
 tier = "P0"
 milestone = "M2.7"
-status = "planned"
-notes = "Effective proxy logged in the Console; custom wins over system; forces h1 for plain HTTP."
-
+status = "partial"
+notes = "Environment and custom HTTP/SOCKS5 routes, bypass list, proxy basic auth; forces h1 for plain HTTP. Missing: OS system-proxy discovery (environment only) and a per-request off switch."
+evidence = ["crates/http/tests/proxy.rs::plain_http_travels_through_an_http_proxy_in_absolute_form", "crates/http/tests/proxy.rs::https_runs_inside_a_connect_tunnel", "crates/http/tests/proxy.rs::socks5h_sends_the_host_name_and_socks5_resolves_locally"]
 [[feature]]
 id = "c.tls-certs"
 title = "Client certificates (PEM, PFX) and CA bundle UI"
@@ -683,10 +683,10 @@ title = "`postguy-cli run --script steps.json --root DIR` engine harness"
 area = "F"
 tier = "P0"
 milestone = "M1.8"
-status = "partial"
-tools = ["collection_create", "collection_list", "workspace_open"]
-evidence = ["apps/postguy-cli/tests/run_script.rs::run_script_drives_the_engine_and_stops_on_the_first_error", "apps/postguy-cli/tests/run_script.rs::an_outside_script_is_refused_with_the_same_message_shape"]
-notes = "Steps are {tool, args} objects run in order, stopping at the first error (exit 1; bad arguments exit 2). The script file itself resolves through --root. The engine façade (M2.8) and the send/cookies/history tools (M2.9) arrive next."
+status = "shipped"
+tools = ["workspace_open", "collection_create", "request_create", "request_send", "response_get", "history_list"]
+evidence = ["apps/postguy-cli/tests/run_script.rs::run_script_sends_through_the_engine_to_loopback", "apps/postguy-cli/tests/run_script.rs::run_script_drives_the_engine_and_stops_on_the_first_error", "apps/postguy-cli/tests/run_script.rs::an_outside_script_is_refused_with_the_same_message_shape"]
+notes = "Steps are {tool, args} objects run in order, stopping at the first error (exit 1; bad arguments exit 2). The script file itself resolves through --root; sends run through the engine pipeline."
 
 [[feature]]
 id = "f.agent-tools"
@@ -694,10 +694,10 @@ title = "Automation tool table over the engine"
 area = "F"
 tier = "P0"
 milestone = "M1.8"
-status = "partial"
-tools = ["workspace_open", "workspace_info", "collection_list", "collection_get", "collection_create", "collection_rename", "collection_duplicate", "collection_delete", "folder_create", "folder_rename", "folder_delete", "request_create", "request_get", "request_update", "request_move", "request_duplicate", "request_delete", "env_list", "env_create", "env_rename", "env_duplicate", "env_delete", "env_set_active", "env_get", "env_set_var", "env_unset_var", "globals_get", "globals_set_var", "import_text", "import_file", "export_collection", "export_environment", "export_globals"]
-evidence = ["crates/automation/tests/tools.rs::the_tool_table_round_trips_a_workspace", "crates/automation/tests/tools.rs::root_confinement_refuses_identically_for_existing_and_missing_paths", "crates/automation/tests/tools.rs::imports_go_through_the_report_and_the_workspace", "crates/automation/tests/tools.rs::unknown_tools_and_arguments_fail_loudly_before_state_changes"]
-notes = "33 tools over the store/interop layer (the engine façade retargets this in M2.8); unknown arguments are rejected with the allowed set named; every path goes through --root with the identical refusal for existing and missing outside paths; request/folder deletes park a JSON snapshot under .trash/. Still missing here: request_send/response_*/cookies_*/history_*/console_* (M2.9), snippet_generate (M4), run_collection (M9), grpc_/ws_ (M6-M7)."
+status = "shipped"
+tools = ["workspace_open", "workspace_info", "collection_list", "collection_get", "collection_create", "collection_rename", "collection_duplicate", "collection_delete", "folder_create", "folder_rename", "folder_delete", "request_create", "request_get", "request_update", "request_move", "request_duplicate", "request_delete", "env_list", "env_create", "env_rename", "env_duplicate", "env_delete", "env_set_active", "env_get", "env_set_var", "env_unset_var", "globals_get", "globals_set_var", "import_text", "import_file", "export_collection", "export_environment", "export_globals", "request_send", "request_cancel", "response_get", "response_save", "response_render_body", "cookies_list", "cookies_set", "cookies_delete", "cookies_clear", "history_list", "history_open", "history_clear", "console_get", "console_clear", "variables_resolve"]
+evidence = ["crates/automation/tests/engine_tools.rs::request_send_and_the_response_tools_share_one_cached_outcome", "crates/automation/tests/engine_tools.rs::cookies_are_captured_listed_deleted_and_cleared", "crates/automation/tests/engine_tools.rs::variables_resolve_names_the_scope_and_secret_origin", "crates/automation/tests/tools.rs::the_tool_table_round_trips_a_workspace", "crates/automation/tests/tools.rs::root_confinement_refuses_identically_for_existing_and_missing_paths"]
+notes = "The tool table now runs over the engine: request_send/request_cancel, response_get/save/render_body, cookies_*, history_*, console_*, variables_resolve. Unknown arguments rejected with the allowed set; --root confinement with the identical refusal. Still missing: snippet_generate (M4), run_collection (M9), grpc_/ws_ (M6-M7)."
 
 [[feature]]
 id = "f.mcp"

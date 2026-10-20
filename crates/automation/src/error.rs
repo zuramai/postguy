@@ -61,6 +61,12 @@ impl From<postguy_util::Error> for AutomationError {
     }
 }
 
+impl From<postguy_engine::EngineError> for AutomationError {
+    fn from(err: postguy_engine::EngineError) -> AutomationError {
+        AutomationError::Failed { message: err.to_string() }
+    }
+}
+
 impl From<postguy_store::workspace_file::WorkspaceError> for AutomationError {
     fn from(err: postguy_store::workspace_file::WorkspaceError) -> AutomationError {
         AutomationError::Store { message: err.to_string() }
