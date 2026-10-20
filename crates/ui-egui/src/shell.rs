@@ -7,11 +7,19 @@
 
 use egui::{Align, Layout, RichText};
 
+use crate::environment::EnvironmentAction;
 use crate::sidebar::{RowKind, Sidebar, SidebarAction, SidebarData, SidebarState};
 use crate::tabs::{self, TAB_STRIP_HEIGHT, TabAction, TabDoc, Tabs};
 
-/// The app-supplied request editor shown in the central panel for request tabs.
-pub type RequestPanel<'a> = &'a mut dyn FnMut(&mut egui::Ui) -> Option<crate::builder::BuilderAction>;
+/// What an app-supplied central panel did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PanelAction {
+    Builder(crate::builder::BuilderAction),
+    Environment(EnvironmentAction),
+}
+
+/// The app-supplied editor shown in the central panel for request/environment/globals tabs.
+pub type ContentPanel<'a> = &'a mut dyn FnMut(&mut egui::Ui, &TabDoc) -> Option<PanelAction>;
 use crate::theme::{Metrics, Theme, ThemeMode};
 use crate::widgets;
 
@@ -80,9 +88,9 @@ impl PostguyShell {
         let _ = self.ui_with(ui, None);
     }
 
-    /// The same frame with an app-supplied request panel (the real builder). Returns the
-    /// builder's action so the app can save/send.
-    pub fn ui_with(&mut self, ui: &mut egui::Ui, mut request_panel: Option<RequestPanel<'_>>) -> Option<crate::builder::BuilderAction> {
+    /// The same frame with an app-supplied central panel (request builder, environment or
+    /// globals editor). Returns the panel's action so the app can save/send.
+    pub fn ui_with(&mut self, ui: &mut egui::Ui, mut content_panel: Option<ContentPanel<'_>>) -> Option<PanelAction> {
         let ctx = ui.ctx().clone();
         let theme = Theme::from_context(&ctx, self.state.theme_mode);
         theme.install(&ctx);
@@ -125,17 +133,23 @@ impl PostguyShell {
             Some(tab) => match &tab.doc {
                 TabDoc::Settings => self.settings(ui, &theme),
                 TabDoc::Welcome => self.welcome(ui, &theme),
-                TabDoc::Request { .. } if request_panel.is_some() => {
-                    if let Some(panel) = request_panel.as_mut() {
-                        builder_action = panel(ui);
+                TabDoc::Request { .. } | TabDoc::Environment { .. } | TabDoc::Globals if content_panel.is_some() => {
+                    if let Some(panel) = content_panel.as_mut() {
+                        builder_action = panel(ui, &tab.doc);
                     }
                 }
-                TabDoc::Request { .. } | TabDoc::Collection { .. } | TabDoc::Folder { .. } | TabDoc::Environment { .. } | TabDoc::History { .. } => {
+                TabDoc::Request { .. }
+                | TabDoc::Collection { .. }
+                | TabDoc::Folder { .. }
+                | TabDoc::Environment { .. }
+                | TabDoc::Globals
+                | TabDoc::History { .. } => {
                     let note = match &tab.doc {
                         TabDoc::Request { .. } => "The request builder arrives in M3.4.",
                         TabDoc::Collection { .. } => "The collection overview arrives in M3.7.",
                         TabDoc::Folder { .. } => "The folder detail arrives in M3.7.",
                         TabDoc::Environment { .. } => "The environment editor arrives in M3.6.",
+                        TabDoc::Globals => "The globals editor arrives in M3.6.",
                         _ => "Reopening a history entry arrives with the request builder (M3.4).",
                     };
                     self.detail(ui, &theme, &tab.title, note);
@@ -200,6 +214,9 @@ impl PostguyShell {
                     self.state.console_open = !self.state.console_open;
                 }
                 ui.label("Cookies");
+                if ui.add(egui::Button::new("Globals").frame(false)).clicked() {
+                    self.tabs.open(TabDoc::Globals, "Globals");
+                }
                 ui.label("Runner");
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.label(RichText::new(&self.state.status).small().color(theme.palette.text_muted));

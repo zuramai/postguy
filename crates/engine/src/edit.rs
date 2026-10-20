@@ -124,6 +124,29 @@ impl Engine {
         Ok(())
     }
 
+    /// One environment (for its editor tab).
+    pub fn environment(&self, id: &Id) -> Result<Environment> {
+        self.load_environment(id)
+    }
+
+    /// Save an edited environment (autosave from the editor; secret values split by the store).
+    pub fn save_environment(&self, environment: &Environment) -> Result<()> {
+        require_name(&environment.name)?;
+        self.workspace().save_environment(environment)?;
+        Ok(())
+    }
+
+    /// The globals file (an environment by another name).
+    pub fn globals(&self) -> Result<Environment> {
+        Ok(self.workspace().load_globals()?.into_value())
+    }
+
+    pub fn save_globals(&self, globals: &Environment) -> Result<()> {
+        // Globals have no user-visible name requirement (the file is a single globals.json).
+        self.workspace().save_globals(globals)?;
+        Ok(())
+    }
+
     /// Add a request to a collection root or folder. HTTP requests start with an empty URL;
     /// gRPC/WebSocket requests with their protocol defaults.
     pub fn create_request(&self, collection: &Id, parent: Option<&Id>, protocol: &str, name: &str) -> Result<Request> {

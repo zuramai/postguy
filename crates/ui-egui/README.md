@@ -28,6 +28,8 @@ The egui shell: theme, widgets and all screens.
   buttons, drag reorder, middle-click, overflow search with recently closed, the tab context
   menu, the strict dirty-close dialog and the environment selector. Tabs (with drafts) are
   serde for session restore.
+- `environment` — the environment/globals editor (autosaving variable table, secret masking,
+  search, colour dot, reorder) and the grouped variables quick-look.
 - `response` — the response pane: strip chips with phase/size popovers, Body/Cookies/Headers,
   Pretty/Raw/Preview/Hex (virtualised text and hex), wrap and search, Save/Copy/Clear actions.
 - `examples/shot.rs` — headless wgpu render of the real shell (`cargo run -p postguy-ui-egui

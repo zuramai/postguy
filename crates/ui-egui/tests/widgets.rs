@@ -394,6 +394,9 @@ fn the_shell_draws_its_regions_and_opens_settings() {
     harness.run();
     assert!(harness.state().tabs.active_tab().is_some_and(|tab| matches!(tab.doc, postguy_ui_egui::TabDoc::Settings)));
     assert!(harness.query_by_label_contains("Theme").is_some());
+    harness.get_by_label("Globals").click();
+    harness.run();
+    assert!(harness.state().tabs.active_tab().is_some_and(|tab| matches!(tab.doc, postguy_ui_egui::TabDoc::Globals)));
     let state: &ShellState = &harness.state().state;
     assert!(state.sidebar_open);
 }

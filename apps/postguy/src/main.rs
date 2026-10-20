@@ -12,10 +12,12 @@ use std::path::PathBuf;
 
 use egui::{Align, Layout, vec2};
 use postguy_engine::{Cancel, Engine, SendOptions, SendTarget};
-use postguy_model::{Collection, HttpRequest, Id, Item, Request, RequestKind};
+use postguy_model::{Collection, Environment, HttpRequest, Id, Item, Request, RequestKind};
 use postguy_store::{StorePaths, config_dir};
 use postguy_ui_egui::builder::{BodyDrafts, BuilderAction, BuilderTab, RequestBuilder, SendProgress};
+use postguy_ui_egui::environment::{EnvironmentAction, EnvironmentEditor};
 use postguy_ui_egui::response::{ResponseAction, ResponseData, ResponseViewerState, response_view};
+use postguy_ui_egui::shell::PanelAction;
 use postguy_ui_egui::sidebar::{RequestProtocol, RowKind, SidebarAction, SidebarData};
 use postguy_ui_egui::tabs::{TabAction, TabDoc, Tabs};
 use postguy_ui_egui::{PostguyShell, ThemeMode};
@@ -72,6 +74,14 @@ struct RequestEditor {
     undo_paste: Option<HttpRequest>,
 }
 
+struct EnvironmentEditorState {
+    environment: Environment,
+    globals: bool,
+    search: String,
+    show_description: bool,
+    reveal: bool,
+}
+
 struct Sending {
     tab: u64,
     started: std::time::Instant,
@@ -85,6 +95,8 @@ struct App {
     shell: PostguyShell,
     clipboard: Option<Clipboard>,
     editors: BTreeMap<u64, RequestEditor>,
+    env_editors: BTreeMap<u64, EnvironmentEditorState>,
+    pending_env_save: Option<(u64, Environment, bool, std::time::Instant)>,
     responses: BTreeMap<u64, ResponseData>,
     viewer_states: BTreeMap<u64, ResponseViewerState>,
     sending: Option<Sending>,
@@ -104,6 +116,8 @@ impl App {
                     shell,
                     clipboard: None,
                     editors: BTreeMap::new(),
+                    env_editors: BTreeMap::new(),
+                    pending_env_save: None,
                     responses: BTreeMap::new(),
                     viewer_states: BTreeMap::new(),
                     sending: None,
@@ -122,6 +136,8 @@ impl App {
                     shell,
                     clipboard: None,
                     editors: BTreeMap::new(),
+                    env_editors: BTreeMap::new(),
+                    pending_env_save: None,
                     responses: BTreeMap::new(),
                     viewer_states: BTreeMap::new(),
                     sending: None,
@@ -139,12 +155,14 @@ impl App {
         let history = engine.history(200).unwrap_or_default();
         let environments = engine.environments().unwrap_or_default();
         let active = engine.active_environment().unwrap_or_default();
+        let globals = engine.globals().unwrap_or_default();
         let mut data = SidebarData {
             revision: self.revision,
             collections: engine.collections().unwrap_or_default(),
             environments,
             history,
             active_environment: active,
+            globals,
         };
         if data.environments.is_empty() {
             data.active_environment = None;
@@ -492,6 +510,124 @@ impl App {
         }
     }
 
+    /// Load editor state for Environment and Globals tabs, and drop it with closed tabs.
+    fn sync_env_editors(&mut self) {
+        let Some(engine) = self.engine.clone() else { return };
+        let open: Vec<(u64, bool, Option<String>)> = self
+            .shell
+            .tabs
+            .tabs
+            .iter()
+            .filter_map(|tab| match &tab.doc {
+                TabDoc::Environment { id } => Some((tab.id, false, Some(id.clone()))),
+                TabDoc::Globals => Some((tab.id, true, None)),
+                _ => None,
+            })
+            .collect();
+        self.env_editors.retain(|id, _| open.iter().any(|(tab, _, _)| tab == id));
+        for (tab_id, globals, id) in open {
+            if self.env_editors.contains_key(&tab_id) {
+                continue;
+            }
+            let environment = if globals {
+                engine.globals()
+            } else {
+                id.as_ref()
+                    .map(|id| engine.environment(&Id(id.clone())))
+                    .unwrap_or_else(|| Err(postguy_engine::EngineError::NotFound { what: "environment".into(), id: String::new() }))
+            };
+            if let Ok(mut environment) = environment {
+                if globals && environment.name.trim().is_empty() {
+                    environment.name = "Globals".into();
+                }
+                self.env_editors
+                    .insert(tab_id, EnvironmentEditorState { environment, globals, search: String::new(), show_description: true, reveal: false });
+            }
+        }
+    }
+
+    /// Write an autosaved environment/globals edit when the typing pause passes.
+    fn flush_pending_env(&mut self, force: bool) {
+        let Some((tab_id, environment, globals, at)) = &self.pending_env_save else { return };
+        if !force && at.elapsed() < std::time::Duration::from_millis(400) {
+            return;
+        }
+        let tab_id = *tab_id;
+        let environment = environment.clone();
+        let globals = *globals;
+        self.pending_env_save = None;
+        let Some(engine) = self.engine.clone() else { return };
+        let result = if globals { engine.save_globals(&environment) } else { engine.save_environment(&environment) };
+        match result {
+            Ok(()) => {
+                self.shell.tabs.set_title(tab_id, environment.name.clone());
+                self.refresh();
+            }
+            Err(err) => self.shell.state.status = format!("Environment save failed: {err}"),
+        }
+    }
+
+    fn apply_environment(&mut self, tab_id: u64, action: EnvironmentAction) {
+        let Some(engine) = self.engine.clone() else { return };
+        match action {
+            EnvironmentAction::Save => {
+                if let Some(editor) = self.env_editors.get(&tab_id) {
+                    self.pending_env_save = Some((tab_id, editor.environment.clone(), editor.globals, std::time::Instant::now()));
+                }
+            }
+            EnvironmentAction::Duplicate => {
+                self.flush_pending_env(true);
+                if let Some(editor) = self.env_editors.get(&tab_id)
+                    && !editor.globals
+                {
+                    match engine.duplicate_environment(&editor.environment.id, None) {
+                        Ok(copy) => {
+                            self.refresh();
+                            let new_tab = self.shell.tabs.open(TabDoc::Environment { id: copy.id.0.clone() }, copy.name.clone());
+                            self.sync_env_editors();
+                            self.shell.tabs.activate(new_tab);
+                            self.shell.state.status = "Duplicated environment".into();
+                        }
+                        Err(err) => self.shell.state.status = err.to_string(),
+                    }
+                }
+            }
+            EnvironmentAction::Export => {
+                self.shell.state.status = "Environment export arrives with M4".into();
+            }
+            EnvironmentAction::Delete => {
+                self.pending_env_save = None;
+                if let Some(editor) = self.env_editors.remove(&tab_id)
+                    && !editor.globals
+                {
+                    match engine.delete_environment(&editor.environment.id) {
+                        Ok(()) => {
+                            self.shell.tabs.force_close(tab_id);
+                            self.shell.state.status = "Environment deleted".into();
+                            self.refresh();
+                        }
+                        Err(err) => self.shell.state.status = err.to_string(),
+                    }
+                }
+            }
+            EnvironmentAction::CreateEnvironment => match engine.create_environment("New Environment") {
+                Ok(environment) => {
+                    self.refresh();
+                    let tab = self.shell.tabs.open(TabDoc::Environment { id: environment.id.0.clone() }, environment.name.clone());
+                    self.sync_env_editors();
+                    self.shell.tabs.activate(tab);
+                    self.shell.state.status = "Created environment".into();
+                }
+                Err(err) => self.shell.state.status = err.to_string(),
+            },
+            EnvironmentAction::Close => {
+                self.flush_pending_env(true);
+                self.env_editors.remove(&tab_id);
+                self.shell.tabs.force_close(tab_id);
+            }
+        }
+    }
+
     fn poll_send(&mut self) {
         let Some(sending) = self.sending.take() else { return };
         let result = match sending.receiver.try_recv() {
@@ -674,6 +810,16 @@ impl App {
                 let _ = engine.set_active_environment(id.map(Id));
                 self.refresh();
             }
+            TabAction::CreateEnvironment => match engine.create_environment("New Environment") {
+                Ok(environment) => {
+                    self.refresh();
+                    let tab = self.shell.tabs.open(TabDoc::Environment { id: environment.id.0.clone() }, environment.name.clone());
+                    self.sync_env_editors();
+                    self.shell.tabs.activate(tab);
+                    self.shell.state.status = "Created environment".into();
+                }
+                Err(err) => self.shell.state.status = err.to_string(),
+            },
             TabAction::NewRequest => {
                 let collections = engine.collections().unwrap_or_default();
                 let Some(collection) = collections.first() else {
@@ -813,7 +959,12 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_send();
         self.sync_editors();
-        let panel_tab = self.shell.tabs.active_tab().filter(|tab| matches!(tab.doc, TabDoc::Request { .. })).map(|tab| tab.id);
+        self.sync_env_editors();
+        self.flush_pending_env(false);
+        let active = self.shell.tabs.active_tab().cloned();
+        let active_id = active.as_ref().map(|tab| tab.id);
+        let is_request = active.as_ref().is_some_and(|tab| matches!(tab.doc, TabDoc::Request { .. }));
+        let panel_tab = if is_request { active_id } else { None };
         let variables = panel_tab.and_then(|id| self.editors.get(&id)).map(|editor| self.variables_for(&editor.collection)).unwrap_or_default();
         let collection_name = panel_tab
             .and_then(|id| self.editors.get(&id))
@@ -833,48 +984,67 @@ impl eframe::App for App {
                 None
             }
         });
-        let builder_action = {
+        let panel_result = {
             let shell = &mut self.shell;
             let editors = &mut self.editors;
+            let env_editors = &mut self.env_editors;
             let responses = &mut self.responses;
             let viewer_states = &mut self.viewer_states;
             let mut response_action: Option<ResponseAction> = None;
-            let mut panel = |ui: &mut egui::Ui| {
-                let panel_id = panel_tab?;
-                let editor = editors.get_mut(&panel_id)?;
-                let mut builder = RequestBuilder {
-                    name: &mut editor.request.name,
-                    description: &mut editor.description,
-                    collection_name: &collection_name,
-                    draft: &mut editor.draft,
-                    bodies: &mut editor.bodies,
-                    dirty: &mut editor.dirty,
-                    tab: &mut editor.tab,
-                    variables: &variables,
-                    sending: progress,
-                    undo_paste: editor.undo_paste.is_some(),
-                };
-                let builder_action = if let Some(data) = responses.get_mut(&panel_id) {
-                    let total = ui.available_height();
-                    let request_height = (total * 0.52).max(170.0);
-                    let action = ui
-                        .allocate_ui_with_layout(vec2(ui.available_width(), request_height), Layout::top_down(Align::Min), |ui| builder.show(ui))
-                        .inner;
-                    ui.separator();
-                    let viewer = viewer_states.entry(panel_id).or_default();
-                    response_action = response_view(ui, data, viewer);
-                    action
-                } else {
-                    builder.show(ui)
-                };
-                editor.request.kind = RequestKind::Http(editor.draft.clone());
-                builder_action
+            let mut panel = |ui: &mut egui::Ui, doc: &TabDoc| {
+                let panel_id = active_id?;
+                match doc {
+                    TabDoc::Request { .. } => {
+                        let editor = editors.get_mut(&panel_id)?;
+                        let mut builder = RequestBuilder {
+                            name: &mut editor.request.name,
+                            description: &mut editor.description,
+                            collection_name: &collection_name,
+                            draft: &mut editor.draft,
+                            bodies: &mut editor.bodies,
+                            dirty: &mut editor.dirty,
+                            tab: &mut editor.tab,
+                            variables: &variables,
+                            sending: progress,
+                            undo_paste: editor.undo_paste.is_some(),
+                        };
+                        let builder_action = if let Some(data) = responses.get_mut(&panel_id) {
+                            let total = ui.available_height();
+                            let request_height = (total * 0.52).max(170.0);
+                            let action = ui
+                                .allocate_ui_with_layout(vec2(ui.available_width(), request_height), Layout::top_down(Align::Min), |ui| {
+                                    builder.show(ui)
+                                })
+                                .inner;
+                            ui.separator();
+                            let viewer = viewer_states.entry(panel_id).or_default();
+                            response_action = response_view(ui, data, viewer);
+                            action
+                        } else {
+                            builder.show(ui)
+                        };
+                        editor.request.kind = RequestKind::Http(editor.draft.clone());
+                        builder_action.map(PanelAction::Builder)
+                    }
+                    TabDoc::Environment { .. } | TabDoc::Globals => {
+                        let editor = env_editors.get_mut(&panel_id)?;
+                        let mut environment = EnvironmentEditor {
+                            environment: &mut editor.environment,
+                            globals: editor.globals,
+                            search: &mut editor.search,
+                            show_description: &mut editor.show_description,
+                            reveal: &mut editor.reveal,
+                        };
+                        environment.show(ui).map(PanelAction::Environment)
+                    }
+                    _ => None,
+                }
             };
-            let builder_result = shell.ui_with(ui, if panel_tab.is_some() { Some(&mut panel) } else { None });
+            let result = shell.ui_with(ui, if active_id.is_some() { Some(&mut panel) } else { None });
             if let (Some(tab), Some(action)) = (panel_tab, response_action) {
                 self.apply_response_action(tab, action);
             }
-            builder_result
+            result
         };
         if let Some(panel_id) = panel_tab
             && let Some(editor) = self.editors.get(&panel_id)
@@ -887,13 +1057,21 @@ impl eframe::App for App {
         if let Some(action) = self.shell.tab_action.take() {
             self.apply_tab(action);
         }
-        if let Some(action) = builder_action {
-            self.apply_builder(panel_tab.unwrap_or(0), action);
+        if let Some(action) = panel_result {
+            match action {
+                PanelAction::Builder(action) => self.apply_builder(panel_tab.unwrap_or(0), action),
+                PanelAction::Environment(action) => {
+                    if let Some(tab) = active_id {
+                        self.apply_environment(tab, action);
+                    }
+                }
+            }
         }
         self.save_session(false, false);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.flush_pending_env(true);
         self.save_session(true, true);
     }
 }
@@ -1191,6 +1369,76 @@ mod tests {
             RequestKind::Http(http) => assert_eq!(http.url, "https://saved.example.com/users"),
             _ => panic!("wrong kind"),
         }
+    }
+
+    #[test]
+    fn environment_tabs_load_autosave_duplicate_and_delete() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let environment = engine.create_environment("Staging").expect("environment");
+        app.refresh();
+        let tab = app.shell.tabs.open(TabDoc::Environment { id: environment.id.0.clone() }, "Staging");
+        app.sync_env_editors();
+        {
+            let editor = app.env_editors.get_mut(&tab).expect("environment editor");
+            editor.environment.name = "Production".into();
+            editor.environment.variables.push(postguy_model::Variable {
+                key: "token".into(),
+                value: "hunter2".into(),
+                secret: true,
+                ..Default::default()
+            });
+        }
+        app.apply_environment(tab, EnvironmentAction::Save);
+        app.flush_pending_env(true);
+        let saved = engine.environment(&environment.id).expect("environment");
+        assert_eq!(saved.name, "Production");
+        assert!(saved.variables.iter().any(|variable| variable.key == "token" && variable.value == "hunter2"));
+        assert_eq!(app.shell.tabs.tabs.iter().find(|candidate| candidate.id == tab).map(|candidate| candidate.title.as_str()), Some("Production"));
+
+        app.apply_environment(tab, EnvironmentAction::Duplicate);
+        assert_eq!(engine.environments().expect("environments").len(), 2, "duplicate creates a second environment");
+        let env_tabs: Vec<u64> = app.shell.tabs.tabs.iter().filter(|tab| matches!(tab.doc, TabDoc::Environment { .. })).map(|tab| tab.id).collect();
+        assert!(env_tabs.len() >= 2);
+        let first_tab = *env_tabs.first().expect("env tab");
+        app.apply_environment(first_tab, EnvironmentAction::Delete);
+        assert_eq!(engine.environments().expect("environments").len(), 1, "delete removes the file");
+        assert!(app.shell.tabs.tabs.iter().all(|tab| tab.id != first_tab), "the editor tab closes");
+    }
+
+    #[test]
+    fn globals_load_and_save_through_the_editor() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let tab = app.shell.tabs.open(TabDoc::Globals, "Globals");
+        app.sync_env_editors();
+        {
+            let editor = app.env_editors.get_mut(&tab).expect("globals editor");
+            assert!(editor.globals);
+            editor.environment.variables.push(postguy_model::Variable { key: "region".into(), value: "eu".into(), ..Default::default() });
+        }
+        app.apply_environment(tab, EnvironmentAction::Save);
+        app.flush_pending_env(true);
+        let globals = engine.globals().expect("globals");
+        assert!(
+            globals.variables.iter().any(|variable| variable.key == "region" && variable.value == "eu"),
+            "status: {} vars: {:?}",
+            app.shell.state.status,
+            globals.variables
+        );
+    }
+
+    #[test]
+    fn the_selector_create_environment_action_opens_an_editor() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        app.apply_tab(TabAction::CreateEnvironment);
+        assert_eq!(app.engine.as_ref().expect("engine").environments().expect("environments").len(), 1);
+        let tab = app.shell.tabs.active_tab().expect("environment tab");
+        assert!(matches!(tab.doc, TabDoc::Environment { .. }));
+        assert!(app.env_editors.contains_key(&tab.id));
     }
 
     #[test]
