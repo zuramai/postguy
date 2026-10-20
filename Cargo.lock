@@ -2447,15 +2447,27 @@ version = "0.1.0"
 [[package]]
 name = "postguy-automation"
 version = "0.1.0"
+dependencies = [
+ "postguy-interop",
+ "postguy-model",
+ "postguy-store",
+ "postguy-util",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
 
 [[package]]
 name = "postguy-cli"
 version = "0.1.0"
 dependencies = [
+ "postguy-automation",
  "postguy-interop",
  "postguy-urlkit",
  "postguy-util",
  "postguy-vars",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

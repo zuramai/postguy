@@ -126,6 +126,22 @@ impl Item {
         }
     }
 
+    /// Mutable folder view for tree walks that must not clone (secret splitting, renames).
+    pub fn folders_mut(&mut self) -> Option<&mut Folder> {
+        match self {
+            Item::Folder(folder) => Some(folder.as_mut()),
+            Item::Request(_) => None,
+        }
+    }
+
+    /// Mutable request view for in-place edits.
+    pub fn requests_mut(&mut self) -> Option<&mut Request> {
+        match self {
+            Item::Folder(_) => None,
+            Item::Request(request) => Some(request),
+        }
+    }
+
     pub fn requests(&self) -> Option<&Request> {
         match self {
             Item::Folder(_) => None,

@@ -683,8 +683,10 @@ title = "`postguy-cli run --script steps.json --root DIR` engine harness"
 area = "F"
 tier = "P0"
 milestone = "M1.8"
-status = "planned"
-notes = "The way agents and tests drive the engine; tools also callable one at a time."
+status = "partial"
+tools = ["collection_create", "collection_list", "workspace_open"]
+evidence = ["apps/postguy-cli/tests/run_script.rs::run_script_drives_the_engine_and_stops_on_the_first_error", "apps/postguy-cli/tests/run_script.rs::an_outside_script_is_refused_with_the_same_message_shape"]
+notes = "Steps are {tool, args} objects run in order, stopping at the first error (exit 1; bad arguments exit 2). The script file itself resolves through --root. The engine façade (M2.8) and the send/cookies/history tools (M2.9) arrive next."
 
 [[feature]]
 id = "f.agent-tools"
@@ -692,8 +694,10 @@ title = "Automation tool table over the engine"
 area = "F"
 tier = "P0"
 milestone = "M1.8"
-status = "planned"
-notes = "workspace_/collection_/folder_/request_/env_/import_/export_ etc.; `--root` confined; end-to-end tested."
+status = "partial"
+tools = ["workspace_open", "workspace_info", "collection_list", "collection_get", "collection_create", "collection_rename", "collection_duplicate", "collection_delete", "folder_create", "folder_rename", "folder_delete", "request_create", "request_get", "request_update", "request_move", "request_duplicate", "request_delete", "env_list", "env_create", "env_rename", "env_duplicate", "env_delete", "env_set_active", "env_get", "env_set_var", "env_unset_var", "globals_get", "globals_set_var", "import_text", "import_file", "export_collection", "export_environment", "export_globals"]
+evidence = ["crates/automation/tests/tools.rs::the_tool_table_round_trips_a_workspace", "crates/automation/tests/tools.rs::root_confinement_refuses_identically_for_existing_and_missing_paths", "crates/automation/tests/tools.rs::imports_go_through_the_report_and_the_workspace", "crates/automation/tests/tools.rs::unknown_tools_and_arguments_fail_loudly_before_state_changes"]
+notes = "33 tools over the store/interop layer (the engine façade retargets this in M2.8); unknown arguments are rejected with the allowed set named; every path goes through --root with the identical refusal for existing and missing outside paths; request/folder deletes park a JSON snapshot under .trash/. Still missing here: request_send/response_*/cookies_*/history_*/console_* (M2.9), snippet_generate (M4), run_collection (M9), grpc_/ws_ (M6-M7)."
 
 [[feature]]
 id = "f.mcp"

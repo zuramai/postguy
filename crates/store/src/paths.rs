@@ -113,10 +113,12 @@ impl StorePaths {
     }
 }
 
-/// A file inside `dir` named after an id. Only safe id spellings are accepted: UUID text is
-/// `[0-9a-fA-F-]{36}`; anything else is a refusing error so a hostile id can never traverse.
+/// A file inside `dir` named after an id. Ids come from us (UUID text) or from imported
+/// Postman files (which often use short arbitrary ids like `env-1`), so the allowlist is
+/// `[A-Za-z0-9_-]{1,64}`: no dots, slashes, spaces or separators, which makes traversal
+/// impossible by construction; anything else is a refusing error.
 pub fn id_file(dir: &Path, id: &str) -> Result<PathBuf, WorkspaceError> {
-    let safe_id = matches!(id.len(), 36) && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-') && id.chars().filter(|c| *c == '-').count() == 4;
+    let safe_id = !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
     if !safe_id {
         return Err(WorkspaceError::BadId { id: id.to_string() });
     }
@@ -137,11 +139,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn id_files_accept_uuid_shape_only() {
+    fn id_files_accept_generated_and_imported_ids_but_never_traverse() {
         let dir = PathBuf::from("/tmp/never-here");
         assert!(id_file(&dir, "01234567-89ab-cdef-0123-456789abcdef").is_ok());
+        assert!(id_file(&dir, "env-1").is_ok(), "imported Postman ids are short and dashed");
         assert!(id_file(&dir, "../escape").is_err(), "an id can never traverse");
-        assert!(id_file(&dir, "short").is_err());
-        assert!(id_file(&dir, "01234567-89ab-cdef-0123-456789abcdeff").is_err());
+        assert!(id_file(&dir, "bad/separator").is_err());
+        assert!(id_file(&dir, "bad.dot").is_err(), "dots could form extensions or ..");
+        assert!(id_file(&dir, "").is_err());
+        assert!(id_file(&dir, &"x".repeat(65)).is_err(), "long ids are refused");
     }
 }

@@ -17,7 +17,7 @@ pub mod settings;
 
 pub use auth::AuthConfig;
 pub use body::{Body, RawLanguage};
-pub use collection::{Collection, Folder, Item};
+pub use collection::{Collection, Folder, Item, Request};
 pub use environment::{Environment, Variable};
 pub use extras::Extras;
 pub use history::HistoryEntry;

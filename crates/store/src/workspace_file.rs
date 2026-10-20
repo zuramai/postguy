@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use postguy_model::{Collection, Environment, HistoryEntry, Id};
+use postguy_model::{Collection, Environment, Folder, HistoryEntry, Id, Variable};
 use postguy_util::{Result, atomic_write, read_file_capped};
 use serde::{Deserialize, Serialize};
 
@@ -142,24 +142,44 @@ impl Workspace {
     }
 
     /// Save (or replace) one collection file, and point the ORDER file at it atomically.
+    /// Secret variables at collection AND folder level move into the secrets store (file
+    /// values blanked); everything else is written as-is.
     pub fn save_collection(&self, collection: &Collection) -> Result<()> {
+        let mut stored = collection.clone();
+        split_collection_variables(&mut stored, &self.secrets)?;
         let path = self.paths.collection_file(&collection.id.0)?;
-        write_model(&path, collection)?;
+        write_model(&path, &stored)?;
         let mut meta = self.meta_handle();
         push_unique(&mut meta.collection_order, &collection.id);
         write_meta(&self.paths, &meta)?;
         self.store_meta(meta)
     }
 
-    /// Load one collection by id; a corrupt file quarantines itself once.
+    /// Load one collection by id; a corrupt file quarantines itself once. Secret values
+    /// rehydrate from the secrets store per collection/folder owner.
     pub fn load_collection(&self, id: &Id) -> Result<LoadOutcome<Collection>> {
-        read_model(&self.paths.collection_file(&id.0)?)
+        let outcome = read_model::<Collection>(&self.paths.collection_file(&id.0)?)?;
+        Ok(match outcome {
+            LoadOutcome::Loaded(mut collection) => {
+                rehydrate_collection_variables(&mut collection, &self.secrets)?;
+                LoadOutcome::Loaded(collection)
+            }
+            LoadOutcome::Fresh(mut collection) => {
+                rehydrate_collection_variables(&mut collection, &self.secrets)?;
+                LoadOutcome::Fresh(collection)
+            }
+            LoadOutcome::CorruptRecovered { recovered, quarantined_to } => LoadOutcome::CorruptRecovered { recovered, quarantined_to },
+        })
     }
 
-    /// Delete one collection to `.trash`; the order file updates with it.
+    /// Delete one collection to `.trash`; the order file and its secrets go with it.
     pub fn delete_collection(&self, id: &Id) -> Result<()> {
         let path = self.paths.collection_file(&id.0)?;
         trash::move_to_trash(&self.paths, &path, "collection")?;
+        let _ = self.secrets.clear_owner(&id.0);
+        for folder_id in folder_ids_of_file(&path) {
+            let _ = self.secrets.clear_owner(&folder_id);
+        }
         let mut meta = self.meta_handle();
         meta.collection_order.retain(|other| other != id);
         write_meta(&self.paths, &meta)?;
@@ -171,19 +191,26 @@ impl Workspace {
         ids_of(&self.paths.collections_dir(), &self.meta_lock_order(|m| m.collection_order.clone()))
     }
 
-    /// Save one environment and point the ORDER file at it.
+    /// Save one environment and point the ORDER file at it. Secret variable values are moved
+    /// into the secrets store and BLANKED in the file (PROMPT.md 4.4: secret values never live
+    /// in environment files).
     pub fn save_environment(&self, environment: &Environment) -> Result<()> {
+        let owner = environment.id.0.clone();
+        let mut stored = environment.clone();
+        split_variables(&mut stored.variables, &owner, &self.secrets)?;
         let path = self.paths.environment_file(&environment.id.0)?;
-        write_model(&path, environment)?;
+        write_model(&path, &stored)?;
         let mut meta = self.meta_handle();
         push_unique(&mut meta.environment_order, &environment.id);
         write_meta(&self.paths, &meta)?;
         self.store_meta(meta)
     }
 
-    /// Load one environment (same corrupt-file recovery as collections).
+    /// Load one environment (same corrupt-file recovery as collections), with secret values
+    /// rehydrated from the secrets store.
     pub fn load_environment(&self, id: &Id) -> Result<LoadOutcome<Environment>> {
-        read_model(&self.paths.environment_file(&id.0)?)
+        let outcome = read_model::<Environment>(&self.paths.environment_file(&id.0)?)?;
+        self.rehydrate_environment(outcome)
     }
 
     /// The environment ids on disk, ORDER first, then unlisted sorted by id.
@@ -194,6 +221,7 @@ impl Workspace {
     pub fn delete_environment(&self, id: &Id) -> Result<()> {
         let path = self.paths.environment_file(&id.0)?;
         trash::move_to_trash(&self.paths, &path, "environment")?;
+        let _ = self.secrets.clear_owner(&id.0);
         let mut meta = self.meta_handle();
         meta.environment_order.retain(|other| other != id);
         if meta.active_environment_id.as_ref() == Some(id) {
@@ -203,13 +231,33 @@ impl Workspace {
         self.store_meta(meta)
     }
 
-    /// Globals live in ONE file.
+    /// Globals live in ONE file; secrets split like an environment under owner `"globals"`.
     pub fn save_globals(&self, environment: &Environment) -> Result<()> {
-        write_model(&self.paths.globals_file(), environment)
+        let mut stored = environment.clone();
+        split_variables(&mut stored.variables, GLOBALS_OWNER, &self.secrets)?;
+        write_model(&self.paths.globals_file(), &stored)
     }
 
     pub fn load_globals(&self) -> Result<LoadOutcome<Environment>> {
-        read_model(&self.paths.globals_file())
+        let outcome = read_model::<Environment>(&self.paths.globals_file())?;
+        self.rehydrate_environment(outcome)
+    }
+
+    fn rehydrate_environment(&self, outcome: LoadOutcome<Environment>) -> Result<LoadOutcome<Environment>> {
+        Ok(match outcome {
+            LoadOutcome::Loaded(mut environment) => {
+                rehydrate_variables(&mut environment.variables, &environment.id.0, &self.secrets)?;
+                LoadOutcome::Loaded(environment)
+            }
+            LoadOutcome::Fresh(mut environment) => {
+                rehydrate_variables(&mut environment.variables, &environment.id.0, &self.secrets)?;
+                LoadOutcome::Fresh(environment)
+            }
+            LoadOutcome::CorruptRecovered { recovered: mut environment, quarantined_to } => {
+                rehydrate_variables(&mut environment.variables, GLOBALS_OWNER, &self.secrets)?;
+                LoadOutcome::CorruptRecovered { recovered: environment, quarantined_to }
+            }
+        })
     }
 
     /// Set the active environment id (workspace meta; the SESSION remembers too).
@@ -274,6 +322,75 @@ impl Workspace {
     fn meta_lock_order(&self, pick: impl FnOnce(&WorkspaceMeta) -> Vec<Id>) -> Vec<Id> {
         pick(&self.meta_guard())
     }
+}
+
+/// The secrets owner for the globals file.
+pub const GLOBALS_OWNER: &str = "globals";
+
+/// Move secret variable values into the secrets store, blanking them in the model copy that is
+/// about to be written (PROMPT.md 4.4). A cleared secret row removes the stored value.
+fn split_variables(variables: &mut [Variable], owner: &str, secrets: &SecretsStore) -> Result<()> {
+    for variable in variables.iter_mut().filter(|v| v.secret) {
+        if variable.value.is_empty() {
+            secrets.set(owner, &variable.key, None)?;
+        } else {
+            secrets.set(owner, &variable.key, Some(&variable.value))?;
+            variable.value.clear();
+        }
+    }
+    Ok(())
+}
+
+/// Put stored secret values back for the UI/engine. A blank file value stays blank when the
+/// secrets store has nothing (a genuinely empty secret).
+fn rehydrate_variables(variables: &mut [Variable], owner: &str, secrets: &SecretsStore) -> Result<()> {
+    let stored = secrets.values_for(owner)?;
+    for variable in variables.iter_mut().filter(|v| v.secret) {
+        if let Some(value) = stored.get(&variable.key) {
+            variable.value.clone_from(value);
+        }
+    }
+    Ok(())
+}
+
+/// Collection- and folder-level secret splitting, walking the item tree iteratively.
+fn split_collection_variables(collection: &mut Collection, secrets: &SecretsStore) -> Result<()> {
+    let owner = collection.id.0.clone();
+    split_variables(&mut collection.variables, &owner, secrets)?;
+    let mut stack: Vec<&mut Folder> = collection.items.iter_mut().filter_map(|item| item.folders_mut()).collect();
+    while let Some(folder) = stack.pop() {
+        let owner = folder.id.0.clone();
+        split_variables(&mut folder.variables, &owner, secrets)?;
+        stack.extend(folder.items.iter_mut().filter_map(|item| item.folders_mut()));
+    }
+    Ok(())
+}
+
+/// Rehydrate both collection and folder secret variables.
+fn rehydrate_collection_variables(collection: &mut Collection, secrets: &SecretsStore) -> Result<()> {
+    let owner = collection.id.0.clone();
+    rehydrate_variables(&mut collection.variables, &owner, secrets)?;
+    let mut stack: Vec<&mut Folder> = collection.items.iter_mut().filter_map(|item| item.folders_mut()).collect();
+    while let Some(folder) = stack.pop() {
+        let owner = folder.id.0.clone();
+        rehydrate_variables(&mut folder.variables, &owner, secrets)?;
+        stack.extend(folder.items.iter_mut().filter_map(|item| item.folders_mut()));
+    }
+    Ok(())
+}
+
+/// Folder ids from a collection FILE on disk (for clearing secrets on delete); a corrupt or
+/// missing file yields none.
+fn folder_ids_of_file(path: &std::path::Path) -> Vec<String> {
+    let Ok(bytes) = std::fs::read(path) else { return Vec::new() };
+    let Ok(collection) = serde_json::from_slice::<Collection>(&bytes) else { return Vec::new() };
+    let mut ids = Vec::new();
+    let mut stack: Vec<&Folder> = collection.items.iter().filter_map(|item| item.folders()).collect();
+    while let Some(folder) = stack.pop() {
+        ids.push(folder.id.0.clone());
+        stack.extend(folder.items.iter().filter_map(|item| item.folders()));
+    }
+    ids
 }
 
 /// Append `id` if not present.

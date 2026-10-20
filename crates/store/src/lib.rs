@@ -34,4 +34,4 @@ pub mod trash;
 pub mod workspace_file;
 
 pub use paths::StorePaths;
-pub use workspace_file::Workspace;
+pub use workspace_file::{LoadOutcome, Workspace, WorkspaceMeta};
