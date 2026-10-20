@@ -23,6 +23,8 @@ postguy-vars = { path = "crates/vars", version = "0.1.0" }
 postguy-interop = { path = "crates/interop", version = "0.1.0" }
 postguy-store = { path = "crates/store", version = "0.1.0" }
 postguy-automation = { path = "crates/automation", version = "0.1.0" }
+postguy-http = { path = "crates/http", version = "0.1.0" }
+postguy-testkit = { path = "crates/testkit", version = "0.1.0" }
 serde = { version = "1", default-features = false, features = ["std", "derive"] }
 serde_json = { version = "1", features = ["preserve_order", "unbounded_depth"] }
 thiserror = "2"
@@ -39,6 +41,7 @@ hyper-util = { version = "0.1", default-features = false, features = ["server", 
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "ring", "native-tokio", "tls12"] }
 rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
 rustls-native-certs = "0.8"
+rustls-pemfile = "2"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring", "pem"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
@@ -47,6 +50,7 @@ sha2 = "0.10"
 md-5 = "0.10"
 base64 = { version = "0.22", default-features = false, features = ["std"] }
 http-body-util = "0.1"
+tower-service = "0.3"
 bytes = "1"
 
 # Testing

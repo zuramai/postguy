@@ -21,6 +21,14 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-20 (M2.2):** HTTP connector over hyper-direct (ADR 0003): custom timed connector
+  (DNS→TCP→TLS phases recorded) with rustls native roots + optional user CA PEM, explicit
+  insecure toggle, ALPN h1/h2, connect/whole-request timeouts, cancellation that aborts
+  promptly, response body cap, and error classification that recovers the failing PHASE
+  (DNS/TCP/TLS/request/download) from hyper-util's wrapper. One request per send (redirects
+  M2.5, compression decode M2.4, cookies M2.6 are separate). Testkit gained a proper CA + leaf
+  chain so verification is exercised with trust ON; 7 connector integration tests run against
+  real sockets.
 - **2026-10-20 (M2.1):** Testkit: loopback HTTP+HTTPS servers on ephemeral ports with the full
   fixture set (echo with ordered headers, redirects/chains, status codes, cookies, Basic/
   Bearer/Digest auth verified per RFC 7616, slow/streaming/compressed/huge bodies, OAuth token
