@@ -282,6 +282,33 @@ impl Workspace {
         history::latest(&self.paths.history_file(), limit)
     }
 
+    /// Load `.postguy/cookies.json`: a missing or corrupt file yields an empty object; a
+    /// corrupt one is quarantined and reported (never blocks startup).
+    pub fn load_cookies(&self) -> Result<(serde_json::Value, Option<PathBuf>)> {
+        let path = self.paths.cookies_file();
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                return Ok((serde_json::Value::Object(serde_json::Map::new()), None));
+            }
+            Err(source) => return Err(postguy_util::Error::Io { operation: format!("reading {}", path.display()), source }),
+        };
+        match serde_json::from_slice::<serde_json::Value>(&bytes) {
+            Ok(value @ serde_json::Value::Object(_)) => Ok((value, None)),
+            _ => {
+                let quarantined = quarantine(&path)?;
+                Ok((serde_json::Value::Object(serde_json::Map::new()), Some(quarantined)))
+            }
+        }
+    }
+
+    /// Save `.postguy/cookies.json` atomically (the jar owns its own shape).
+    pub fn save_cookies(&self, value: &serde_json::Value) -> Result<()> {
+        let bytes = serde_json::to_vec_pretty(value)
+            .map_err(|err| postguy_util::Error::JsonSyntax { what: "serializing cookies".to_string(), source: err })?;
+        atomic_write(&self.paths.cookies_file(), &bytes)
+    }
+
     /// Move an arbitrary file to trash (used by tools and the engine deletes).
     pub fn delete_to_trash(&self, file: &std::path::Path, kind: &str) -> Result<()> {
         trash::move_to_trash(&self.paths, file, kind)?;
@@ -476,4 +503,31 @@ pub fn quarantine(path: &std::path::Path) -> Result<PathBuf> {
 
 fn file_name_of(path: &std::path::Path) -> String {
     path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "file".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cookies_round_trip_and_a_corrupt_file_is_quarantined() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let workspace = Workspace::open(StorePaths::new(dir.path(), dir.path().join("config"))).expect("open");
+        let (empty, quarantine) = workspace.load_cookies().expect("load missing");
+        assert_eq!(empty, serde_json::json!({}));
+        assert!(quarantine.is_none(), "a missing file is not a repair");
+
+        let value = serde_json::json!({"cookies": [{"name": "a"}], "domainAllowlist": ["example.com"]});
+        workspace.save_cookies(&value).expect("save");
+        let (loaded, quarantine) = workspace.load_cookies().expect("load");
+        assert_eq!(loaded, value);
+        assert!(quarantine.is_none());
+
+        std::fs::write(workspace.paths.cookies_file(), b"{not json").expect("corrupt it");
+        let (repaired, quarantine) = workspace.load_cookies().expect("load corrupt");
+        assert_eq!(repaired, serde_json::json!({}), "an empty jar, never a crash");
+        let quarantined = quarantine.expect("quarantined path");
+        assert!(quarantined.exists(), "the bad file is kept for the user");
+        assert!(!workspace.paths.cookies_file().exists(), "the bad file is moved aside");
+    }
 }

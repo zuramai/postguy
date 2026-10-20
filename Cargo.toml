@@ -52,6 +52,7 @@ md-5 = "0.10"
 base64 = { version = "0.22", default-features = false, features = ["std"] }
 http-body-util = "0.1"
 tower-service = "0.3"
+cookie = { version = "0.18", default-features = false }
 bytes = "1"
 
 # Testing

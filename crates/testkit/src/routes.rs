@@ -70,6 +70,7 @@ pub fn route(request: Incoming) -> Reply {
         "/redirect/loop" => redirect_loop(),
         "/redirect/done" => Reply::ok(b"done".to_vec()),
         "/cookies/set" => cookies_set(&request.query),
+        "/cookies/redirect-set" => cookies_redirect_set(&request.query),
         "/cookies/echo" => cookies_echo(&request),
         "/auth/basic" => auth_basic(&request),
         "/auth/bearer" => auth_bearer(&request),
@@ -192,6 +193,17 @@ fn cookies_set(query: &str) -> Reply {
         reply.headers.push((SET_COOKIE.as_str().to_string(), format!("{name}={value}; Path=/")));
     }
     reply
+}
+
+fn cookies_redirect_set(query: &str) -> Reply {
+    let pairs = query_pairs(query);
+    let to = query_get(&pairs, "to").unwrap_or("/cookies/echo");
+    let name = query_get(&pairs, "name").unwrap_or("hop");
+    let value = query_get(&pairs, "value").unwrap_or("1");
+    Reply::ok(Vec::new())
+        .tap_status(StatusCode::FOUND)
+        .with_header(SET_COOKIE.as_str(), format!("{name}={value}; Path=/"))
+        .with_header(LOCATION.as_str(), to)
 }
 
 fn cookies_echo(request: &Incoming) -> Reply {

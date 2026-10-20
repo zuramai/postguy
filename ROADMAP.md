@@ -21,6 +21,13 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-20 (M2.6):** Cookie jar (`http::jar`): RFC 6265 storage and matching, default
+  path, expiration and Max-Age deletion, secure/HTTP-only flags, host-only vs Domain cookies,
+  a minimal public-suffix guard (IP/dotless Domain refused), per-domain and total caps,
+  RFC-ordered Cookie headers, a domain allowlist, and `send_with_cookies` capturing
+  Set-Cookie on every hop with a per-request disable and manual-header merge. Persistence via
+  `Workspace::load_cookies/save_cookies` (atomic, corrupt file quarantined). 9 unit + 5 wire
+  tests.
 - **2026-10-20 (M2.5):** Redirects: a manual loop (never hyper's) with per-hop records,
   RFC 3986 reference resolution for absolute/root/scheme-relative/path/query-only Locations,
   method rules (303 -> GET except HEAD; 301/302 POST -> GET unless follow-original; 307/308
