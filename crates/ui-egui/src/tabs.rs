@@ -214,6 +214,10 @@ impl Tabs {
         self.drafts.insert(id, text);
     }
 
+    pub fn clear_draft(&mut self, id: u64) {
+        self.drafts.remove(&id);
+    }
+
     /// Request a close. A dirty tab returns false and opens the dialog; a clean tab closes now.
     pub fn request_close(&mut self, id: u64) -> bool {
         let Some(tab) = self.tabs.iter().find(|tab| tab.id == id) else { return true };
@@ -532,10 +536,12 @@ pub fn tab_strip(ui: &mut Ui, tabs: &mut Tabs, data: &SidebarData) -> Option<Tab
             });
         });
         if let Some(choice) = choice {
-            if choice == CloseChoice::Save {
-                action = Some(TabAction::SaveAndClose(id));
+            match choice {
+                CloseChoice::Save => action = Some(TabAction::SaveAndClose(id)),
+                CloseChoice::Discard | CloseChoice::Cancel => {
+                    tabs.resolve_close(choice);
+                }
             }
-            tabs.resolve_close(choice);
         }
     }
     action

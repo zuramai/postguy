@@ -9,6 +9,9 @@ use egui::{Align, Layout, RichText};
 
 use crate::sidebar::{RowKind, Sidebar, SidebarAction, SidebarData, SidebarState};
 use crate::tabs::{self, TAB_STRIP_HEIGHT, TabAction, TabDoc, Tabs};
+
+/// The app-supplied request editor shown in the central panel for request tabs.
+pub type RequestPanel<'a> = &'a mut dyn FnMut(&mut egui::Ui) -> Option<crate::builder::BuilderAction>;
 use crate::theme::{Metrics, Theme, ThemeMode};
 use crate::widgets;
 
@@ -71,8 +74,15 @@ impl PostguyShell {
         }
     }
 
-    /// Draw one frame into the root UI (eframe's `App::ui` and kittest both call this).
+    /// Draw one frame into the root UI (eframe's `App::ui` and kittest both call this) with no
+    /// external request panel.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        let _ = self.ui_with(ui, None);
+    }
+
+    /// The same frame with an app-supplied request panel (the real builder). Returns the
+    /// builder's action so the app can save/send.
+    pub fn ui_with(&mut self, ui: &mut egui::Ui, mut request_panel: Option<RequestPanel<'_>>) -> Option<crate::builder::BuilderAction> {
         let ctx = ui.ctx().clone();
         let theme = Theme::from_context(&ctx, self.state.theme_mode);
         theme.install(&ctx);
@@ -109,11 +119,17 @@ impl PostguyShell {
             });
         }
         let active = self.tabs.active_tab().cloned();
+        let mut builder_action = None;
         egui::CentralPanel::default().show(ui, |ui| match active {
             None => self.welcome(ui, &theme),
             Some(tab) => match &tab.doc {
                 TabDoc::Settings => self.settings(ui, &theme),
                 TabDoc::Welcome => self.welcome(ui, &theme),
+                TabDoc::Request { .. } if request_panel.is_some() => {
+                    if let Some(panel) = request_panel.as_mut() {
+                        builder_action = panel(ui);
+                    }
+                }
                 TabDoc::Request { .. } | TabDoc::Collection { .. } | TabDoc::Folder { .. } | TabDoc::Environment { .. } | TabDoc::History { .. } => {
                     let note = match &tab.doc {
                         TabDoc::Request { .. } => "The request builder arrives in M3.4.",
@@ -135,6 +151,7 @@ impl PostguyShell {
                 }
             },
         });
+        builder_action
     }
 
     fn header(&mut self, ui: &mut egui::Ui, theme: &Theme) {

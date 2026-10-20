@@ -25,6 +25,9 @@ pub enum SendTarget {
     Stored { collection: Id, request: Id },
     /// A request assembled by a caller (automation, tests): only environment/global scopes.
     Inline { request: Box<HttpRequest>, name: String },
+    /// A stored request sent with the builder's unsaved draft (scopes, auth inheritance and
+    /// scripts come from the stored ancestors; nothing is written to the collection file).
+    StoredDraft { collection: Id, request: Id, draft: Box<HttpRequest> },
 }
 
 /// Knobs for one send.
@@ -289,7 +292,18 @@ fn locate(engine: &Engine, target: &SendTarget) -> Result<Located> {
             let _ = name;
             Ok(Located { collection: Collection::default(), folders: Vec::new(), http: (**request).clone() })
         }
-        SendTarget::Stored { collection, request } => {
+        SendTarget::StoredDraft { collection, request, draft } => {
+            let mut located = locate_stored(engine, collection, request)?;
+            located.http = (**draft).clone();
+            Ok(located)
+        }
+        SendTarget::Stored { collection, request } => locate_stored(engine, collection, request),
+    }
+}
+
+fn locate_stored(engine: &Engine, collection: &Id, request_id: &Id) -> Result<Located> {
+    {
+        {
             let collection = engine.workspace().load_collection(collection)?.into_value();
             let mut stack: Vec<(Vec<Folder>, Vec<Item>)> = vec![(Vec::new(), collection.items.clone())];
             let mut visited = 0usize;
@@ -305,7 +319,7 @@ fn locate(engine: &Engine, target: &SendTarget) -> Result<Located> {
                             child.push((*folder).clone());
                             stack.push((child, folder.items.clone()));
                         }
-                        Item::Request(found) if found.id == *request => {
+                        Item::Request(found) if found.id == *request_id => {
                             let Some(http) = http_of(&found).cloned() else {
                                 return Err(EngineError::Unsupported { what: format!("{} requests", found.kind.protocol()) });
                             };
@@ -315,7 +329,7 @@ fn locate(engine: &Engine, target: &SendTarget) -> Result<Located> {
                     }
                 }
             }
-            Err(EngineError::NotFound { what: "request".into(), id: request.0.clone() })
+            Err(EngineError::NotFound { what: "request".into(), id: request_id.0.clone() })
         }
     }
 }

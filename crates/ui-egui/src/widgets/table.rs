@@ -117,7 +117,7 @@ pub fn key_value_table(ui: &mut Ui, rows: &mut Vec<KeyValue>, variant: TableVari
                 if description.changed() {
                     result.changed = true;
                 }
-                let delete = ui.add(egui::Button::new("✕").frame(false).small());
+                let delete = ui.add(egui::Button::new("x").frame(false).small());
                 if delete.hovered() {
                     ui.painter().rect_filled(delete.rect, 4.0, theme.palette.surface_sunken);
                 }

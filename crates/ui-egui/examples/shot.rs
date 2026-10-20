@@ -3,10 +3,44 @@
 //! it renders the SAME `PostguyShell` through egui's wgpu test renderer, not a mock-up.
 
 use egui_kittest::Harness;
-use postguy_model::{Collection, Environment, HistoryEntry, HttpMethod, HttpRequest, Id, Item, Request, RequestKind, Variable};
+use postguy_model::{Collection, Environment, HistoryEntry, HttpMethod, HttpRequest, Id, Item, KeyValue, Request, RequestKind, Variable};
 use postguy_ui_egui::PostguyShell;
+use postguy_ui_egui::builder::{BodyDrafts, BuilderTab, RequestBuilder};
 use postguy_ui_egui::sidebar::SidebarData;
 use postguy_ui_egui::tabs::TabDoc;
+
+struct DemoState {
+    shell: PostguyShell,
+    name: String,
+    description: String,
+    draft: HttpRequest,
+    bodies: BodyDrafts,
+    dirty: bool,
+    tab: BuilderTab,
+}
+
+impl DemoState {
+    fn new(shell: PostguyShell) -> DemoState {
+        DemoState {
+            shell,
+            name: "List payments".into(),
+            description: "Lists payments for the current account.".into(),
+            draft: HttpRequest {
+                method: HttpMethod::Get,
+                url: "{{baseUrl}}/payments?limit=25&status=settled".into(),
+                params: vec![
+                    KeyValue { key: "limit".into(), value: "25".into(), ..Default::default() },
+                    KeyValue { key: "status".into(), value: "settled".into(), ..Default::default() },
+                ],
+                headers: vec![KeyValue { key: "Accept".into(), value: "application/json".into(), ..Default::default() }],
+                ..Default::default()
+            },
+            bodies: BodyDrafts::default(),
+            dirty: true,
+            tab: BuilderTab::Params,
+        }
+    }
+}
 
 /// Contributor-original demo data (no real user content, no Postman asset).
 fn demo_data() -> SidebarData {
@@ -81,13 +115,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(tab) = shell.tabs.tabs.last_mut() {
         tab.preview = true;
     }
+    if let Some(first) = shell.tabs.tabs.first() {
+        shell.tabs.activate(first.id);
+    }
     shell.state.theme_mode = match mode.as_str() {
         "light" => postguy_ui_egui::ThemeMode::Light,
         "system" => postguy_ui_egui::ThemeMode::System,
         _ => postguy_ui_egui::ThemeMode::Dark,
     };
-    let mut harness =
-        Harness::builder().with_size(egui::vec2(1280.0, 800.0)).wgpu().build_ui_state(|ui, shell: &mut PostguyShell| shell.ui(ui), shell);
+    let mut harness = Harness::builder().with_size(egui::vec2(1280.0, 800.0)).wgpu().build_ui_state(
+        |ui, state: &mut DemoState| {
+            let mut panel = |ui: &mut egui::Ui| {
+                let mut builder = RequestBuilder {
+                    name: &mut state.name,
+                    description: &mut state.description,
+                    collection_name: "Payments API",
+                    draft: &mut state.draft,
+                    bodies: &mut state.bodies,
+                    dirty: &mut state.dirty,
+                    tab: &mut state.tab,
+                    variables: &[],
+                    sending: None,
+                };
+                builder.show(ui)
+            };
+            state.shell.ui_with(ui, Some(&mut panel));
+        },
+        DemoState::new(shell),
+    );
     harness.run();
     let image = harness.render().map_err(|err| format!("render: {err}"))?;
     image.save(&out)?;

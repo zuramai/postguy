@@ -6,6 +6,7 @@
 /// Icon path data generated from assets/icons by `cargo xtask icons` (regenerate, never edit).
 pub mod icons_gen;
 
+pub mod builder;
 pub mod icons;
 pub mod shell;
 pub mod sidebar;
@@ -13,6 +14,7 @@ pub mod tabs;
 pub mod theme;
 pub mod widgets;
 
+pub use builder::{BodyDrafts, BuilderAction, BuilderTab, RequestBuilder, SendProgress};
 pub use shell::{PostguyShell, ShellState};
 pub use sidebar::{RequestProtocol, RowKind, Sidebar, SidebarAction, SidebarData, SidebarRow, SidebarState};
 pub use tabs::{CloseChoice, Tab, TabAction, TabDoc, Tabs, tab_strip};

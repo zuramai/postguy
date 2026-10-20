@@ -127,7 +127,7 @@ fn split_button_runs_both_actions() {
     harness.get_by_label("Send").click();
     harness.run();
     assert_eq!(harness.state().sent, 1);
-    harness.get_by_label("▾").click();
+    harness.get_by_label("v").click();
     harness.run();
     harness.get_by_label_contains("Send and Download").click();
     harness.run();
@@ -304,9 +304,9 @@ fn key_value_table_adds_and_deletes_rows() {
     harness.get_by_label_contains("Add row").click();
     harness.run();
     assert_eq!(harness.state().rows.len(), 2);
-    let deletes = harness.get_all_by_label("✕").count();
+    let deletes = harness.get_all_by_label("x").count();
     assert_eq!(deletes, 2, "one delete button per row");
-    harness.get_all_by_label("✕").next().expect("a delete button").click();
+    harness.get_all_by_label("x").next().expect("a delete button").click();
     harness.run();
     assert_eq!(harness.state().rows.len(), 1);
 }
