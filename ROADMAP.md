@@ -28,6 +28,12 @@ The owner reviews at each tag and at the end of M0 and M3.
   container instead of only printing "Create a collection first". Regression tests cover both
   the emitted sidebar intent and the engine/app path; live control verified a fresh workspace
   creating and opening its first request.
+- **2026-10-20 (fix, Send):** sends and import/export jobs ran on worker threads but the UI only
+  polled them on the next input event, so a click on Send could leave the status at "Sending…"
+  with no response until the mouse moved. The app now requests a repaint every 50 ms while a
+  send/import/export is in flight (no repaint when idle). Live localhost GET through the control
+  channel returned `200 · 2 ms · 1542 B`, appeared in the viewer and History. `request.send` /
+  `request.cancel` are registered commands too.
 
 - **2026-10-20 (M4.1-M4.3, core):** Import dialog (paste Postman JSON/env/globals/cURL, multiple
   files, folders, drop anywhere, async native pickers, report with Open, numeric name suffixes,

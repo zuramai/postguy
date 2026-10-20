@@ -1735,6 +1735,16 @@ impl App {
             NewEnvironment => self.apply_tab(TabAction::CreateEnvironment),
             Import => self.open_import(),
             ExportWorkspace => self.open_export(ExportTarget::Workspace),
+            SendRequest => {
+                if let Some(tab) = self.shell.tabs.active {
+                    self.apply_builder(tab, BuilderAction::Send { download: false });
+                }
+            }
+            CancelRequest => {
+                if let Some(tab) = self.shell.tabs.active {
+                    self.apply_builder(tab, BuilderAction::Cancel);
+                }
+            }
             OpenSettings => {
                 self.shell.tabs.open(TabDoc::Settings, "Settings");
             }
@@ -2038,6 +2048,11 @@ impl eframe::App for App {
         self.poll_import();
         self.poll_import_picker(ui.ctx());
         self.poll_export(ui.ctx());
+        // Sends and background imports/exports finish on other threads; without a repaint the
+        // UI would poll only on the next mouse/key event and appear not to have reacted at all.
+        if self.sending.is_some() || self.import_job.is_some() || self.export_job.is_some() || self.import.busy || self.export.busy {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+        }
         let dropped: Vec<PathBuf> = ui.ctx().input(|input| input.raw.dropped_files.iter().map(|file| file.path().to_path_buf()).collect());
         if !dropped.is_empty() {
             self.open_import();
@@ -2465,6 +2480,26 @@ mod tests {
         let response = app.responses.get(&tab).expect("the response is cached for the viewer");
         assert_eq!(response.status, 200);
         assert!(String::from_utf8_lossy(&response.body).contains("method"));
+    }
+
+    #[test]
+    fn sending_a_new_request_without_a_url_reports_an_error_instead_of_silence() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("Empty").expect("collection");
+        let request = engine.create_request(&collection.id, None, "http", "Empty").expect("request");
+        let tab = editor_for(&mut app, &collection.id, &request.id);
+        app.apply_builder(tab, BuilderAction::Send { download: false });
+        for _ in 0..100 {
+            app.poll_send();
+            if app.sending.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(app.sending.is_none());
+        assert!(app.shell.state.status.contains("Send failed") || app.shell.state.status.contains("URL"), "{}", app.shell.state.status);
     }
 
     #[test]
