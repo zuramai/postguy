@@ -104,7 +104,7 @@ Planned observation requests:
 #### M2 HTTP engine and send pipeline
 
 - [x] M2.1 `testkit`: loopback HTTP server (echo, redirects, cookies, basic/bearer/digest challenges, slow/streaming/compressed/huge bodies), self-signed TLS, token endpoint.
-- [ ] M2.2 `http` connector: DNS/TCP/TLS with phase timings, rustls (native roots plus optional CA), verify toggle, ALPN h1/h2, cancellation, timeouts.
+- [x] M2.2 `http` connector: DNS/TCP/TLS with phase timings, rustls (native roots plus optional CA), verify toggle, ALPN h1/h2, cancellation, timeouts.
 - [ ] M2.3 Request building: all body modes (multipart boundary, urlencoded, raw, binary, GraphQL JSON), automatic headers (no request-token header), header order and case, user headers win.
 - [ ] M2.4 Response handling: gzip/deflate/br/zstd with decoded-size and ratio caps, max response size, size breakdown, streaming to file for Send and Download.
 - [ ] M2.5 Redirects: manual loop, per-hop record, method rewrite rules, cross-host credential dropping, cap and loop detection.

@@ -9,3 +9,21 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+postguy-model.workspace = true
+postguy-util.workspace = true
+tokio.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
+tower-service.workspace = true
+bytes.workspace = true
+rustls.workspace = true
+rustls-native-certs.workspace = true
+rustls-pemfile.workspace = true
+tokio-rustls.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+postguy-testkit.workspace = true
+tempfile = "3"
+serde_json.workspace = true
