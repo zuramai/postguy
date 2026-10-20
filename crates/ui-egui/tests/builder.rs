@@ -16,6 +16,7 @@ struct State {
     action: Option<BuilderAction>,
     last: Option<BuilderAction>,
     variables: Vec<String>,
+    undo_paste: bool,
 }
 
 fn harness() -> Harness<'static, State> {
@@ -31,6 +32,7 @@ fn harness() -> Harness<'static, State> {
                 tab: &mut state.tab,
                 variables: &state.variables,
                 sending: None,
+                undo_paste: state.undo_paste,
             };
             state.action = builder.show(ui);
             if state.action.is_some() {
@@ -47,6 +49,7 @@ fn harness() -> Harness<'static, State> {
             action: None,
             last: None,
             variables: vec!["base".into(), "token".into()],
+            undo_paste: false,
         },
     )
 }
@@ -147,6 +150,17 @@ fn autocomplete_inserts_a_variable() {
     harness.get_by_label("{{base}}").click();
     harness.run();
     assert!(harness.state().draft.url.contains("{{base}}"), "autocomplete inserted the variable: {}", harness.state().draft.url);
+}
+
+#[test]
+fn the_curl_undo_hint_emits_the_undo_action() {
+    let mut harness = harness();
+    harness.state_mut().undo_paste = true;
+    harness.run();
+    assert!(harness.query_by_label("cURL imported.").is_some());
+    harness.get_by_label("Undo").click();
+    harness.run();
+    assert_eq!(harness.state().last, Some(BuilderAction::UndoPaste));
 }
 
 #[test]

@@ -10,10 +10,12 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use egui::{Align, Layout, vec2};
 use postguy_engine::{Cancel, Engine, SendOptions, SendTarget};
 use postguy_model::{Collection, HttpRequest, Id, Item, Request, RequestKind};
 use postguy_store::{StorePaths, config_dir};
 use postguy_ui_egui::builder::{BodyDrafts, BuilderAction, BuilderTab, RequestBuilder, SendProgress};
+use postguy_ui_egui::response::{ResponseAction, ResponseData, ResponseViewerState, response_view};
 use postguy_ui_egui::sidebar::{RequestProtocol, RowKind, SidebarAction, SidebarData};
 use postguy_ui_egui::tabs::{TabAction, TabDoc, Tabs};
 use postguy_ui_egui::{PostguyShell, ThemeMode};
@@ -66,13 +68,16 @@ struct RequestEditor {
     bodies: BodyDrafts,
     dirty: bool,
     tab: BuilderTab,
+    /// The draft before the last cURL import (the inline Undo hint).
+    undo_paste: Option<HttpRequest>,
 }
 
 struct Sending {
     tab: u64,
     started: std::time::Instant,
     cancel: Cancel,
-    receiver: std::sync::mpsc::Receiver<Result<(u16, u64, u64), String>>,
+    download: bool,
+    receiver: std::sync::mpsc::Receiver<Result<(String, u16, u64, u64), String>>,
 }
 
 struct App {
@@ -80,6 +85,8 @@ struct App {
     shell: PostguyShell,
     clipboard: Option<Clipboard>,
     editors: BTreeMap<u64, RequestEditor>,
+    responses: BTreeMap<u64, ResponseData>,
+    viewer_states: BTreeMap<u64, ResponseViewerState>,
     sending: Option<Sending>,
     revision: u64,
     last_session: Option<String>,
@@ -97,6 +104,8 @@ impl App {
                     shell,
                     clipboard: None,
                     editors: BTreeMap::new(),
+                    responses: BTreeMap::new(),
+                    viewer_states: BTreeMap::new(),
                     sending: None,
                     revision: 0,
                     last_session: None,
@@ -113,6 +122,8 @@ impl App {
                     shell,
                     clipboard: None,
                     editors: BTreeMap::new(),
+                    responses: BTreeMap::new(),
+                    viewer_states: BTreeMap::new(),
                     sending: None,
                     revision: 0,
                     last_session: None,
@@ -461,6 +472,8 @@ impl App {
             })
             .collect();
         self.editors.retain(|id, _| request_tabs.iter().any(|(tab, _, _)| tab == id));
+        self.responses.retain(|id, _| request_tabs.iter().any(|(tab, _, _)| tab == id));
+        self.viewer_states.retain(|id, _| request_tabs.iter().any(|(tab, _, _)| tab == id));
         for (tab_id, collection, request_id) in request_tabs {
             if self.editors.contains_key(&tab_id) {
                 continue;
@@ -475,17 +488,38 @@ impl App {
             let bodies = stored.as_ref().map(|stored| stored.bodies.clone()).unwrap_or_default();
             let tab = stored.as_ref().map(|stored| stored.tab).unwrap_or_default();
             let dirty = self.shell.tabs.tabs.iter().find(|tab| tab.id == tab_id).is_some_and(|tab| tab.dirty);
-            self.editors.insert(tab_id, RequestEditor { collection, request, draft, description, bodies, dirty, tab });
+            self.editors.insert(tab_id, RequestEditor { collection, request, draft, description, bodies, dirty, tab, undo_paste: None });
         }
     }
 
     fn poll_send(&mut self) {
-        let Some(sending) = &self.sending else { return };
-        let Ok(result) = sending.receiver.try_recv() else { return };
-        self.sending = None;
+        let Some(sending) = self.sending.take() else { return };
+        let result = match sending.receiver.try_recv() {
+            Ok(result) => result,
+            Err(_) => {
+                self.sending = Some(sending);
+                return;
+            }
+        };
+        let download = sending.download;
+        let tab = sending.tab;
         match result {
-            Ok((status, duration, size)) => {
-                self.shell.state.status = format!("{status} · {duration} ms · {size} B (response viewer arrives in M3.5)");
+            Ok((history_id, status, duration, size)) => {
+                let cached = self.engine.as_ref().and_then(|engine| engine.response(Some(&history_id)));
+                if let Some(cached) = cached {
+                    let view = response_from_cached(&cached);
+                    self.responses.insert(tab, view);
+                    if download {
+                        match self.save_response_body(tab) {
+                            Ok(path) => self.shell.state.status = format!("{status} · {duration} ms · {size} B · saved to {path}"),
+                            Err(err) => self.shell.state.status = format!("{status} · {duration} ms · {size} B · save failed: {err}"),
+                        }
+                    } else {
+                        self.shell.state.status = format!("{status} · {duration} ms · {size} B");
+                    }
+                } else {
+                    self.shell.state.status = format!("{status} · {duration} ms · {size} B");
+                }
                 self.refresh();
             }
             Err(err) => self.shell.state.status = format!("Send failed: {err}"),
@@ -500,6 +534,7 @@ impl App {
                     if let Some(parsed) = commands.drain(..).next()
                         && let Some(editor) = self.editors.get_mut(&tab_id)
                     {
+                        editor.undo_paste = Some(editor.draft.clone());
                         editor.draft = parsed.request;
                         editor.dirty = true;
                         self.shell.tabs.set_dirty(tab_id, true);
@@ -511,6 +546,16 @@ impl App {
                 }
                 Err(err) => self.shell.state.status = format!("cURL: {err}"),
             },
+            BuilderAction::UndoPaste => {
+                if let Some(editor) = self.editors.get_mut(&tab_id)
+                    && let Some(previous) = editor.undo_paste.take()
+                {
+                    editor.draft = previous;
+                    editor.dirty = true;
+                    self.shell.tabs.set_dirty(tab_id, true);
+                    self.shell.state.status = "cURL import undone".into();
+                }
+            }
             BuilderAction::Save => match self.save_editor(tab_id) {
                 Ok(()) => {
                     self.shell.state.status = "Saved".into();
@@ -519,11 +564,7 @@ impl App {
                 Err(err) => self.shell.state.status = format!("Save failed: {err}"),
             },
             BuilderAction::Send { download } => {
-                if download {
-                    self.shell.state.status = "Send and Download arrives with the response viewer (M3.5)".into();
-                } else {
-                    self.start_send(tab_id);
-                }
+                self.start_send(tab_id, download);
             }
             BuilderAction::Cancel => {
                 if let Some(sending) = &self.sending {
@@ -549,7 +590,30 @@ impl App {
         Ok(())
     }
 
-    fn start_send(&mut self, tab_id: u64) {
+    fn save_response_body(&mut self, tab_id: u64) -> Result<String, String> {
+        let Some(data) = self.responses.get(&tab_id) else { return Err("no response to save".into()) };
+        let Some(engine) = &self.engine else { return Err("no workspace is open".into()) };
+        let directory = engine.store_paths().files_dir();
+        std::fs::create_dir_all(&directory).map_err(|err| format!("creating {}: {err}", directory.display()))?;
+        let path = directory.join(format!("response-{tab_id}.bin"));
+        postguy_util::atomic_write(&path, &data.body).map_err(|err| err.to_string())?;
+        Ok(path.display().to_string())
+    }
+
+    fn apply_response_action(&mut self, tab_id: u64, action: ResponseAction) {
+        match action {
+            ResponseAction::SaveBody => match self.save_response_body(tab_id) {
+                Ok(path) => self.shell.state.status = format!("Response saved to {path}"),
+                Err(err) => self.shell.state.status = err,
+            },
+            ResponseAction::Clear => {
+                self.responses.remove(&tab_id);
+                self.shell.state.status = "Response cleared".into();
+            }
+        }
+    }
+
+    fn start_send(&mut self, tab_id: u64, download: bool) {
         let Some(editor) = self.editors.get_mut(&tab_id) else { return };
         editor.request.kind = RequestKind::Http(editor.draft.clone());
         let Some(engine) = self.engine.clone() else { return };
@@ -566,12 +630,19 @@ impl App {
             .spawn(move || {
                 let outcome = engine.send(target, SendOptions { environment: None, cancel: Some(cancel_thread), run_scripts: true });
                 let result = outcome
-                    .map(|outcome| (outcome.response.status, outcome.response.timings.total_ms, outcome.response.size.body_decoded_bytes as u64))
+                    .map(|outcome| {
+                        (
+                            outcome.history.id.0.clone(),
+                            outcome.response.status,
+                            outcome.response.timings.total_ms,
+                            outcome.response.size.body_decoded_bytes as u64,
+                        )
+                    })
                     .map_err(|err| err.to_string());
                 let _ = sender.send(result);
             })
             .ok();
-        self.sending = Some(Sending { tab: tab_id, started: std::time::Instant::now(), cancel, receiver });
+        self.sending = Some(Sending { tab: tab_id, started: std::time::Instant::now(), cancel, download, receiver });
         self.shell.state.status = "Sending…".into();
     }
 
@@ -673,6 +744,27 @@ fn validate_tabs(tabs: &mut Tabs, data: &SidebarData) -> usize {
     })
 }
 
+fn response_from_cached(cached: &postguy_engine::CachedResponse) -> ResponseData {
+    let response = &cached.response;
+    ResponseData {
+        status: response.status,
+        status_text: response.status_text.clone(),
+        http_version: response.http_version.clone(),
+        headers: response.headers.clone(),
+        body: response.body.clone(),
+        header_bytes: response.size.header_bytes,
+        body_encoded_bytes: response.size.body_encoded_bytes,
+        body_decoded_bytes: response.size.body_decoded_bytes,
+        content_encoding: response.size.content_encoding.map(str::to_string),
+        connect_ms: response.timings.connect.total_ms,
+        ttfb_ms: response.timings.ttfb_ms,
+        total_ms: response.timings.total_ms,
+        download_ms: response.timings.download_ms,
+        redirects: cached.request.redirect_hops.len(),
+        proxy: cached.request.proxy.clone(),
+    }
+}
+
 fn open_engine(workspace: &std::path::Path, config: &std::path::Path) -> Result<Engine, String> {
     std::fs::create_dir_all(workspace).map_err(|err| format!("creating workspace {}: {err}", workspace.display()))?;
     std::fs::create_dir_all(config).map_err(|err| format!("creating config dir {}: {err}", config.display()))?;
@@ -744,6 +836,9 @@ impl eframe::App for App {
         let builder_action = {
             let shell = &mut self.shell;
             let editors = &mut self.editors;
+            let responses = &mut self.responses;
+            let viewer_states = &mut self.viewer_states;
+            let mut response_action: Option<ResponseAction> = None;
             let mut panel = |ui: &mut egui::Ui| {
                 let panel_id = panel_tab?;
                 let editor = editors.get_mut(&panel_id)?;
@@ -757,12 +852,29 @@ impl eframe::App for App {
                     tab: &mut editor.tab,
                     variables: &variables,
                     sending: progress,
+                    undo_paste: editor.undo_paste.is_some(),
                 };
-                let action = builder.show(ui);
+                let builder_action = if let Some(data) = responses.get_mut(&panel_id) {
+                    let total = ui.available_height();
+                    let request_height = (total * 0.52).max(170.0);
+                    let action = ui
+                        .allocate_ui_with_layout(vec2(ui.available_width(), request_height), Layout::top_down(Align::Min), |ui| builder.show(ui))
+                        .inner;
+                    ui.separator();
+                    let viewer = viewer_states.entry(panel_id).or_default();
+                    response_action = response_view(ui, data, viewer);
+                    action
+                } else {
+                    builder.show(ui)
+                };
                 editor.request.kind = RequestKind::Http(editor.draft.clone());
-                action
+                builder_action
             };
-            shell.ui_with(ui, if panel_tab.is_some() { Some(&mut panel) } else { None })
+            let builder_result = shell.ui_with(ui, if panel_tab.is_some() { Some(&mut panel) } else { None });
+            if let (Some(tab), Some(action)) = (panel_tab, response_action) {
+                self.apply_response_action(tab, action);
+            }
+            builder_result
         };
         if let Some(panel_id) = panel_tab
             && let Some(editor) = self.editors.get(&panel_id)
@@ -959,12 +1071,16 @@ mod tests {
         let collection = engine.create_collection("Curl").expect("collection");
         let request = engine.create_request(&collection.id, None, "http", "Paste").expect("request");
         let tab = editor_for(&mut app, &collection.id, &request.id);
+        app.editors.get_mut(&tab).expect("editor").draft.url = "https://api.example.com/users".into();
         app.apply_builder(tab, BuilderAction::ParseCurl("curl -X DELETE 'https://api.example.com/items/7' -H 'X-Token: abc'".into()));
         let editor = app.editors.get(&tab).expect("editor");
         assert_eq!(editor.draft.method, postguy_model::HttpMethod::Delete);
         assert_eq!(editor.draft.url, "https://api.example.com/items/7");
         assert!(editor.dirty);
         assert!(editor.draft.headers.iter().any(|row| row.key == "X-Token" && row.value == "abc"));
+        assert!(app.editors.get(&tab).expect("editor").undo_paste.is_some(), "the pre-paste draft is kept");
+        app.apply_builder(tab, BuilderAction::UndoPaste);
+        assert_eq!(app.editors.get(&tab).expect("editor").draft.url, "https://api.example.com/users", "undo restores the pre-paste draft");
     }
 
     #[test]
@@ -977,7 +1093,7 @@ mod tests {
         let request = engine.create_request(&collection.id, None, "http", "Echo").expect("request");
         let tab = editor_for(&mut app, &collection.id, &request.id);
         app.editors.get_mut(&tab).expect("editor").draft.url = format!("{}/echo", server.base_url());
-        app.start_send(tab);
+        app.start_send(tab, false);
         assert!(app.sending.is_some());
         for _ in 0..200 {
             app.poll_send();
@@ -989,6 +1105,37 @@ mod tests {
         assert!(app.sending.is_none(), "the send finished");
         assert!(app.shell.state.status.contains("200"), "{}", app.shell.state.status);
         assert!(!engine.history(5).expect("history").is_empty(), "the send recorded history");
+        let response = app.responses.get(&tab).expect("the response is cached for the viewer");
+        assert_eq!(response.status, 200);
+        assert!(String::from_utf8_lossy(&response.body).contains("method"));
+    }
+
+    #[test]
+    fn save_and_clear_response_actions_work_from_the_viewer() {
+        let server = postguy_testkit::Server::start();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("Viewer").expect("collection");
+        let request = engine.create_request(&collection.id, None, "http", "Echo").expect("request");
+        let tab = editor_for(&mut app, &collection.id, &request.id);
+        app.editors.get_mut(&tab).expect("editor").draft.url = format!("{}/echo", server.base_url());
+        app.start_send(tab, true);
+        for _ in 0..200 {
+            app.poll_send();
+            if app.sending.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let response = app.responses.get(&tab).expect("response");
+        assert_eq!(response.status, 200);
+        let saved = dir.path().join("workspace").join("files").join(format!("response-{tab}.bin"));
+        assert!(saved.exists(), "Send and Download wrote the body: {}", saved.display());
+        app.apply_response_action(tab, ResponseAction::SaveBody);
+        assert!(app.responses.contains_key(&tab), "Save keeps the response");
+        app.apply_response_action(tab, ResponseAction::Clear);
+        assert!(!app.responses.contains_key(&tab), "Clear drops it");
     }
 
     #[test]
@@ -1001,7 +1148,7 @@ mod tests {
         let request = engine.create_request(&collection.id, None, "http", "Slow").expect("request");
         let tab = editor_for(&mut app, &collection.id, &request.id);
         app.editors.get_mut(&tab).expect("editor").draft.url = format!("{}/slow?ms=3000", server.base_url());
-        app.start_send(tab);
+        app.start_send(tab, false);
         std::thread::sleep(std::time::Duration::from_millis(200));
         app.apply_builder(tab, BuilderAction::Cancel);
         for _ in 0..300 {
