@@ -5,6 +5,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use postguy_model::{AuthConfig, Body, HttpRequest, RawLanguage};
 use postguy_ui_egui::builder::{BodyDrafts, BuilderAction, BuilderTab, RequestBuilder};
+use postguy_ui_egui::widgets::field::VariableInfo;
 
 struct State {
     name: String,
@@ -15,7 +16,7 @@ struct State {
     tab: BuilderTab,
     action: Option<BuilderAction>,
     last: Option<BuilderAction>,
-    variables: Vec<String>,
+    variables: Vec<VariableInfo>,
     undo_paste: bool,
 }
 
@@ -48,7 +49,10 @@ fn harness() -> Harness<'static, State> {
             tab: BuilderTab::Params,
             action: None,
             last: None,
-            variables: vec!["base".into(), "token".into()],
+            variables: vec![
+                VariableInfo { name: "base".into(), value: "https://api.example.com".into(), secret: false, scope: "environment".into() },
+                VariableInfo { name: "token".into(), value: "hunter2".into(), secret: true, scope: "environment".into() },
+            ],
             undo_paste: false,
         },
     )

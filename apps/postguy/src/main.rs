@@ -20,6 +20,7 @@ use postguy_ui_egui::response::{ResponseAction, ResponseData, ResponseViewerStat
 use postguy_ui_egui::shell::PanelAction;
 use postguy_ui_egui::sidebar::{RequestProtocol, RowKind, SidebarAction, SidebarData};
 use postguy_ui_egui::tabs::{TabAction, TabDoc, Tabs};
+use postguy_ui_egui::widgets::field::VariableInfo;
 use postguy_ui_egui::{PostguyShell, ThemeMode};
 use serde::{Deserialize, Serialize};
 
@@ -782,8 +783,13 @@ impl App {
         self.shell.state.status = "Sending…".into();
     }
 
-    fn variables_for(&self, collection: &str) -> Vec<String> {
-        let mut names: Vec<String> = Vec::new();
+    fn variables_for(&self, collection: &str) -> Vec<VariableInfo> {
+        let mut variables: Vec<VariableInfo> = Vec::new();
+        let mut push = |scope: &str, value: &postguy_model::Variable| {
+            if value.enabled {
+                variables.push(VariableInfo { name: value.key.clone(), value: value.value.clone(), secret: value.secret, scope: scope.to_string() });
+            }
+        };
         if let Some(environment) = self
             .shell
             .sidebar_data
@@ -791,14 +797,20 @@ impl App {
             .as_ref()
             .and_then(|id| self.shell.sidebar_data.environments.iter().find(|environment| environment.id == *id))
         {
-            names.extend(environment.variables.iter().filter(|variable| variable.enabled).map(|variable| variable.key.clone()));
+            for variable in &environment.variables {
+                push("environment", variable);
+            }
+        }
+        for variable in &self.shell.sidebar_data.globals.variables {
+            push("globals", variable);
         }
         if let Some(value) = self.shell.sidebar_data.collections.iter().find(|value| value.id.0 == collection) {
-            names.extend(value.variables.iter().filter(|variable| variable.enabled).map(|variable| variable.key.clone()));
+            for variable in &value.variables {
+                push("collection", variable);
+            }
         }
-        names.sort();
-        names.dedup();
-        names
+        variables.sort_by(|a, b| a.name.cmp(&b.name));
+        variables
     }
 }
 
