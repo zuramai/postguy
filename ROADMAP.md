@@ -21,6 +21,14 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-20 (fix, send failures):** a failed send only wrote a line into the bottom status bar;
+  the response pane did not exist, so a refused/DNS/TLS request looked like "loading then
+  nothing". Failed sends now keep a `SendErrorView` per request tab: the response pane shows
+  `Could not send request`, a category (`NETWORK`, `TLS`, `TIMEOUT`, `REQUEST`, `CANCELLED`),
+  the full OS/engine message, elapsed time, Copy error and Retry. Successful sends clear it;
+  starting a retry clears the previous failure. HTTP 4xx/5xx statuses now use the danger colour
+  like Postman. Live verified against a closed loopback port (Connection refused, os error 61).
+
 - **2026-10-20 (M5.1 + auth forms):** `postguy-auth` now implements Digest (MD5/MD5-sess/SHA-256/
   SHA-256-sess/SHA-512-256, qop auth/auth-int, challenge parsing), JWT HS/RS/ES/PS (PKCS#8/
   PKCS#1 PEM, iat insertion, custom headers), OAuth 1.0 (HMAC/RSA/PLAINTEXT, body hash, header

@@ -495,3 +495,57 @@ mod tests {
         assert!(data.pretty(&mut state).is_none());
     }
 }
+
+/// A failed send (no HTTP response reached the client): connection, DNS, TLS, timeout or
+/// cancellation. Postman-style: the response pane says what failed and offers a retry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SendErrorView {
+    pub message: String,
+    pub elapsed_ms: u64,
+}
+
+impl SendErrorView {
+    /// A short category chip for the error strip.
+    pub fn kind(&self) -> &'static str {
+        let message = self.message.to_ascii_lowercase();
+        if message.contains("cancel") {
+            "CANCELLED"
+        } else if message.contains("timed out") || message.contains("timeout") {
+            "TIMEOUT"
+        } else if message.contains("tls") || message.contains("certificate") || message.contains("handshake") {
+            "TLS"
+        } else if message.contains("connect") || message.contains("dns") || message.contains("resolve") || message.contains("network") {
+            "NETWORK"
+        } else {
+            "REQUEST"
+        }
+    }
+}
+
+/// Draw the send-failure pane. Returns true when the user asked to retry.
+pub fn error_view(ui: &mut Ui, error: &SendErrorView) -> bool {
+    let theme = Theme::current(ui.ctx());
+    let mut retry = false;
+    ui.add_space(12.0);
+    egui::Frame::new().fill(theme.palette.surface_alt).stroke(egui::Stroke::new(1.0, theme.palette.border)).inner_margin(12).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Could not send request").color(theme.palette.danger).strong());
+            ui.label(RichText::new(error.kind()).small().color(theme.palette.danger));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.label(RichText::new(format!("{} ms", error.elapsed_ms)).small().color(theme.palette.text_muted));
+                if ui.add(egui::Button::new("Copy error").frame(false)).clicked() {
+                    ui.ctx().copy_text(format!("{}: {}", error.kind(), error.message));
+                }
+            });
+        });
+        ui.add_space(6.0);
+        ui.add(egui::Label::new(RichText::new(&error.message).monospace().color(theme.palette.text)).selectable(true).wrap());
+        ui.add_space(8.0);
+        ui.label(RichText::new("Check the URL, network connection, proxy and TLS settings, then retry.").small().color(theme.palette.text_muted));
+        ui.add_space(6.0);
+        if ui.add(egui::Button::new("Retry")).clicked() {
+            retry = true;
+        }
+    });
+    retry
+}

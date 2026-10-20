@@ -22,7 +22,7 @@ use postguy_ui_egui::cookies::{CookieAction, CookieData, CookieRow, cookie_manag
 use postguy_ui_egui::environment::{EnvironmentAction, EnvironmentEditor};
 use postguy_ui_egui::export::{ExportFormat, ExportRequest, ExportState, ExportTarget};
 use postguy_ui_egui::import::{ImportAction, ImportItemView, ImportState, ImportSummary};
-use postguy_ui_egui::response::{ResponseAction, ResponseData, ResponseViewerState, response_view};
+use postguy_ui_egui::response::{ResponseAction, ResponseData, ResponseViewerState, SendErrorView, error_view, response_view};
 use postguy_ui_egui::settings::SettingsAction;
 use postguy_ui_egui::shell::PanelAction;
 use postguy_ui_egui::sidebar::{RequestProtocol, RowKind, SidebarAction, SidebarData};
@@ -153,6 +153,7 @@ struct App {
     detail_editors: BTreeMap<u64, DetailEditorState>,
     pending_detail_save: Option<(u64, Collection, std::time::Instant)>,
     responses: BTreeMap<u64, ResponseData>,
+    send_errors: BTreeMap<u64, SendErrorView>,
     viewer_states: BTreeMap<u64, ResponseViewerState>,
     trash_entries: Vec<TrashEntryView>,
     undo_stack: Vec<UndoEntry>,
@@ -190,6 +191,7 @@ impl App {
                     detail_editors: BTreeMap::new(),
                     pending_detail_save: None,
                     responses: BTreeMap::new(),
+                    send_errors: BTreeMap::new(),
                     viewer_states: BTreeMap::new(),
                     trash_entries: Vec::new(),
                     undo_stack: Vec::new(),
@@ -227,6 +229,7 @@ impl App {
                     detail_editors: BTreeMap::new(),
                     pending_detail_save: None,
                     responses: BTreeMap::new(),
+                    send_errors: BTreeMap::new(),
                     viewer_states: BTreeMap::new(),
                     trash_entries: Vec::new(),
                     undo_stack: Vec::new(),
@@ -1154,6 +1157,7 @@ impl App {
             .collect();
         self.editors.retain(|id, _| request_tabs.iter().any(|(tab, _, _)| tab == id));
         self.responses.retain(|id, _| request_tabs.iter().any(|(tab, _, _)| tab == id));
+        self.send_errors.retain(|id, _| request_tabs.iter().any(|(tab, _, _)| tab == id));
         self.viewer_states.retain(|id, _| request_tabs.iter().any(|(tab, _, _)| tab == id));
         for (tab_id, collection, request_id) in request_tabs {
             if self.editors.contains_key(&tab_id) {
@@ -1455,8 +1459,10 @@ impl App {
         };
         let download = sending.download;
         let tab = sending.tab;
+        let elapsed_ms = u64::try_from(sending.started.elapsed().as_millis()).unwrap_or(u64::MAX);
         match result {
             Ok((history_id, status, duration, size)) => {
+                self.send_errors.remove(&tab);
                 let cached = self.engine.as_ref().and_then(|engine| engine.response(Some(&history_id)));
                 if let Some(cached) = cached {
                     let view = response_from_cached(&cached);
@@ -1474,7 +1480,11 @@ impl App {
                 }
                 self.refresh();
             }
-            Err(err) => self.shell.state.status = format!("Send failed: {err}"),
+            Err(err) => {
+                self.responses.remove(&tab);
+                self.send_errors.insert(tab, SendErrorView { message: err.clone(), elapsed_ms });
+                self.shell.state.status = format!("Send failed: {err}");
+            }
         }
     }
 
@@ -1595,6 +1605,7 @@ impl App {
             })
             .ok();
         self.sending = Some(Sending { tab: tab_id, started: std::time::Instant::now(), cancel, download, receiver });
+        self.send_errors.remove(&tab_id);
         self.shell.state.status = "Sending…".into();
     }
 
@@ -2107,6 +2118,7 @@ impl eframe::App for App {
             let detail_editors = &mut self.detail_editors;
             let trash_entries = &self.trash_entries;
             let responses = &mut self.responses;
+            let send_errors = &self.send_errors;
             let viewer_states = &mut self.viewer_states;
             let mut response_action: Option<ResponseAction> = None;
             let mut panel = |ui: &mut egui::Ui, doc: &TabDoc| {
@@ -2127,7 +2139,10 @@ impl eframe::App for App {
                             undo_paste: editor.undo_paste.is_some(),
                             inherited_auth: editor.inherited_auth.as_deref(),
                         };
-                        let builder_action = if let Some(data) = responses.get_mut(&panel_id) {
+                        let error = send_errors.get(&panel_id);
+                        let response = responses.get_mut(&panel_id);
+                        let mut retry_from_error = false;
+                        let builder_action = if error.is_some() || response.is_some() {
                             let viewer = viewer_states.entry(panel_id).or_default();
                             if two_pane {
                                 let width = (ui.available_width() * 0.5).max(260.0);
@@ -2138,7 +2153,11 @@ impl eframe::App for App {
                                         })
                                         .inner;
                                     ui.separator();
-                                    response_action = response_view(ui, data, viewer);
+                                    if let Some(error) = error {
+                                        retry_from_error = error_view(ui, error);
+                                    } else if let Some(data) = response {
+                                        response_action = response_view(ui, data, viewer);
+                                    }
                                     action
                                 })
                                 .inner
@@ -2151,12 +2170,17 @@ impl eframe::App for App {
                                     })
                                     .inner;
                                 ui.separator();
-                                response_action = response_view(ui, data, viewer);
+                                if let Some(error) = error {
+                                    retry_from_error = error_view(ui, error);
+                                } else if let Some(data) = response {
+                                    response_action = response_view(ui, data, viewer);
+                                }
                                 action
                             }
                         } else {
                             builder.show(ui)
                         };
+                        let builder_action = if retry_from_error { Some(BuilderAction::Send { download: false }) } else { builder_action };
                         editor.request.kind = RequestKind::Http(editor.draft.clone());
                         builder_action.map(PanelAction::Builder)
                     }
@@ -2500,6 +2524,30 @@ mod tests {
         }
         assert!(app.sending.is_none());
         assert!(app.shell.state.status.contains("Send failed") || app.shell.state.status.contains("URL"), "{}", app.shell.state.status);
+    }
+
+    #[test]
+    fn a_connection_failure_is_kept_for_the_response_pane() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("Fail").expect("collection");
+        let request = engine.create_request(&collection.id, None, "http", "Refused").expect("request");
+        let tab = editor_for(&mut app, &collection.id, &request.id);
+        app.editors.get_mut(&tab).expect("editor").draft.url = "http://127.0.0.1:9/nope".into();
+        app.start_send(tab, false);
+        for _ in 0..200 {
+            app.poll_send();
+            if app.sending.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let error = app.send_errors.get(&tab).expect("the failure is shown in the response pane");
+        assert_eq!(error.kind(), "NETWORK", "{}", error.message);
+        assert!(error.message.contains("refused") || error.message.contains("connect"), "{}", error.message);
+        assert!(!app.responses.contains_key(&tab));
+        assert!(app.shell.state.status.contains("Send failed"));
     }
 
     #[test]

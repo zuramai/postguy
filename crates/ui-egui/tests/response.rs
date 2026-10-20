@@ -105,3 +105,28 @@ fn search_counts_matches() {
     harness.run();
     assert!(harness.query_by_label_contains("match(es)").is_some(), "a match counter is visible");
 }
+
+#[test]
+fn the_error_pane_shows_the_code_message_and_retry() {
+    use postguy_ui_egui::response::{SendErrorView, error_view};
+
+    #[derive(Default)]
+    struct State {
+        retry: bool,
+    }
+    let mut harness = Harness::new_ui_state(
+        |ui, state: &mut State| {
+            if error_view(ui, &SendErrorView { message: "connecting to 127.0.0.1:9: Connection refused (os error 61)".into(), elapsed_ms: 3 }) {
+                state.retry = true;
+            }
+        },
+        State::default(),
+    );
+    harness.run();
+    assert!(harness.query_by_label_contains("Could not send request").is_some());
+    assert!(harness.query_by_label_contains("NETWORK").is_some());
+    assert!(harness.query_by_label_contains("Connection refused").is_some());
+    harness.get_by_label("Retry").click();
+    harness.run();
+    assert!(harness.state().retry);
+}

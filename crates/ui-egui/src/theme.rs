@@ -244,7 +244,6 @@ impl Theme {
         match status {
             200..=299 => self.palette.success,
             300..=399 => self.palette.info,
-            400..=499 => self.palette.warning,
             _ => self.palette.danger,
         }
     }
@@ -311,7 +310,7 @@ mod tests {
         assert_eq!(theme.method_color("DELETE"), theme.palette.delete);
         assert_eq!(theme.status_color(204), theme.palette.success);
         assert_eq!(theme.status_color(302), theme.palette.info);
-        assert_eq!(theme.status_color(404), theme.palette.warning);
+        assert_eq!(theme.status_color(404), theme.palette.danger);
         assert_eq!(theme.status_color(503), theme.palette.danger);
     }
 }
