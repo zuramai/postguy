@@ -21,6 +21,13 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-20 (M2.1):** Testkit: loopback HTTP+HTTPS servers on ephemeral ports with the full
+  fixture set (echo with ordered headers, redirects/chains, status codes, cookies, Basic/
+  Bearer/Digest auth verified per RFC 7616, slow/streaming/compressed/huge bodies, OAuth token
+  endpoint), real incremental chunk streaming, per-server self-signed certificates with a
+  trustable PEM, and clean Drop shutdown. Hand-written pure-Rust zstd raw-block encoder for the
+  zstd fixture (no C). 4 unit + 8 integration tests over real sockets; next is the M2.2
+  hyper connector.
 - **2026-10-20 (M1.8):** Automation: 33 tools over the workspace (workspace/collection/folder/
   request/env/globals/import/export families) with JSON schemas, unknown-argument rejection,
   root confinement with the identical refusal for existing and missing outside paths, and
