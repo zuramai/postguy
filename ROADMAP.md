@@ -21,6 +21,18 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-20 (M3.4, core):** Request builder: breadcrumb and editable name; method menu with
+  REST colours; URL field with `{{var}}` chips, variable autocomplete and cURL paste detection
+  (interop import in the app); Enter sends; split Send and Cancel with an elapsed timer; Save
+  with dirty tracking; Params and `:pathVars` in two-way sync with the URL; authorization for
+  Inherit/No Auth/Basic/Bearer/API key; header rows plus read-only automatic rows; all six body
+  modes with per-mode drafts kept while switching (JSON Beautify); Scripts shells; per-request
+  Settings; Docs. Sends run on a background thread against the unsaved draft through a new
+  `SendTarget::StoredDraft` (ancestor scopes/auth inherited, nothing written by a send), and
+  dirty tabs save through the engine before closing. 4 unit + 8 builder UI tests + 6 app tests.
+  Header presets (built-in sets replacing in place), a show/hide toggle for the automatic rows
+  and Params/Headers bulk edit landed next. Still missing: custom presets with a management
+  dialog, the post-paste undo hint, and the response splitter (M3.5).
 - **2026-10-20 (M3.3):** Tab strip: preview tabs replacing each other and promoting on a
   permanent open, painted close buttons and dirty dots, middle-click close, drag reorder,
   overflow search over open and recently closed tabs, the full tab context menu, the environment

@@ -7,11 +7,13 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use postguy_engine::Engine;
-use postguy_model::{Collection, Id, Item, RequestKind};
+use postguy_engine::{Cancel, Engine, SendOptions, SendTarget};
+use postguy_model::{Collection, HttpRequest, Id, Item, Request, RequestKind};
 use postguy_store::{StorePaths, config_dir};
+use postguy_ui_egui::builder::{BodyDrafts, BuilderAction, BuilderTab, RequestBuilder, SendProgress};
 use postguy_ui_egui::sidebar::{RequestProtocol, RowKind, SidebarAction, SidebarData};
 use postguy_ui_egui::tabs::{TabAction, TabDoc, Tabs};
 use postguy_ui_egui::{PostguyShell, ThemeMode};
@@ -44,10 +46,41 @@ struct StoredSession {
     clean_exit: bool,
 }
 
+/// A builder draft per request tab; names, unsaved fields and per-mode body data survive the
+/// session through this shape.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredEditor {
+    request: Request,
+    draft: HttpRequest,
+    description: String,
+    bodies: BodyDrafts,
+    tab: BuilderTab,
+}
+
+struct RequestEditor {
+    collection: String,
+    request: Request,
+    draft: HttpRequest,
+    description: String,
+    bodies: BodyDrafts,
+    dirty: bool,
+    tab: BuilderTab,
+}
+
+struct Sending {
+    tab: u64,
+    started: std::time::Instant,
+    cancel: Cancel,
+    receiver: std::sync::mpsc::Receiver<Result<(u16, u64, u64), String>>,
+}
+
 struct App {
     engine: Option<Engine>,
     shell: PostguyShell,
     clipboard: Option<Clipboard>,
+    editors: BTreeMap<u64, RequestEditor>,
+    sending: Option<Sending>,
     revision: u64,
     last_session: Option<String>,
     last_save: std::time::Instant,
@@ -59,15 +92,32 @@ impl App {
         let mut shell = PostguyShell::new(workspace.file_name().and_then(|name| name.to_str()).unwrap_or("Workspace"));
         match open_engine(&workspace, &config) {
             Ok(engine) => {
-                let mut app =
-                    App { engine: Some(engine), shell, clipboard: None, revision: 0, last_session: None, last_save: std::time::Instant::now() };
+                let mut app = App {
+                    engine: Some(engine),
+                    shell,
+                    clipboard: None,
+                    editors: BTreeMap::new(),
+                    sending: None,
+                    revision: 0,
+                    last_session: None,
+                    last_save: std::time::Instant::now(),
+                };
                 app.refresh();
                 app.restore_session();
                 app
             }
             Err(message) => {
                 shell.state.status = message.clone();
-                App { engine: None, shell, clipboard: None, revision: 0, last_session: None, last_save: std::time::Instant::now() }
+                App {
+                    engine: None,
+                    shell,
+                    clipboard: None,
+                    editors: BTreeMap::new(),
+                    sending: None,
+                    revision: 0,
+                    last_session: None,
+                    last_save: std::time::Instant::now(),
+                }
             }
         }
     }
@@ -125,6 +175,21 @@ impl App {
             ThemeMode::Dark => "dark",
             ThemeMode::System => "system",
         };
+        for (tab_id, editor) in &self.editors {
+            if !editor.dirty {
+                continue;
+            }
+            let stored = StoredEditor {
+                request: editor.request.clone(),
+                draft: editor.draft.clone(),
+                description: editor.description.clone(),
+                bodies: editor.bodies.clone(),
+                tab: editor.tab,
+            };
+            if let Ok(text) = serde_json::to_string(&stored) {
+                self.shell.tabs.set_draft(*tab_id, text);
+            }
+        }
         let stored = StoredSession {
             tabs: self.shell.tabs.clone(),
             sidebar_sections: self.shell.sidebar_state.sections,
@@ -381,6 +446,156 @@ impl App {
 }
 
 impl App {
+    /// Load builders for request tabs that do not have one yet, drop editors for closed tabs,
+    /// and prefer a restored session draft over the file (crash recovery).
+    fn sync_editors(&mut self) {
+        let Some(engine) = self.engine.clone() else { return };
+        let request_tabs: Vec<(u64, String, String)> = self
+            .shell
+            .tabs
+            .tabs
+            .iter()
+            .filter_map(|tab| match &tab.doc {
+                TabDoc::Request { collection, request, .. } => Some((tab.id, collection.clone(), request.clone())),
+                _ => None,
+            })
+            .collect();
+        self.editors.retain(|id, _| request_tabs.iter().any(|(tab, _, _)| tab == id));
+        for (tab_id, collection, request_id) in request_tabs {
+            if self.editors.contains_key(&tab_id) {
+                continue;
+            }
+            let stored = self.shell.tabs.drafts.get(&tab_id).and_then(|text| serde_json::from_str::<StoredEditor>(text).ok());
+            let from_file = engine.request(&Id(collection.clone()), &Id(request_id.clone())).ok();
+            let request = stored.as_ref().map(|stored| stored.request.clone()).or(from_file);
+            let Some(request) = request else { continue };
+            let RequestKind::Http(http) = request.kind.clone() else { continue };
+            let draft = stored.as_ref().map(|stored| stored.draft.clone()).unwrap_or(http);
+            let description = stored.as_ref().map(|stored| stored.description.clone()).unwrap_or_else(|| request.description.clone());
+            let bodies = stored.as_ref().map(|stored| stored.bodies.clone()).unwrap_or_default();
+            let tab = stored.as_ref().map(|stored| stored.tab).unwrap_or_default();
+            let dirty = self.shell.tabs.tabs.iter().find(|tab| tab.id == tab_id).is_some_and(|tab| tab.dirty);
+            self.editors.insert(tab_id, RequestEditor { collection, request, draft, description, bodies, dirty, tab });
+        }
+    }
+
+    fn poll_send(&mut self) {
+        let Some(sending) = &self.sending else { return };
+        let Ok(result) = sending.receiver.try_recv() else { return };
+        self.sending = None;
+        match result {
+            Ok((status, duration, size)) => {
+                self.shell.state.status = format!("{status} · {duration} ms · {size} B (response viewer arrives in M3.5)");
+                self.refresh();
+            }
+            Err(err) => self.shell.state.status = format!("Send failed: {err}"),
+        }
+    }
+
+    fn apply_builder(&mut self, tab_id: u64, action: BuilderAction) {
+        let panel_tab = self.shell.tabs.tabs.iter().find(|tab| tab.id == tab_id).map(|tab| tab.title.clone()).unwrap_or_default();
+        match action {
+            BuilderAction::ParseCurl(text) => match postguy_interop::parse_curl(&text) {
+                Ok(mut commands) => {
+                    if let Some(parsed) = commands.drain(..).next()
+                        && let Some(editor) = self.editors.get_mut(&tab_id)
+                    {
+                        editor.draft = parsed.request;
+                        editor.dirty = true;
+                        self.shell.tabs.set_dirty(tab_id, true);
+                        self.shell.state.status = format!(
+                            "Imported cURL for `{panel_tab}`{}",
+                            if parsed.warnings.is_empty() { String::new() } else { format!(" ({} warnings)", parsed.warnings.len()) }
+                        );
+                    }
+                }
+                Err(err) => self.shell.state.status = format!("cURL: {err}"),
+            },
+            BuilderAction::Save => match self.save_editor(tab_id) {
+                Ok(()) => {
+                    self.shell.state.status = "Saved".into();
+                    self.refresh();
+                }
+                Err(err) => self.shell.state.status = format!("Save failed: {err}"),
+            },
+            BuilderAction::Send { download } => {
+                if download {
+                    self.shell.state.status = "Send and Download arrives with the response viewer (M3.5)".into();
+                } else {
+                    self.start_send(tab_id);
+                }
+            }
+            BuilderAction::Cancel => {
+                if let Some(sending) = &self.sending {
+                    sending.cancel.cancel();
+                    self.shell.state.status = "Cancelling…".into();
+                }
+            }
+        }
+    }
+
+    /// Persist one builder draft through the engine (Save, and the dirty-close dialog's Save).
+    fn save_editor(&mut self, tab_id: u64) -> Result<(), String> {
+        let Some(editor) = self.editors.get_mut(&tab_id) else { return Ok(()) };
+        editor.request.kind = RequestKind::Http(editor.draft.clone());
+        editor.request.description = editor.description.clone();
+        let engine = self.engine.clone().ok_or_else(|| "no workspace is open".to_string())?;
+        engine.save_request(&Id(editor.collection.clone()), &editor.request).map_err(|err| err.to_string())?;
+        editor.dirty = false;
+        let name = editor.request.name.clone();
+        self.shell.tabs.set_dirty(tab_id, false);
+        self.shell.tabs.set_title(tab_id, name);
+        self.shell.tabs.clear_draft(tab_id);
+        Ok(())
+    }
+
+    fn start_send(&mut self, tab_id: u64) {
+        let Some(editor) = self.editors.get_mut(&tab_id) else { return };
+        editor.request.kind = RequestKind::Http(editor.draft.clone());
+        let Some(engine) = self.engine.clone() else { return };
+        let target = SendTarget::StoredDraft {
+            collection: Id(editor.collection.clone()),
+            request: editor.request.id.clone(),
+            draft: Box::new(editor.draft.clone()),
+        };
+        let cancel = Cancel::new();
+        let cancel_thread = cancel.clone();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::Builder::new()
+            .name("postguy-send".into())
+            .spawn(move || {
+                let outcome = engine.send(target, SendOptions { environment: None, cancel: Some(cancel_thread), run_scripts: true });
+                let result = outcome
+                    .map(|outcome| (outcome.response.status, outcome.response.timings.total_ms, outcome.response.size.body_decoded_bytes as u64))
+                    .map_err(|err| err.to_string());
+                let _ = sender.send(result);
+            })
+            .ok();
+        self.sending = Some(Sending { tab: tab_id, started: std::time::Instant::now(), cancel, receiver });
+        self.shell.state.status = "Sending…".into();
+    }
+
+    fn variables_for(&self, collection: &str) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        if let Some(environment) = self
+            .shell
+            .sidebar_data
+            .active_environment
+            .as_ref()
+            .and_then(|id| self.shell.sidebar_data.environments.iter().find(|environment| environment.id == *id))
+        {
+            names.extend(environment.variables.iter().filter(|variable| variable.enabled).map(|variable| variable.key.clone()));
+        }
+        if let Some(value) = self.shell.sidebar_data.collections.iter().find(|value| value.id.0 == collection) {
+            names.extend(value.variables.iter().filter(|variable| variable.enabled).map(|variable| variable.key.clone()));
+        }
+        names.sort();
+        names.dedup();
+        names
+    }
+}
+
+impl App {
     fn apply_tab(&mut self, action: TabAction) {
         let Some(engine) = self.engine.clone() else { return };
         match action {
@@ -419,9 +634,18 @@ impl App {
                 self.shell.state.sidebar_open = true;
                 self.shell.state.status = "Revealed in the sidebar".into();
             }
-            TabAction::SaveAndClose(_) => {
-                self.shell.state.status = "Tab closed; the save hook lands with the request editor (M3.4)".into();
-            }
+            TabAction::SaveAndClose(tab_id) => match self.save_editor(tab_id) {
+                Ok(()) => {
+                    self.shell.tabs.force_close(tab_id);
+                    self.editors.remove(&tab_id);
+                    self.shell.state.status = "Saved and closed".into();
+                    self.refresh();
+                }
+                Err(err) => {
+                    self.shell.tabs.pending_close = None;
+                    self.shell.state.status = format!("Save failed: {err}; the tab stays open");
+                }
+            },
             TabAction::Restored(doc) => {
                 self.shell.state.status = format!("Reopened {doc:?}");
             }
@@ -495,12 +719,64 @@ fn resolve_target(collections: &[Collection], target: &Id) -> Result<(Id, Option
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        self.shell.ui(ui);
+        self.poll_send();
+        self.sync_editors();
+        let panel_tab = self.shell.tabs.active_tab().filter(|tab| matches!(tab.doc, TabDoc::Request { .. })).map(|tab| tab.id);
+        let variables = panel_tab.and_then(|id| self.editors.get(&id)).map(|editor| self.variables_for(&editor.collection)).unwrap_or_default();
+        let collection_name = panel_tab
+            .and_then(|id| self.editors.get(&id))
+            .and_then(|editor| {
+                self.shell
+                    .sidebar_data
+                    .collections
+                    .iter()
+                    .find(|collection| collection.id.0 == editor.collection)
+                    .map(|collection| collection.name.clone())
+            })
+            .unwrap_or_default();
+        let progress = self.sending.as_ref().and_then(|sending| {
+            if Some(sending.tab) == panel_tab {
+                Some(SendProgress { elapsed_ms: sending.started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64 })
+            } else {
+                None
+            }
+        });
+        let builder_action = {
+            let shell = &mut self.shell;
+            let editors = &mut self.editors;
+            let mut panel = |ui: &mut egui::Ui| {
+                let panel_id = panel_tab?;
+                let editor = editors.get_mut(&panel_id)?;
+                let mut builder = RequestBuilder {
+                    name: &mut editor.request.name,
+                    description: &mut editor.description,
+                    collection_name: &collection_name,
+                    draft: &mut editor.draft,
+                    bodies: &mut editor.bodies,
+                    dirty: &mut editor.dirty,
+                    tab: &mut editor.tab,
+                    variables: &variables,
+                    sending: progress,
+                };
+                let action = builder.show(ui);
+                editor.request.kind = RequestKind::Http(editor.draft.clone());
+                action
+            };
+            shell.ui_with(ui, if panel_tab.is_some() { Some(&mut panel) } else { None })
+        };
+        if let Some(panel_id) = panel_tab
+            && let Some(editor) = self.editors.get(&panel_id)
+        {
+            self.shell.tabs.set_dirty(panel_id, editor.dirty);
+        }
         if let Some(action) = self.shell.action.take() {
             self.apply(action);
         }
         if let Some(action) = self.shell.tab_action.take() {
             self.apply_tab(action);
+        }
+        if let Some(action) = builder_action {
+            self.apply_builder(panel_tab.unwrap_or(0), action);
         }
         self.save_session(false, false);
     }
@@ -609,6 +885,165 @@ mod tests {
         let app = app_in(dir.path());
         assert!(app.shell.state.status.contains("unexpected exit"), "{}", app.shell.state.status);
         assert_eq!(app.shell.tabs.tabs.len(), 1);
+    }
+
+    fn editor_for(app: &mut App, collection: &Id, request: &Id) -> u64 {
+        app.refresh();
+        let tab = app.shell.tabs.open(
+            TabDoc::Request { collection: collection.0.clone(), request: request.0.clone(), method: "GET".into(), protocol: "http".into() },
+            "Request",
+        );
+        app.sync_editors();
+        tab
+    }
+
+    #[test]
+    fn saving_a_builder_draft_writes_the_request_and_clears_dirty() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("Payments").expect("collection");
+        let request = engine.create_request(&collection.id, None, "http", "Users").expect("request");
+        let tab = editor_for(&mut app, &collection.id, &request.id);
+        {
+            let editor = app.editors.get_mut(&tab).expect("editor");
+            editor.draft.url = "https://api.example.com/users?page=2".into();
+            editor.draft.method = postguy_model::HttpMethod::Post;
+            editor.dirty = true;
+        }
+        app.apply_builder(tab, BuilderAction::Save);
+        let saved = engine.request(&collection.id, &request.id).expect("request");
+        match saved.kind {
+            RequestKind::Http(http) => {
+                assert_eq!(http.url, "https://api.example.com/users?page=2");
+                assert_eq!(http.method, postguy_model::HttpMethod::Post);
+            }
+            _ => panic!("wrong kind"),
+        }
+        assert!(!app.editors.get(&tab).expect("editor").dirty);
+        assert!(!app.shell.tabs.tabs.iter().find(|candidate| candidate.id == tab).expect("tab").dirty);
+    }
+
+    #[test]
+    fn an_unsaved_draft_survives_the_session_and_wins_over_the_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (collection_id, request_id) = {
+            let mut app = app_in(dir.path());
+            let engine = app.engine.clone().expect("engine");
+            let collection = engine.create_collection("Payments").expect("collection");
+            let request = engine.create_request(&collection.id, None, "http", "Users").expect("request");
+            let tab = editor_for(&mut app, &collection.id, &request.id);
+            {
+                let editor = app.editors.get_mut(&tab).expect("editor");
+                editor.draft.url = "https://draft.example.com/unsaved".into();
+                editor.dirty = true;
+            }
+            app.shell.tabs.set_dirty(tab, true);
+            app.save_session(true, true);
+            (collection.id, request.id)
+        };
+        let mut app = app_in(dir.path());
+        app.sync_editors();
+        let tab = app.shell.tabs.tabs.first().expect("restored tab").id;
+        let editor = app.editors.get(&tab).expect("restored editor");
+        assert_eq!(editor.draft.url, "https://draft.example.com/unsaved", "the session draft wins over the saved file");
+        assert!(editor.dirty);
+        assert!(app.engine.as_ref().expect("engine").request(&collection_id, &request_id).is_ok());
+    }
+
+    #[test]
+    fn pasting_curl_replaces_the_draft_and_marks_it_dirty() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("Curl").expect("collection");
+        let request = engine.create_request(&collection.id, None, "http", "Paste").expect("request");
+        let tab = editor_for(&mut app, &collection.id, &request.id);
+        app.apply_builder(tab, BuilderAction::ParseCurl("curl -X DELETE 'https://api.example.com/items/7' -H 'X-Token: abc'".into()));
+        let editor = app.editors.get(&tab).expect("editor");
+        assert_eq!(editor.draft.method, postguy_model::HttpMethod::Delete);
+        assert_eq!(editor.draft.url, "https://api.example.com/items/7");
+        assert!(editor.dirty);
+        assert!(editor.draft.headers.iter().any(|row| row.key == "X-Token" && row.value == "abc"));
+    }
+
+    #[test]
+    fn sending_runs_off_the_ui_thread_and_reports_the_status() {
+        let server = postguy_testkit::Server::start();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("Send").expect("collection");
+        let request = engine.create_request(&collection.id, None, "http", "Echo").expect("request");
+        let tab = editor_for(&mut app, &collection.id, &request.id);
+        app.editors.get_mut(&tab).expect("editor").draft.url = format!("{}/echo", server.base_url());
+        app.start_send(tab);
+        assert!(app.sending.is_some());
+        for _ in 0..200 {
+            app.poll_send();
+            if app.sending.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(app.sending.is_none(), "the send finished");
+        assert!(app.shell.state.status.contains("200"), "{}", app.shell.state.status);
+        assert!(!engine.history(5).expect("history").is_empty(), "the send recorded history");
+    }
+
+    #[test]
+    fn cancelling_an_in_flight_send_reports_it() {
+        let server = postguy_testkit::Server::start();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("Cancel").expect("collection");
+        let request = engine.create_request(&collection.id, None, "http", "Slow").expect("request");
+        let tab = editor_for(&mut app, &collection.id, &request.id);
+        app.editors.get_mut(&tab).expect("editor").draft.url = format!("{}/slow?ms=3000", server.base_url());
+        app.start_send(tab);
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        app.apply_builder(tab, BuilderAction::Cancel);
+        for _ in 0..300 {
+            app.poll_send();
+            if app.sending.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(app.sending.is_none());
+        assert!(
+            app.shell.state.status.contains("cancelled")
+                || app.shell.state.status.contains("cancelling")
+                || app.shell.state.status.contains("Cancel"),
+            "{}",
+            app.shell.state.status
+        );
+    }
+
+    #[test]
+    fn saving_from_the_dirty_close_dialog_persists_and_closes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("Close").expect("collection");
+        let request = engine.create_request(&collection.id, None, "http", "Users").expect("request");
+        let tab = editor_for(&mut app, &collection.id, &request.id);
+        {
+            let editor = app.editors.get_mut(&tab).expect("editor");
+            editor.draft.url = "https://saved.example.com/users".into();
+            editor.dirty = true;
+        }
+        app.shell.tabs.set_dirty(tab, true);
+        app.shell.tabs.pending_close = Some(tab);
+        app.apply_tab(TabAction::SaveAndClose(tab));
+        assert!(app.shell.tabs.tabs.iter().all(|candidate| candidate.id != tab), "the tab is closed after saving");
+        assert_eq!(app.shell.tabs.pending_close, None);
+        let saved = engine.request(&collection.id, &request.id).expect("request");
+        match saved.kind {
+            RequestKind::Http(http) => assert_eq!(http.url, "https://saved.example.com/users"),
+            _ => panic!("wrong kind"),
+        }
     }
 
     #[test]

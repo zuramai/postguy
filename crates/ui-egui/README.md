@@ -20,6 +20,10 @@ The egui shell: theme, widgets and all screens.
   highlighting, painted carets, preview-open intents, keyboard navigation, multi-select, inline
   rename, typed delete confirmation, drag/drop with insertion lines and folder nesting, and the
   per-target context menus. `apps/postguy` applies its `SidebarAction`s through the engine.
+- `builder` — the request builder: method/URL (chips, autocomplete, cURL detection, Enter to
+  send), Send/Cancel with elapsed, Params/path-variable two-way sync, auth P0, headers with
+  automatic rows, all body modes with per-mode drafts, Scripts/Settings/Docs, Save and dirty
+  tracking. Data-in/actions-out; the app owns the engine and the async send.
 - `tabs` — the tab model and strip: preview/permanent documents, dirty dots, painted close
   buttons, drag reorder, middle-click, overflow search with recently closed, the tab context
   menu, the strict dirty-close dialog and the environment selector. Tabs (with drafts) are

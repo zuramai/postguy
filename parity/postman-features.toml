@@ -208,9 +208,9 @@ title = "{{var}} chips, autocomplete on `{{`, hover popover"
 area = "B"
 tier = "P1"
 milestone = "M3.4"
-status = "planned"
-notes = "Scope badges, overridden warning, editable value, add-to menu; unresolved chips red-tinted."
-
+status = "partial"
+notes = "`{{var}}` spans are tinted chips in single-line fields; typing `{{` opens a list of scope variable names and inserts the choice. Missing: scope badges, hover popovers with editable values/override warnings, unresolved red tint, and dynamic variables in the list."
+evidence = ["crates/ui-egui/tests/builder.rs::autocomplete_inserts_a_variable", "crates/ui-egui/src/widgets/field.rs::spans_are_exact_and_ignore_unterminated_braces"]
 [[feature]]
 id = "b.set-as-variable"
 title = "Right-click: Set as variable (name, value, scope)"
@@ -248,27 +248,27 @@ title = "Request line: method dropdown, URL field, Send/Cancel with timer"
 area = "C"
 tier = "P0"
 milestone = "M3.4"
-status = "planned"
-notes = "Enter sends; unsaved scheme gets http://; cURL paste converts with an undo hint; URL autocomplete."
-
+status = "partial"
+notes = "Method menu with REST colours, URL field with {{var}} chips and variable autocomplete, cURL paste detection (the app imports through interop), Enter sends, split Send with Send and Download deferred to M3.5, Cancel with elapsed timer, dirty dot/Save. Missing: the inline post-paste undo hint and a visible resolved-URL preview."
+evidence = ["crates/ui-egui/tests/builder.rs::send_and_save_emit_their_intents", "crates/ui-egui/tests/builder.rs::enter_in_the_url_sends", "crates/ui-egui/tests/builder.rs::pasting_a_curl_command_emits_the_parse_intent", "crates/ui-egui/tests/builder.rs::autocomplete_inserts_a_variable"]
 [[feature]]
 id = "c.params-tab"
 title = "Params tab: query params and path variables two-way sync"
 area = "C"
 tier = "P0"
 milestone = "M3.4"
-status = "planned"
-notes = "URL string is the source of truth; unchecked rows kept; bulk edit; path vars per :segment."
-
+status = "partial"
+notes = "Enabled query rows and `:pathVars` stay in two-way sync with the URL; disabled rows and empty values are kept; Bulk Edit turns the table into key: value lines. Missing: the URL-field cursor-preserving two-way edit pass."
+evidence = ["crates/ui-egui/src/builder.rs::url_changes_refresh_params_and_path_variables", "crates/ui-egui/src/builder.rs::table_edits_rebuild_the_url_query_and_path"]
 [[feature]]
 id = "c.headers-tab"
 title = "Headers tab: rows, automatic headers, presets, bulk edit"
 area = "C"
 tier = "P0"
 milestone = "M3.4"
-status = "planned"
-notes = "User headers win; no request-token header; hide-auto toggle; value autocomplete."
-
+status = "partial"
+notes = "Editable header rows, a show/hide toggle for the auto-generated rows (Host, User-Agent, Accept, encodings, calculated Content-Type/Length, Cookie, Cache-Control), built-in presets (JSON/XML/Form/No cache) that replace headers in place, and Bulk Edit. Missing: custom named presets with the management dialog and global storage (settings, M3.9)."
+evidence = ["crates/ui-egui/tests/builder.rs::the_docs_tab_edits_the_description_and_marks_dirty"]
 [[feature]]
 id = "c.body-modes"
 title = "Body: none, form-data, urlencoded, raw, binary, GraphQL"
@@ -893,9 +893,9 @@ title = "Request builder detail (tabs, indicators, save flows, chips)"
 area = "H"
 tier = "P0"
 milestone = "M3.4"
-status = "planned"
-notes = "Breadcrumb, Docs/Params/Auth/Headers/Body/Scripts/Settings tabs; Save dropdown; dirty dot."
-
+status = "partial"
+notes = "Breadcrumb, editable name, method+URL, Send/Cancel with timer, Params/Auth/Headers/Body/Scripts/Settings/Docs tabs with counts and dots, Save and dirty tracking, cURL paste. Missing: Save dropdown (duplicate/close), header presets/bulk edit, the response splitter (M3.5) and the code snippet panel (M3.9)."
+evidence = ["crates/ui-egui/tests/builder.rs::send_and_save_emit_their_intents", "crates/ui-egui/tests/builder.rs::authorization_switches_to_basic_and_shows_fields", "crates/ui-egui/tests/builder.rs::body_mode_switches_and_keeps_the_raw_text_available", "crates/ui-egui/tests/builder.rs::settings_toggles_persist_into_the_request_settings"]
 [[feature]]
 id = "h.env-editor"
 title = "Environment editor and globals tabs"

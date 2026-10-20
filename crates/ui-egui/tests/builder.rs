@@ -1,0 +1,164 @@
+//! Request-builder UI tests (M3.4): send/save intents, the tab set, auth switching, body mode
+//! switching, settings toggles and cURL paste detection.
+
+use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable;
+use postguy_model::{AuthConfig, Body, HttpRequest, RawLanguage};
+use postguy_ui_egui::builder::{BodyDrafts, BuilderAction, BuilderTab, RequestBuilder};
+
+struct State {
+    name: String,
+    description: String,
+    draft: HttpRequest,
+    bodies: BodyDrafts,
+    dirty: bool,
+    tab: BuilderTab,
+    action: Option<BuilderAction>,
+    last: Option<BuilderAction>,
+    variables: Vec<String>,
+}
+
+fn harness() -> Harness<'static, State> {
+    Harness::new_ui_state(
+        |ui, state: &mut State| {
+            let mut builder = RequestBuilder {
+                name: &mut state.name,
+                description: &mut state.description,
+                collection_name: "Payments",
+                draft: &mut state.draft,
+                bodies: &mut state.bodies,
+                dirty: &mut state.dirty,
+                tab: &mut state.tab,
+                variables: &state.variables,
+                sending: None,
+            };
+            state.action = builder.show(ui);
+            if state.action.is_some() {
+                state.last = state.action.clone();
+            }
+        },
+        State {
+            name: "Echo".into(),
+            description: String::new(),
+            draft: HttpRequest { url: "https://api.example.com/users".into(), ..HttpRequest::default() },
+            bodies: BodyDrafts::default(),
+            dirty: false,
+            tab: BuilderTab::Params,
+            action: None,
+            last: None,
+            variables: vec!["base".into(), "token".into()],
+        },
+    )
+}
+
+#[test]
+fn send_and_save_emit_their_intents() {
+    let mut harness = harness();
+    harness.run();
+    harness.get_by_label("Send").click();
+    harness.run();
+    assert_eq!(harness.state().last, Some(BuilderAction::Send { download: false }));
+
+    harness.get_by_label("Body").click();
+    harness.run();
+    harness.state_mut().dirty = true;
+    harness.run();
+    harness.get_by_label("Save").click();
+    harness.run();
+    assert_eq!(harness.state().last, Some(BuilderAction::Save));
+}
+
+#[test]
+fn authorization_switches_to_basic_and_shows_fields() {
+    let mut harness = harness();
+    harness.run();
+    harness.get_by_label("Authorization").click();
+    harness.run();
+    harness.get_by_label_contains("Inherit").click();
+    harness.run();
+    harness.get_by_label_contains("Basic Auth").click();
+    harness.run();
+    assert!(matches!(harness.state().draft.auth, AuthConfig::Basic(_)));
+    assert!(harness.query_by_label("Username").is_some());
+    assert!(harness.query_by_label("Password").is_some());
+}
+
+#[test]
+fn body_mode_switches_and_keeps_the_raw_text_available() {
+    let mut harness = harness();
+    harness.state_mut().draft.body = Body::Raw { language: RawLanguage::Json, text: "{\"a\":1}".into(), extras: Default::default() };
+    harness.run();
+    harness.get_by_label("Body").click();
+    harness.run();
+    harness.get_by_label_contains("Raw").click();
+    harness.run();
+    harness.get_by_label_contains("None").click();
+    harness.run();
+    assert!(matches!(harness.state().draft.body, Body::None));
+    assert_eq!(harness.state().bodies.raw, "{\"a\":1}", "the raw draft is kept across modes");
+}
+
+#[test]
+fn settings_toggles_persist_into_the_request_settings() {
+    let mut harness = harness();
+    harness.run();
+    harness.get_by_label("Settings").click();
+    harness.run();
+    assert!(harness.state().draft.settings.verify_ssl);
+    harness.get_by_label("Disable cookie jar").click();
+    harness.run();
+    assert!(harness.state().draft.settings.cookie_jar_disabled);
+    assert!(harness.state().dirty);
+}
+
+#[test]
+fn pasting_a_curl_command_emits_the_parse_intent() {
+    let mut harness = harness();
+    harness.run();
+    let url = harness.get_all_by_role(egui::accesskit::Role::TextInput).last().expect("url field");
+    url.click();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    harness.get_all_by_role(egui::accesskit::Role::TextInput).last().expect("url field").type_text("curl https://example.com -H 'X: y'");
+    harness.run();
+    match &harness.state().last {
+        Some(BuilderAction::ParseCurl(text)) => assert!(text.starts_with("curl ")),
+        other => panic!("expected ParseCurl, got {other:?}"),
+    }
+}
+
+#[test]
+fn enter_in_the_url_sends() {
+    let mut harness = harness();
+    harness.run();
+    harness.get_all_by_role(egui::accesskit::Role::TextInput).last().expect("url").click();
+    harness.key_press(egui::Key::Enter);
+    harness.run();
+    assert_eq!(harness.state().last, Some(BuilderAction::Send { download: false }));
+}
+
+#[test]
+fn autocomplete_inserts_a_variable() {
+    let mut harness = harness();
+    harness.run();
+    harness.get_all_by_role(egui::accesskit::Role::TextInput).last().expect("url").click();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    harness.get_all_by_role(egui::accesskit::Role::TextInput).last().expect("url").type_text("/{{ba");
+    harness.run();
+    harness.get_by_label("{{base}}").click();
+    harness.run();
+    assert!(harness.state().draft.url.contains("{{base}}"), "autocomplete inserted the variable: {}", harness.state().draft.url);
+}
+
+#[test]
+fn the_docs_tab_edits_the_description_and_marks_dirty() {
+    let mut harness = harness();
+    harness.run();
+    harness.get_by_label("Docs").click();
+    harness.run();
+    let input = harness.get_all_by_role(egui::accesskit::Role::MultilineTextInput).last().expect("docs editor");
+    input.click();
+    input.type_text("How the endpoint behaves");
+    harness.run();
+    assert!(harness.state().description.contains("endpoint"));
+    assert!(harness.state().dirty);
+}

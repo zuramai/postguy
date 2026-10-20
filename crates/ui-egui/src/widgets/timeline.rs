@@ -22,7 +22,7 @@ impl MessageDirection {
             MessageDirection::Received => "↓",
             MessageDirection::Info => "•",
             MessageDirection::Warning => "!",
-            MessageDirection::Error => "✕",
+            MessageDirection::Error => "x",
         }
     }
 

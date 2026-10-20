@@ -2825,8 +2825,10 @@ dependencies = [
  "eframe",
  "egui",
  "postguy-engine",
+ "postguy-interop",
  "postguy-model",
  "postguy-store",
+ "postguy-testkit",
  "postguy-ui-egui",
  "serde",
  "serde_json",
@@ -2998,6 +3000,7 @@ dependencies = [
  "egui_kittest",
  "image",
  "postguy-model",
+ "postguy-urlkit",
  "serde",
  "serde_json",
 ]

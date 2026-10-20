@@ -166,7 +166,7 @@ pub fn select(
         .and_then(|value| groups.iter().flat_map(|group| group.items.iter()).find(|item| item.value == *value).map(|item| item.label.clone()))
         .unwrap_or_else(|| placeholder.to_string());
     let response = ui
-        .add(egui::Button::new(RichText::new(format!("{display}  ▾")).color(theme.palette.text)).min_size(vec2(120.0, theme.metrics.control_height)));
+        .add(egui::Button::new(RichText::new(format!("{display}  v")).color(theme.palette.text)).min_size(vec2(120.0, theme.metrics.control_height)));
     let mut changed = false;
     Popup::menu(&response).id(Id::new((id, "select"))).close_behavior(egui::PopupCloseBehavior::CloseOnClick).show(|ui| {
         ui.set_min_width(response.rect.width().max(180.0));
@@ -211,7 +211,7 @@ pub fn split_button(ui: &mut Ui, main_label: &str, on_main: impl FnOnce(), menu:
             clicked = true;
         }
         let caret = ui.add(
-            egui::Button::new(RichText::new("▾").color(contrast_on(theme.palette.accent)))
+            egui::Button::new(RichText::new("v").color(contrast_on(theme.palette.accent)))
                 .fill(theme.palette.accent)
                 .corner_radius(egui::CornerRadius { nw: 0, sw: 0, ne: theme.metrics.radius as u8, se: theme.metrics.radius as u8 }),
         );
@@ -233,7 +233,7 @@ pub fn searchable_popup(
 ) -> bool {
     let theme = crate::theme::Theme::current(ui.ctx());
     let base_id = Id::new(id);
-    let response = ui.add(egui::Button::new(format!("{button_label}  ▾")));
+    let response = ui.add(egui::Button::new(format!("{button_label}  v")));
     let mut filter = ui.data(|data| data.get_temp::<String>(Id::new((base_id, "filter")))).unwrap_or_default();
     let mut changed = false;
     Popup::menu(&response).id(Id::new((base_id, "popup"))).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
@@ -322,7 +322,7 @@ pub fn modal<T>(
         ui.horizontal(|ui| {
             ui.heading(title);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.add(egui::Button::new("✕").frame(false)).clicked() {
+                if ui.add(egui::Button::new("x").frame(false)).clicked() {
                     close = true;
                 }
             });

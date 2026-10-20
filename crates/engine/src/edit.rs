@@ -165,6 +165,40 @@ impl Engine {
         Ok(example)
     }
 
+    /// Load one request by id (for the request editor).
+    pub fn request(&self, collection: &Id, request: &Id) -> Result<Request> {
+        let collection_value = self.load_collection(collection)?;
+        match find_item(&collection_value, request) {
+            Some(Item::Request(found)) => Ok((**found).clone()),
+            Some(Item::Folder(_)) => Err(EngineError::BadRequest { reason: format!("`{}` is a folder, not a request", request.0) }),
+            None => Err(EngineError::NotFound { what: "request".into(), id: request.0.clone() }),
+        }
+    }
+
+    /// Save an edited request (the builder's Save). The id must already exist; the name and
+    /// kind-specific payload are replaced atomically through the store.
+    pub fn save_request(&self, collection: &Id, request: &Request) -> Result<()> {
+        require_name(&request.name)?;
+        let mut collection_value = self.load_collection(collection)?;
+        match find_item_mut(&mut collection_value, &request.id) {
+            Some(Item::Request(existing)) => {
+                existing.name = request.name.clone();
+                existing.description = request.description.clone();
+                existing.kind = request.kind.clone();
+                existing.examples = request.examples.clone();
+                existing.extras = request.extras.clone();
+            }
+            Some(Item::Folder(_)) => return Err(EngineError::BadRequest { reason: format!("`{}` is a folder, not a request", request.id.0) }),
+            None => return Err(EngineError::NotFound { what: "request".into(), id: request.id.0.clone() }),
+        }
+        self.workspace().save_collection(&collection_value)?;
+        Ok(())
+    }
+
+    pub fn collection(&self, id: &Id) -> Result<Collection> {
+        self.load_collection(id)
+    }
+
     pub fn rename_item(&self, collection: &Id, id: &Id, name: &str) -> Result<()> {
         require_name(name)?;
         let mut collection_value = self.load_collection(collection)?;
