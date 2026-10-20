@@ -21,6 +21,15 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-20 (M1.8):** Automation: 33 tools over the workspace (workspace/collection/folder/
+  request/env/globals/import/export families) with JSON schemas, unknown-argument rejection,
+  root confinement with the identical refusal for existing and missing outside paths, and
+  `postguy-cli tools|call|run --script`; secret variables now actually SPLIT into
+  `.postguy/secrets.json` on every store save and rehydrate on load (env, globals, collection and
+  folder scopes), imported Postman ids like `env-1` are accepted as file names (still
+  traversal-proof), and deletion of items parks a JSON snapshot under `.trash/`. Four
+  automation e2e tests + four CLI e2e tests; parity rows `f.agent-tools` and `f.run-script`
+  now `partial` with cited evidence. M1 is complete; next is M2.1 testkit and the M2 HTTP engine.
 - **2026-10-20 (M1.6, M1.9):** M1.6 Postman import/export landed with the vendored official
   v2.1.0/v2.0.0 schemas (Apache-2.0 test data, the AGENTS.md 1.1 closed-list pair, `postman_data`
   + attribution entries), typed auth mapping per Appendix C (jwt/asap read through verbatim),
