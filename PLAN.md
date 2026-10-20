@@ -161,7 +161,7 @@ Planned observation requests:
 
 #### M7 gRPC
 
-- [ ] M7.1 `grpc`: protox compile with import paths, descriptor pool, per-request service definitions in `protos/`. *(partial: sets + inline paths compile; import-into-workspace and per-file reports open)*
+- [ ] M7.1 `grpc`: protox compile with import paths, descriptor pool, per-request service definitions in `protos/`. *(partial: sets + inline paths compile through a confined resolver with byte/file caps; import-into-workspace and per-file reports open)*
 - [ ] M7.2 Dynamic codec and unary invoke over tonic; TLS toggle, client certs, metadata, status and trailers; testkit tonic server from our own `echo.proto`. *(partial: unary/TLS/certs/metadata/status done; trailers open)*
 - [ ] M7.3 Server, client and bidirectional streaming with Send, End streaming, Cancel; message caps. *(partial: all three modes via finite arrays, 10k cap, Invoke stream; interactive Send/End/Cancel open)*
 - [ ] M7.4 Reflection (v1 then v1alpha), example generator, proto-aware completion data, `grpc-status-details-bin` decoding. *(partial: reflection + example done; completion data and details-bin open)*

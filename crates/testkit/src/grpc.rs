@@ -117,13 +117,24 @@ impl UnaryService<DynamicMessage> for EchoCall {
     type Future = Pin<Box<dyn Future<Output = Result<Response<Self::Response>, Status>> + Send>>;
 
     fn call(&mut self, request: Request<DynamicMessage>) -> Self::Future {
+        let binary = request.metadata().get_bin("x-trace-bin").and_then(|value| value.to_bytes().ok().map(|bytes| bytes.to_vec()));
+        let authorization = request.metadata().get("authorization").and_then(|value| value.to_str().ok().map(str::to_string));
         let message = request.into_inner();
         Box::pin(async move {
             let text = message.get_field_by_name("text").and_then(|value| value.as_str().map(str::to_string)).unwrap_or_default();
             if text == "fail" {
                 return Err(Status::invalid_argument("requested failure"));
             }
-            Ok(Response::new(message))
+            let mut response = Response::new(message);
+            if let Some(bytes) = binary {
+                response.metadata_mut().insert_bin("x-trace-bin", tonic::metadata::MetadataValue::from_bytes(&bytes));
+            }
+            if let Some(value) = authorization {
+                let value: tonic::metadata::MetadataValue<tonic::metadata::Ascii> =
+                    value.parse().map_err(|err: tonic::metadata::errors::InvalidMetadataValue| Status::internal(err.to_string()))?;
+                response.metadata_mut().insert("authorization", value);
+            }
+            Ok(response)
         })
     }
 }

@@ -15,6 +15,7 @@ tonic.workspace = true
 prost.workspace = true
 prost-reflect.workspace = true
 prost-types.workspace = true
+base64.workspace = true
 tonic-reflection.workspace = true
 protox.workspace = true
 tokio.workspace = true

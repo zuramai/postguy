@@ -461,7 +461,7 @@ area = "D"
 tier = "P0"
 milestone = "M7.1"
 status = "partial"
-notes = "Proto sets and inline file lists compile with protox off the workspace, with descriptor errors surfaced. Importing a picked .proto into <workspace>/protos/<name>/ and per-file line/column import reports are still open."
+notes = "Proto sets and inline file lists compile with a confined protox resolver: canonical roots, no .. or symlink escapes, 1 MiB/file, 16 MiB total and 256 files. Importing a picked .proto into <workspace>/protos/<name>/ and per-file line/column import reports are still open."
 
 evidence = ["crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary"]
 [[feature]]
@@ -471,7 +471,7 @@ area = "D"
 tier = "P0"
 milestone = "M7.2"
 status = "shipped"
-notes = "Dynamic unary invoke with prost-reflect JSON, example generator, metadata and status errors; reflection resolves descriptors when the service exposes it."
+notes = "Dynamic unary invoke with prost-reflect JSON, descriptor-guided examples, validated ASCII/binary metadata and status errors; stored requests resolve environment/collection variables and inherited auth; reflection resolves descriptors when the service exposes it."
 
 evidence = ["crates/grpc/tests/unary.rs::unary_echo_and_status_errors_work", "crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary", "apps/postguy/src/main.rs::grpc_editor_invokes_a_unary_method"]
 [[feature]]

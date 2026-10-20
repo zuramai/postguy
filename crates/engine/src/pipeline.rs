@@ -93,10 +93,10 @@ pub struct SendOutcome {
 }
 
 /// The request plus everything that supplies scopes, auth and scripts around it.
-struct Located {
-    collection: Collection,
-    folders: Vec<Folder>,
-    http: HttpRequest,
+pub(crate) struct Located {
+    pub(crate) collection: Collection,
+    pub(crate) folders: Vec<Folder>,
+    pub(crate) http: HttpRequest,
 }
 
 /// Run one send (async core; [`Engine::send`] adds panic protection and a blocking facade).
@@ -206,7 +206,11 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
         let challenge =
             postguy_auth::digest::parse_challenge(&challenge_header).map_err(|err| EngineError::BadRequest { reason: err.to_string() })?;
         let uri = digest_uri(&built.url);
-        let cnonce = if digest.client_nonce.is_empty() { postguy_auth::random_nonce() } else { digest.client_nonce.clone() };
+        let cnonce = if digest.client_nonce.is_empty() {
+            postguy_auth::random_nonce().map_err(|err| EngineError::BadRequest { reason: err.to_string() })?
+        } else {
+            digest.client_nonce.clone()
+        };
         let count = digest_nonce_count(&digest.nonce_count);
         let answer = postguy_auth::digest::answer(digest, &challenge, built.method.as_str(), &uri, &built.body, &cnonce, count)
             .map_err(|err| EngineError::BadRequest { reason: err.to_string() })?;
@@ -363,7 +367,7 @@ fn locate(engine: &Engine, target: &SendTarget) -> Result<Located> {
     }
 }
 
-fn locate_stored(engine: &Engine, collection: &Id, request_id: &Id) -> Result<Located> {
+pub(crate) fn locate_stored(engine: &Engine, collection: &Id, request_id: &Id) -> Result<Located> {
     {
         {
             let collection = engine.workspace().load_collection(collection)?.into_value();
@@ -406,7 +410,7 @@ fn http_of(request: &Request) -> Option<&HttpRequest> {
 
 /// Scopes: globals < collection < folders outer→inner < environment (PROMPT.md 5.2). Secret
 /// variable values come from the secrets store, never from the model files.
-fn build_resolver(engine: &Engine, located: &Located, environment: Option<&Id>) -> Result<Resolver> {
+pub(crate) fn build_resolver(engine: &Engine, located: &Located, environment: Option<&Id>) -> Result<Resolver> {
     let mut resolver = Resolver::new();
 
     let globals = engine.workspace().load_globals()?.into_value();
@@ -448,7 +452,7 @@ fn scope_from_variables(kind: ScopeKind, variables: &[Variable], secrets: &BTree
 }
 
 /// The auth that wins: request, then folders inner→outer, then the collection.
-fn resolved_auth_chain(located: &Located) -> Option<AuthConfig> {
+pub(crate) fn resolved_auth_chain(located: &Located) -> Option<AuthConfig> {
     let candidates = std::iter::once(Some(&located.http.auth))
         .chain(located.folders.iter().rev().map(|folder| folder.auth.as_ref()))
         .chain(std::iter::once(located.collection.auth.as_ref()));
@@ -463,7 +467,7 @@ fn resolved_auth_chain(located: &Located) -> Option<AuthConfig> {
 
 /// Resolve `{{vars}}` in the auth fields this build applies; other kinds are cloned so
 /// [`postguy_http::apply_auth`] reports them honestly.
-fn resolve_auth(auth: &Option<AuthConfig>, resolver: &Resolver) -> Result<Option<AuthConfig>> {
+pub(crate) fn resolve_auth(auth: &Option<AuthConfig>, resolver: &Resolver) -> Result<Option<AuthConfig>> {
     let Some(auth) = auth else { return Ok(None) };
     let resolved = match auth.clone() {
         AuthConfig::Basic(mut basic) => {

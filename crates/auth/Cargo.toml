@@ -23,4 +23,4 @@ p256 = { version = "0.13", default-features = false, features = ["std", "ecdsa",
 p384 = { version = "0.13", default-features = false, features = ["std", "ecdsa", "pem"] }
 p521 = { version = "0.13", default-features = false, features = ["std", "ecdsa", "pem", "getrandom"] }
 signature = "2"
-fastrand = "2"
+getrandom.workspace = true

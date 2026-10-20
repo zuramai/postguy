@@ -81,10 +81,12 @@ pub(crate) fn now_secs() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|duration| duration.as_secs()).unwrap_or(0)
 }
 
-pub(crate) fn random_hex(bytes: usize) -> String {
+/// OS CSPRNG bytes (OAuth state, PKCE verifiers, Digest/Hawk/OAuth1 nonces). Entropy failure
+/// is an error, never a weak fallback.
+pub(crate) fn random_hex(bytes: usize) -> Result<String> {
     let mut data = vec![0u8; bytes];
-    fastrand::fill(&mut data);
-    hex(&data)
+    getrandom::fill(&mut data).map_err(|err| AuthError::Invalid { kind: "entropy", reason: err.to_string() })?;
+    Ok(hex(&data))
 }
 
 /// The parts auth schemes need from a URL (raw path, decoded query pairs).

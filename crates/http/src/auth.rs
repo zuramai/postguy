@@ -69,7 +69,7 @@ pub fn apply_auth(config: &AuthConfig, spec: &mut RequestSpec) -> Result<AuthPla
                 return Err(HttpError::Auth { kind: "digest".into(), reason: "waiting for the server's Digest challenge".into() });
             }
             let uri = digest_uri(&spec.url);
-            let cnonce = if auth.client_nonce.is_empty() { postguy_auth::random_nonce() } else { auth.client_nonce.clone() };
+            let cnonce = if auth.client_nonce.is_empty() { postguy_auth::random_nonce().map_err(auth_error)? } else { auth.client_nonce.clone() };
             let count = parse_nonce_count(&auth.nonce_count);
             let challenge = postguy_auth::digest::Challenge {
                 realm: auth.realm.clone(),
@@ -102,7 +102,7 @@ pub fn apply_auth(config: &AuthConfig, spec: &mut RequestSpec) -> Result<AuthPla
             }
         }
         AuthConfig::OAuth1(auth) => {
-            let nonce = if auth.nonce.trim().is_empty() { postguy_auth::random_nonce() } else { auth.nonce.clone() };
+            let nonce = if auth.nonce.trim().is_empty() { postguy_auth::random_nonce().map_err(auth_error)? } else { auth.nonce.clone() };
             let output = postguy_auth::oauth1::sign(auth, spec.method.as_str(), &spec.url, &spec.body, postguy_auth::now_secs(), &nonce)
                 .map_err(auth_error)?;
             if let Some(header) = output.header {

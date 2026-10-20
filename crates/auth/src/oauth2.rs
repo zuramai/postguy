@@ -119,10 +119,10 @@ pub fn authorize_url(auth: &OAuth2Auth, redirect_uri: &str, state: &str, pkce_ch
 }
 
 /// A PKCE verifier and its challenge.
-pub fn pkce(method: PkceMethod) -> (String, String) {
-    let verifier = crate::random_nonce() + &crate::random_nonce();
+pub fn pkce(method: PkceMethod) -> Result<(String, String)> {
+    let verifier = crate::random_nonce()? + &crate::random_nonce()?;
     let challenge = challenge_for(&verifier, method);
-    (verifier, challenge)
+    Ok((verifier, challenge))
 }
 
 /// The challenge for an existing verifier.
@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn authorize_url_contains_pkce_and_encoded_parameters() {
-        let (verifier, challenge) = pkce(PkceMethod::S256);
+        let (verifier, challenge) = pkce(PkceMethod::S256).expect("OS entropy");
         assert!(!verifier.is_empty());
         let url = authorize_url(&auth(), "http://127.0.0.1:7777/callback", "state-1", Some(&challenge)).expect("url");
         assert!(url.starts_with("https://auth.example/authorize?"));

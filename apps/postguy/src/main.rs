@@ -1641,9 +1641,15 @@ impl App {
                 editor.request = request;
                 editor.dirty = false;
                 self.shell.tabs.set_dirty(tab_id, false);
+                let draft = match engine.prepare_grpc(&Id(editor.collection.clone()), &Id(editor.request.id.0.clone()), &editor.draft) {
+                    Ok(draft) => draft,
+                    Err(err) => {
+                        editor.error = Some(err.to_string());
+                        return;
+                    }
+                };
                 let (sender, receiver) = std::sync::mpsc::channel();
                 self.grpc_jobs.insert(tab_id, receiver);
-                let draft = editor.draft.clone();
                 self.shell.state.status = "gRPC: invoking…".into();
                 std::thread::Builder::new()
                     .name("postguy-grpc".into())

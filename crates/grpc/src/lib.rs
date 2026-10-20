@@ -165,20 +165,10 @@ pub async fn unary(
     request_json: serde_json::Value,
     metadata: &[(String, String)],
 ) -> Result<UnaryResult, GrpcError> {
+    let input = message_from_json(method.input(), request_json)?;
+    let request = request_with_metadata(input, metadata)?;
+    let path = method_path(method)?;
     let channel = connect(endpoint, tls).await?;
-    let json = serde_json::to_string(&request_json).map_err(|err| GrpcError::Json(err.to_string()))?;
-    let input = DynamicMessage::deserialize(method.input(), &mut serde_json::Deserializer::from_str(&json))
-        .map_err(|err| GrpcError::Json(err.to_string()))?;
-    let mut request = Request::new(input);
-    for (name, value) in metadata {
-        if let Ok(name) = name.parse::<tonic::metadata::MetadataKey<tonic::metadata::Ascii>>()
-            && let Ok(value) = value.parse::<tonic::metadata::MetadataValue<tonic::metadata::Ascii>>()
-        {
-            request.metadata_mut().append(name, value);
-        }
-    }
-    let path = http::uri::PathAndQuery::from_maybe_shared(format!("/{}/{}", method.parent_service().full_name(), method.name()))
-        .map_err(|err| GrpcError::Descriptor(err.to_string()))?;
     let mut client = Grpc::new(channel);
     client.ready().await.map_err(|err| GrpcError::Connect(err.to_string()))?;
     let response = client
@@ -199,10 +189,10 @@ pub async fn server_streaming(
     request_json: serde_json::Value,
     metadata: &[(String, String)],
 ) -> Result<StreamResult, GrpcError> {
-    let channel = connect(endpoint, tls).await?;
     let input = message_from_json(method.input(), request_json)?;
     let request = request_with_metadata(input, metadata)?;
     let path = method_path(method)?;
+    let channel = connect(endpoint, tls).await?;
     let mut client = Grpc::new(channel);
     client.ready().await.map_err(|err| GrpcError::Connect(err.to_string()))?;
     let response = client.server_streaming(request, path, DynamicCodec::new(&method.output())).await.map_err(status_error)?;
@@ -217,11 +207,11 @@ pub async fn client_streaming(
     messages: Vec<serde_json::Value>,
     metadata: &[(String, String)],
 ) -> Result<UnaryResult, GrpcError> {
-    let channel = connect(endpoint, tls).await?;
     let inputs =
         messages.into_iter().take(MAX_STREAM_MESSAGES).map(|value| message_from_json(method.input(), value)).collect::<Result<Vec<_>, _>>()?;
     let request = request_with_metadata(tokio_stream::iter(inputs), metadata)?;
     let path = method_path(method)?;
+    let channel = connect(endpoint, tls).await?;
     let mut client = Grpc::new(channel);
     client.ready().await.map_err(|err| GrpcError::Connect(err.to_string()))?;
     let response = client.client_streaming(request, path, DynamicCodec::new(&method.output())).await.map_err(status_error)?;
@@ -239,11 +229,11 @@ pub async fn bidi_streaming(
     messages: Vec<serde_json::Value>,
     metadata: &[(String, String)],
 ) -> Result<StreamResult, GrpcError> {
-    let channel = connect(endpoint, tls).await?;
     let inputs =
         messages.into_iter().take(MAX_STREAM_MESSAGES).map(|value| message_from_json(method.input(), value)).collect::<Result<Vec<_>, _>>()?;
     let request = request_with_metadata(tokio_stream::iter(inputs), metadata)?;
     let path = method_path(method)?;
+    let channel = connect(endpoint, tls).await?;
     let mut client = Grpc::new(channel);
     client.ready().await.map_err(|err| GrpcError::Connect(err.to_string()))?;
     let response = client.streaming(request, path, DynamicCodec::new(&method.output())).await.map_err(status_error)?;
@@ -272,13 +262,24 @@ fn message_from_json(descriptor: MessageDescriptor, request_json: serde_json::Va
 }
 
 fn request_with_metadata<T>(message: T, metadata: &[(String, String)]) -> Result<Request<T>, GrpcError> {
+    use base64::Engine as _;
     let mut request = Request::new(message);
     for (name, value) in metadata {
-        let key: tonic::metadata::MetadataKey<tonic::metadata::Ascii> =
-            name.to_ascii_lowercase().parse().map_err(|err| GrpcError::Descriptor(format!("metadata key `{name}`: {err}")))?;
-        let value: tonic::metadata::MetadataValue<tonic::metadata::Ascii> =
-            value.parse().map_err(|err| GrpcError::Descriptor(format!("metadata value for `{name}`: {err}")))?;
-        request.metadata_mut().append(key, value);
+        let name = name.to_ascii_lowercase();
+        if name.ends_with("-bin") {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(value.trim())
+                .map_err(|err| GrpcError::Descriptor(format!("metadata `{name}` is not base64: {err}")))?;
+            let key: tonic::metadata::MetadataKey<tonic::metadata::Binary> =
+                name.parse().map_err(|err| GrpcError::Descriptor(format!("metadata key `{name}`: {err}")))?;
+            request.metadata_mut().append_bin(key, tonic::metadata::MetadataValue::from_bytes(&bytes));
+        } else {
+            let key: tonic::metadata::MetadataKey<tonic::metadata::Ascii> =
+                name.parse().map_err(|err| GrpcError::Descriptor(format!("metadata key `{name}`: {err}")))?;
+            let value: tonic::metadata::MetadataValue<tonic::metadata::Ascii> =
+                value.parse().map_err(|err| GrpcError::Descriptor(format!("metadata value for `{name}`: {err}")))?;
+            request.metadata_mut().append(key, value);
+        }
     }
     Ok(request)
 }
@@ -293,7 +294,10 @@ fn ascii_metadata(metadata: &tonic::metadata::MetadataMap) -> Vec<(String, Strin
         .iter()
         .filter_map(|entry| match entry {
             KeyAndValueRef::Ascii(key, value) => Some((key.as_str().to_string(), value.to_str().ok().unwrap_or_default().to_string())),
-            KeyAndValueRef::Binary(_, _) => None,
+            KeyAndValueRef::Binary(key, value) => {
+                use base64::Engine as _;
+                Some((format!("{}-bin", key.as_str()), base64::engine::general_purpose::STANDARD.encode(value.to_bytes().ok()?)))
+            }
         })
         .collect()
 }
@@ -301,16 +305,16 @@ fn ascii_metadata(metadata: &tonic::metadata::MetadataMap) -> Vec<(String, Strin
 pub(crate) async fn connect(endpoint: &str, tls: &GrpcTls) -> Result<Channel, GrpcError> {
     let mut endpoint = Endpoint::from_shared(endpoint.to_string()).map_err(|err| GrpcError::Connect(err.to_string()))?;
     if tls.enabled {
-        let mut config = ClientTlsConfig::new();
+        let mut config = ClientTlsConfig::new().with_native_roots();
         if let Some(path) = &tls.ca_path
             && !path.trim().is_empty()
         {
-            let pem = std::fs::read(path).map_err(|err| GrpcError::Connect(format!("reading CA bundle {path}: {err}")))?;
+            let pem = read_pem(path).map_err(|err| GrpcError::Connect(format!("reading CA bundle {path}: {err}")))?;
             config = config.ca_certificate(tonic::transport::Certificate::from_pem(pem));
         }
         if let Some(identity) = &tls.client_identity {
-            let cert = std::fs::read(&identity.cert_path).map_err(|err| GrpcError::Connect(err.to_string()))?;
-            let key = std::fs::read(&identity.key_path).map_err(|err| GrpcError::Connect(err.to_string()))?;
+            let cert = read_pem(&identity.cert_path).map_err(|err| GrpcError::Connect(format!("reading client certificate: {err}")))?;
+            let key = read_pem(&identity.key_path).map_err(|err| GrpcError::Connect(format!("reading client key: {err}")))?;
             config = config.identity(tonic::transport::Identity::from_pem(cert, key));
         }
         endpoint = endpoint.tls_config(config).map_err(|err| GrpcError::Connect(err.to_string()))?;
@@ -393,9 +397,205 @@ pub fn describe(pool: &DescriptorPool) -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// A JSON example with default values for the method's input message.
+/// A JSON example for the method's input message: descriptor-guided values (zero primitives,
+/// the first enum value, one list/map entry, the first field of each oneof), recursing with a
+/// depth/cycle guard. An empty `DynamicMessage` would serialize to `{}` and hide the shape.
 pub fn example_message(pool: &DescriptorPool, path: &str) -> Result<serde_json::Value, GrpcError> {
     let method = method(pool, path)?;
-    let message = DynamicMessage::new(method.input());
-    serde_json::to_value(&message).map_err(|err| GrpcError::Json(err.to_string()))
+    let mut seen = Vec::new();
+    Ok(example_for(&method.input(), &mut seen, 0))
+}
+
+fn example_for(message: &MessageDescriptor, seen: &mut Vec<String>, depth: usize) -> serde_json::Value {
+    if depth >= 8 || seen.iter().any(|name| name == message.full_name()) {
+        return serde_json::json!({});
+    }
+    seen.push(message.full_name().to_string());
+    let mut object = serde_json::Map::new();
+    let mut oneofs = std::collections::HashSet::new();
+    for field in message.fields() {
+        if let Some(oneof) = field.containing_oneof()
+            && !oneofs.insert(oneof.name().to_string())
+        {
+            continue;
+        }
+        object.insert(field.json_name().to_string(), example_value(&field, seen, depth));
+    }
+    seen.pop();
+    serde_json::Value::Object(object)
+}
+
+fn example_value(field: &prost_reflect::FieldDescriptor, seen: &mut Vec<String>, depth: usize) -> serde_json::Value {
+    use prost_reflect::Kind;
+    if field.is_map() {
+        let Kind::Message(entry) = field.kind() else { return serde_json::json!({}) };
+        let key = example_scalar(&entry.map_entry_key_field().kind(), seen, depth);
+        let value = example_scalar(&entry.map_entry_value_field().kind(), seen, depth);
+        let key = match key {
+            serde_json::Value::String(text) => text,
+            other => other.to_string(),
+        };
+        return serde_json::json!({ key: value });
+    }
+    let value = example_scalar(&field.kind(), seen, depth);
+    if field.is_list() { serde_json::json!([value]) } else { value }
+}
+
+fn example_scalar(kind: &prost_reflect::Kind, seen: &mut Vec<String>, depth: usize) -> serde_json::Value {
+    use prost_reflect::Kind;
+    match kind {
+        Kind::Double | Kind::Float => serde_json::json!(0.0),
+        Kind::Int32
+        | Kind::Int64
+        | Kind::Sint32
+        | Kind::Sint64
+        | Kind::Sfixed32
+        | Kind::Sfixed64
+        | Kind::Uint32
+        | Kind::Uint64
+        | Kind::Fixed32
+        | Kind::Fixed64 => serde_json::json!(0),
+        Kind::Bool => serde_json::json!(false),
+        Kind::String | Kind::Bytes => serde_json::json!(""),
+        Kind::Enum(descriptor) => {
+            descriptor.values().next().map(|value| serde_json::Value::String(value.name().to_string())).unwrap_or(serde_json::Value::Null)
+        }
+        Kind::Message(descriptor) => example_wkt_or_message(descriptor, seen, depth),
+    }
+}
+
+fn example_wkt_or_message(message: &MessageDescriptor, seen: &mut Vec<String>, depth: usize) -> serde_json::Value {
+    match message.full_name() {
+        "google.protobuf.Timestamp" => serde_json::json!("1970-01-01T00:00:00Z"),
+        "google.protobuf.Duration" => serde_json::json!("0s"),
+        "google.protobuf.FieldMask" => serde_json::json!(""),
+        "google.protobuf.Empty" | "google.protobuf.Struct" => serde_json::json!({}),
+        "google.protobuf.Value" => serde_json::Value::Null,
+        "google.protobuf.ListValue" => serde_json::json!([]),
+        "google.protobuf.Any" => serde_json::json!({"@type": "type.googleapis.com/google.protobuf.Empty"}),
+        "google.protobuf.BoolValue" => serde_json::json!(false),
+        "google.protobuf.StringValue" | "google.protobuf.BytesValue" => serde_json::json!(""),
+        "google.protobuf.Int32Value" | "google.protobuf.Int64Value" | "google.protobuf.UInt32Value" | "google.protobuf.UInt64Value" => {
+            serde_json::json!(0)
+        }
+        "google.protobuf.FloatValue" | "google.protobuf.DoubleValue" => serde_json::json!(0.0),
+        _ => example_for(message, seen, depth + 1),
+    }
+}
+
+/// Byte/file caps for a confined proto compile (never-crash: imported files are untrusted).
+pub const MAX_PROTO_FILE_BYTES: u64 = 1024 * 1024;
+pub const MAX_PROTO_TOTAL_BYTES: u64 = 16 * 1024 * 1024;
+pub const MAX_PROTO_FILES: usize = 256;
+
+/// Compile `files` (names relative to one of `roots`) with every resolved file confined to its
+/// canonical root. Symlinks and `..` imports that escape a root are refused; per-file and
+/// aggregate byte budgets plus a file count cap bound expansion. Google well-known types are
+/// served by protox's built-in resolver.
+pub fn compile_confined(roots: &[std::path::PathBuf], files: &[String]) -> Result<DescriptorPool, GrpcError> {
+    use protox::file::{ChainFileResolver, GoogleFileResolver};
+
+    let mut canonical_roots = Vec::new();
+    for root in roots {
+        let canonical = root.canonicalize().map_err(|err| GrpcError::Proto(format!("include path {}: {err}", root.display())))?;
+        if !canonical.is_dir() {
+            return Err(GrpcError::Proto(format!("include path {} is not a directory", root.display())));
+        }
+        if !canonical_roots.contains(&canonical) {
+            canonical_roots.push(canonical);
+        }
+    }
+    if canonical_roots.is_empty() {
+        return Err(GrpcError::Proto("no include roots for the proto files".into()));
+    }
+    let mut chain = ChainFileResolver::new();
+    chain.add(ConfinedResolver::new(canonical_roots.clone()));
+    chain.add(GoogleFileResolver::new());
+    let mut compiler = protox::Compiler::with_file_resolver(chain);
+    compiler.include_imports(true);
+    for file in files {
+        compiler.open_file(file).map_err(|err| GrpcError::Proto(err.to_string()))?;
+    }
+    let set = compiler.file_descriptor_set();
+    DescriptorPool::from_file_descriptor_set(set).map_err(|err| GrpcError::Descriptor(err.to_string()))
+}
+
+struct ConfinedResolver {
+    roots: Vec<std::path::PathBuf>,
+    stats: std::sync::Mutex<ResolverStats>,
+}
+
+struct ResolverStats {
+    files: usize,
+    bytes: u64,
+}
+
+impl ConfinedResolver {
+    fn new(roots: Vec<std::path::PathBuf>) -> ConfinedResolver {
+        ConfinedResolver { roots, stats: std::sync::Mutex::new(ResolverStats { files: 0, bytes: 0 }) }
+    }
+
+    fn open(&self, name: &str) -> Result<protox::file::File, protox::Error> {
+        if name.is_empty() || std::path::Path::new(name).is_absolute() {
+            return Err(protox::Error::file_not_found(name));
+        }
+        if std::path::Path::new(name)
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir | std::path::Component::RootDir | std::path::Component::Prefix(_)))
+        {
+            return Err(protox::Error::file_not_found(name));
+        }
+        for root in &self.roots {
+            let candidate = root.join(name);
+            let Ok(canonical) = candidate.canonicalize() else { continue };
+            if !canonical.starts_with(root) || !canonical.is_file() {
+                continue;
+            }
+            let Ok(metadata) = std::fs::metadata(&canonical) else { continue };
+            if metadata.len() > MAX_PROTO_FILE_BYTES {
+                return Err(protox::Error::file_not_found(name));
+            }
+            let mut stats = self.stats.lock().map_err(|_| protox::Error::file_not_found(name))?;
+            if stats.files >= MAX_PROTO_FILES || stats.bytes.saturating_add(metadata.len()) > MAX_PROTO_TOTAL_BYTES {
+                return Err(protox::Error::file_not_found(name));
+            }
+            let mut source = String::new();
+            let read = std::fs::File::open(&canonical).and_then(|file| {
+                use std::io::Read as _;
+                file.take(MAX_PROTO_FILE_BYTES + 1).read_to_string(&mut source)
+            });
+            let Ok(read) = read else { continue };
+            if read as u64 > MAX_PROTO_FILE_BYTES {
+                return Err(protox::Error::file_not_found(name));
+            }
+            stats.files += 1;
+            stats.bytes = stats.bytes.saturating_add(read as u64);
+            return protox::file::File::from_source(name, &source);
+        }
+        Err(protox::Error::file_not_found(name))
+    }
+}
+
+impl protox::file::FileResolver for ConfinedResolver {
+    fn open_file(&self, name: &str) -> Result<protox::file::File, protox::Error> {
+        self.open(name)
+    }
+}
+
+/// Read a PEM file with a hard cap (certificates are user-chosen paths; a huge file must not
+/// allocate unbounded memory before the TLS stack rejects it).
+fn read_pem(path: &str) -> Result<Vec<u8>, String> {
+    const MAX_PEM_BYTES: u64 = 1024 * 1024;
+    let metadata = std::fs::metadata(path).map_err(|err| err.to_string())?;
+    if metadata.len() > MAX_PEM_BYTES {
+        return Err(format!("file is larger than {MAX_PEM_BYTES} bytes"));
+    }
+    let file = std::fs::File::open(path).map_err(|err| err.to_string())?;
+    let mut bytes = Vec::new();
+    use std::io::Read as _;
+    file.take(MAX_PEM_BYTES + 1).read_to_end(&mut bytes).map_err(|err| err.to_string())?;
+    if bytes.len() as u64 > MAX_PEM_BYTES {
+        return Err(format!("file is larger than {MAX_PEM_BYTES} bytes"));
+    }
+    Ok(bytes)
 }

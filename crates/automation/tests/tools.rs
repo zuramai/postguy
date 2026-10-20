@@ -247,6 +247,33 @@ message EchoMessage { string text = 1; int32 number = 2; }
             }),
         );
     };
+    // A stored request runs through the same scope/auth preparation as HTTP: a variable in the
+    // URL resolves from the active environment and inherited bearer auth becomes metadata.
+    let environment = call(&automation, "env_create", json!({"name": "grpc"}))["environment"].as_str().unwrap().to_string();
+    call(&automation, "env_set_var", json!({"environment": environment, "key": "base", "value": server.url()}));
+    call(&automation, "env_set_active", json!({"environment": environment}));
+    call(
+        &automation,
+        "request_update",
+        json!({
+            "collection": collection,
+            "request": request,
+            "definition": {
+                "type": "grpc",
+                "url": "{{base}}",
+                "serviceDefinition": {"source": "protoSet", "name": "echo"},
+                "methodPath": "echo.Echo/Say",
+                "message": "{\"text\":\"prepared\"}",
+                "auth": {"kind": "bearer", "token": "inherited-token"}
+            }
+        }),
+    );
+    let prepared = call(&automation, "grpc_invoke", json!({"collection": collection, "request": request}));
+    assert_eq!(prepared["message"]["text"], "prepared");
+    assert!(
+        prepared["metadata"].as_array().is_some_and(|rows| rows.iter().any(|row| row[0] == "authorization" && row[1] == "Bearer inherited-token")),
+        "inherited auth is sent: {prepared}"
+    );
     update_method("echo.Echo/ServerStream");
     let streamed = call(&automation, "grpc_stream", json!({"collection": collection, "request": request, "messages": [{"text": "s"}]}));
     assert_eq!(streamed["messages"].as_array().map(Vec::len), Some(3));
@@ -261,6 +288,62 @@ message EchoMessage { string text = 1; int32 number = 2; }
     let bidi = call(&automation, "grpc_stream", json!({"collection": collection, "request": request, "messages": [{"text": "a"}, {"text": "b"}]}));
     assert_eq!(bidi["messages"].as_array().map(Vec::len), Some(2));
     assert_eq!(bidi["messages"][1]["text"], "b");
+}
+
+#[test]
+fn grpc_proto_paths_cannot_escape_the_workspace() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let automation = automation_in(dir.path());
+    call(&automation, "workspace_open", json!({"path": "work"}));
+    let collection = call(&automation, "collection_create", json!({"name": "gRPC"}))["collection"].as_str().unwrap().to_string();
+    let request = call(&automation, "request_create", json!({"collection": collection, "kind": "grpc", "name": "Leak"}))["request"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let outside = dir.path().join("outside.proto");
+    std::fs::write(&outside, "syntax = \"proto3\"; message Outside { string secret = 1; }").expect("outside proto");
+    std::fs::create_dir_all(dir.path().join("work/protos/echo")).expect("proto dir");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&outside, dir.path().join("work/protos/echo/leak.proto")).expect("symlink");
+    let definition = |proto_path: &str, import_paths: Vec<&str>| {
+        json!({
+            "type": "grpc",
+            "url": "http://127.0.0.1:1",
+            "serviceDefinition": {
+                "source": "inline",
+                "protos": [{"name": "leak", "path": proto_path}],
+                "importPaths": import_paths
+            },
+            "methodPath": "echo.Echo/Say",
+            "message": "{}"
+        })
+    };
+    let update = |definition: Value| {
+        call(&automation, "request_update", json!({"collection": collection, "request": request, "definition": definition}));
+    };
+    for path in ["../../outside.proto", "../../missing.proto", &outside.to_string_lossy()] {
+        update(definition(path, Vec::new()));
+        assert!(
+            automation.call("grpc_describe", &json!({"collection": collection, "request": request})).is_err(),
+            "inline proto path `{path}` must refuse"
+        );
+    }
+    update(definition("echo/leak.proto", Vec::new()));
+    assert!(
+        automation.call("grpc_describe", &json!({"collection": collection, "request": request})).is_err(),
+        "a symlinked proto that leaves the protos root must refuse"
+    );
+    update(json!({
+        "type": "grpc",
+        "url": "http://127.0.0.1:1",
+        "serviceDefinition": {"source": "protoSet", "name": "../.."},
+        "methodPath": "echo.Echo/Say",
+        "message": "{}"
+    }));
+    assert!(
+        automation.call("grpc_describe", &json!({"collection": collection, "request": request})).is_err(),
+        "a traversal proto set name must refuse"
+    );
 }
 
 #[test]

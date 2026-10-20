@@ -46,6 +46,7 @@ uuid = { version = "1", default-features = false, features = ["v4"] }
 idna = { version = "1", default-features = false, features = ["std", "compiled_data"] }
 # Pseudo-random text for dynamic variables (MIT/Apache-2.0).
 fastrand = "2"
+getrandom = "0.3"
 zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 
 # HTTP (PROMPT.md 4.2): hyper-direct connector; testkit serves the loopback fixtures.

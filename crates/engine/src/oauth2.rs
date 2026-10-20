@@ -155,8 +155,8 @@ impl OAuth2Callback {
         let listener =
             TcpListener::bind(("127.0.0.1", 0)).map_err(|err| EngineError::BadRequest { reason: format!("binding the OAuth callback: {err}") })?;
         let port = listener.local_addr().map_err(|err| EngineError::BadRequest { reason: err.to_string() })?.port();
-        let state = postguy_auth::random_nonce();
-        let (verifier, _challenge) = protocol::pkce(pkce_method);
+        let state = postguy_auth::random_nonce().map_err(|err| EngineError::BadRequest { reason: err.to_string() })?;
+        let (verifier, _challenge) = protocol::pkce(pkce_method).map_err(|err| EngineError::BadRequest { reason: err.to_string() })?;
         let expected_state = state.clone();
         let (sender, receiver) = channel();
         let stop = Arc::new(AtomicBool::new(false));

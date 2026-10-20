@@ -20,7 +20,7 @@ pub fn now_secs() -> u64 {
     util::now_secs()
 }
 
-/// A random nonce for OAuth 1.0 / Digest client nonces.
-pub fn random_nonce() -> String {
+/// A random nonce for OAuth 1.0 / Digest client nonces, from the OS CSPRNG.
+pub fn random_nonce() -> Result<String> {
     util::random_hex(12)
 }

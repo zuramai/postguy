@@ -890,7 +890,9 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
             let postguy_model::RequestKind::Grpc(grpc) = &request.kind else {
                 return Err(AutomationError::Failed { message: "grpc_describe expects a gRPC request".into() });
             };
-            Ok(json!({"services": session.engine()?.grpc_describe(grpc)?}))
+            let prepared =
+                session.engine()?.prepare_grpc(&postguy_model::Id(collection.id.0.clone()), &postguy_model::Id(request_id.clone()), grpc)?;
+            Ok(json!({"services": session.engine()?.grpc_describe(&prepared)?}))
         }
         "grpc_example_message" => {
             let collection = session.load_collection(&string_arg(args, tool, "collection")?)?;
@@ -903,7 +905,9 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
             let postguy_model::RequestKind::Grpc(grpc) = &request.kind else {
                 return Err(AutomationError::Failed { message: "grpc_example_message expects a gRPC request".into() });
             };
-            Ok(json!({"message": session.engine()?.grpc_example(grpc)?}))
+            let prepared =
+                session.engine()?.prepare_grpc(&postguy_model::Id(collection.id.0.clone()), &postguy_model::Id(request_id.clone()), grpc)?;
+            Ok(json!({"message": session.engine()?.grpc_example(&prepared)?}))
         }
         "grpc_invoke" => {
             let collection = session.load_collection(&string_arg(args, tool, "collection")?)?;
@@ -916,6 +920,7 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
             let postguy_model::RequestKind::Grpc(grpc) = &request.kind else {
                 return Err(AutomationError::Failed { message: "grpc_invoke expects a gRPC request".into() });
             };
+            let grpc = &session.engine()?.prepare_grpc(&postguy_model::Id(collection.id.0.clone()), &postguy_model::Id(request_id.clone()), grpc)?;
             let message = match args.get("message") {
                 Some(Value::Object(_)) => args.get("message").cloned().unwrap_or_default(),
                 _ => serde_json::from_str(&grpc.message).map_err(|err| AutomationError::BadArgument {
@@ -939,6 +944,7 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
             let postguy_model::RequestKind::Grpc(grpc) = &request.kind else {
                 return Err(AutomationError::Failed { message: "grpc_stream expects a gRPC request".into() });
             };
+            let grpc = &session.engine()?.prepare_grpc(&postguy_model::Id(collection.id.0.clone()), &postguy_model::Id(request_id.clone()), grpc)?;
             let messages = match args.get("messages") {
                 Some(Value::Array(messages)) => messages.clone(),
                 _ => serde_json::from_str::<Vec<serde_json::Value>>(&grpc.message).map_err(|err| AutomationError::BadArgument {

@@ -305,6 +305,19 @@ pub struct ProtoFile {
     pub extras: Extras,
 }
 
+impl Default for WsSettings {
+    fn default() -> WsSettings {
+        WsSettings {
+            verify_ssl: true,
+            handshake_timeout_ms: 0,
+            reconnect_attempts: 0,
+            reconnect_interval_ms: 0,
+            max_message_mb: 0,
+            extras: Extras::default(),
+        }
+    }
+}
+
 /// gRPC request (PROMPT.md 4.5, 5.3.3).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -444,7 +457,7 @@ pub struct WsRequest {
 }
 
 /// WebSocket per-request settings (PROMPT.md 5.3.4).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WsSettings {
     #[serde(default = "true_value")]
@@ -484,6 +497,15 @@ mod tests {
         assert_eq!(value["body"]["language"], json!("json"));
         let back: HttpRequest = serde_json::from_value(value).unwrap();
         assert_eq!(back, request);
+    }
+
+    #[test]
+    fn websocket_tls_verification_defaults_on_for_rust_and_json() {
+        assert!(WsSettings::default().verify_ssl, "Rust default must verify TLS");
+        let missing: WsSettings = serde_json::from_value(json!({})).unwrap();
+        assert!(missing.verify_ssl, "missing field must verify TLS");
+        let request = WsRequest { url: "wss://example.com".into(), ..Default::default() };
+        assert!(request.settings.verify_ssl, "a new WSS request must verify TLS");
     }
 
     #[test]

@@ -19,7 +19,7 @@ pub fn authorization(auth: &HawkAuth, method: &str, url: &str, body: &[u8], now:
     let parts = UrlParts::parse(url)?;
     let timestamp = if auth.timestamp.trim().is_empty() { now.to_string() } else { auth.timestamp.trim().to_string() };
     timestamp.parse::<u64>().map_err(|_| invalid("hawk", "timestamp must be unix seconds"))?;
-    let nonce = if auth.nonce.trim().is_empty() { random_hex(6) } else { auth.nonce.clone() };
+    let nonce = if auth.nonce.trim().is_empty() { random_hex(6)? } else { auth.nonce.clone() };
     let path = match parts.query.is_empty() {
         true => parts.path.clone(),
         false => format!(
