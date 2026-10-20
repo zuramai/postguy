@@ -10,6 +10,7 @@ pub mod client;
 pub mod connector;
 pub mod decode;
 pub mod error;
+pub mod jar;
 pub mod redirect;
 pub mod tls;
 
@@ -18,5 +19,6 @@ pub use client::{Cancel, Client, ClientConfig, HttpVersionPreference, RequestSpe
 pub use connector::ConnectTimings;
 pub use decode::{DecodeCaps, DecodedBody};
 pub use error::{HttpError, Result};
+pub use jar::{CookieJar, StoredCookie};
 pub use redirect::{RedirectHop, RedirectOutcome, RedirectPolicy, origins_differ, resolve_location};
 pub use tls::TlsMode;

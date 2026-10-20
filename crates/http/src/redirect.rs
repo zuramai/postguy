@@ -11,8 +11,11 @@
 //! - More than `max_redirects` hops, or seeing the same (method, url) twice, is an error with
 //!   the hop list preserved for the timeline.
 
+use std::sync::Mutex;
+
 use crate::client::{Cancel, Client, RequestSpec, ResponseData};
 use crate::error::{HttpError, Result};
+use crate::jar::CookieJar;
 
 /// The per-request redirect settings (PROMPT.md 5.3.2 Settings tab defaults).
 #[derive(Debug, Clone, Copy)]
@@ -56,6 +59,31 @@ pub struct RedirectOutcome {
 impl Client {
     /// Send, following redirects per the policy. Without `follow`, this is exactly one hop.
     pub async fn send_following_redirects(&self, spec: RequestSpec, policy: RedirectPolicy, cancel: &Cancel) -> Result<RedirectOutcome> {
+        self.follow(spec, policy, None, cancel).await
+    }
+
+    /// Send with a cookie jar: `Set-Cookie` is captured on EVERY hop (including redirects) and
+    /// stored cookies ride every request; `jar_disabled` means neither sending nor storing
+    /// (the per-request "Disable cookie jar" setting). A user-set Cookie header merges with
+    /// the jar's cookies (jar first, then the manual pairs).
+    pub async fn send_with_cookies(
+        &self,
+        spec: RequestSpec,
+        policy: RedirectPolicy,
+        jar: &Mutex<CookieJar>,
+        jar_disabled: bool,
+        cancel: &Cancel,
+    ) -> Result<RedirectOutcome> {
+        self.follow(spec, policy, if jar_disabled { None } else { Some(jar) }, cancel).await
+    }
+
+    async fn follow(
+        &self,
+        spec: RequestSpec,
+        policy: RedirectPolicy,
+        cookies: Option<&Mutex<CookieJar>>,
+        cancel: &Cancel,
+    ) -> Result<RedirectOutcome> {
         let mut current = spec;
         let mut hops: Vec<RedirectHop> = Vec::new();
         let mut seen: Vec<(String, String)> = Vec::new();
@@ -68,7 +96,32 @@ impl Client {
                 return Err(HttpError::Protocol { reason: format!("redirect loop at {} ({} hops)", current.url, hops.len()) });
             }
 
-            let response = self.send(current.clone(), cancel).await?;
+            // Cookie exchange for this hop: jar cookies merge with a manual Cookie header.
+            let mut hop_spec = current.clone();
+            if let Some(jar) = cookies {
+                let jar_header = jar.lock().ok().map(|jar| jar.header_for(&hop_spec.url)).unwrap_or_default();
+                hop_spec.headers.retain(|(name, _)| !name.eq_ignore_ascii_case("cookie"));
+                let manual = current.headers.iter().find(|(name, _)| name.eq_ignore_ascii_case("cookie")).map(|(_, value)| value.clone());
+                let merged = match (jar_header.is_empty(), manual) {
+                    (true, None) => None,
+                    (true, Some(manual)) => Some(manual),
+                    (false, None) => Some(jar_header),
+                    (false, Some(manual)) => Some(format!("{jar_header}; {manual}")),
+                };
+                if let Some(value) = merged {
+                    hop_spec.headers.push(("Cookie".to_string(), value));
+                }
+            }
+            let response = self.send(hop_spec, cancel).await?;
+            if let Some(jar) = cookies {
+                let set_cookies: Vec<String> =
+                    response.headers.iter().filter(|(name, _)| name.eq_ignore_ascii_case("set-cookie")).map(|(_, value)| value.clone()).collect();
+                if !set_cookies.is_empty()
+                    && let Ok(mut jar) = jar.lock()
+                {
+                    jar.store_from_headers(&current.url, set_cookies.iter().map(String::as_str));
+                }
+            }
             let status = response.status.as_u16();
             let location = response.headers.iter().find(|(name, _)| name == "location").map(|(_, value)| value.clone());
             let redirect = matches!(status, 301 | 302 | 303 | 307 | 308);
