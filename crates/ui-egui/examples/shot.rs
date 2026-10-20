@@ -6,6 +6,7 @@ use egui_kittest::Harness;
 use postguy_model::{Collection, Environment, HistoryEntry, HttpMethod, HttpRequest, Id, Item, Request, RequestKind, Variable};
 use postguy_ui_egui::PostguyShell;
 use postguy_ui_egui::sidebar::SidebarData;
+use postguy_ui_egui::tabs::TabDoc;
 
 /// Contributor-original demo data (no real user content, no Postman asset).
 fn demo_data() -> SidebarData {
@@ -68,6 +69,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut shell = PostguyShell::new("demo-workspace");
     shell.sidebar_data = demo_data();
     shell.sidebar_state.selected.insert("demo-get".into());
+    shell.tabs.open(
+        TabDoc::Request { collection: "demo-collection".into(), request: "demo-get".into(), method: "GET".into(), protocol: "http".into() },
+        "List payments",
+    );
+    shell.tabs.open(
+        TabDoc::Request { collection: "demo-collection".into(), request: "demo-post".into(), method: "POST".into(), protocol: "http".into() },
+        "Create payment",
+    );
+    shell.tabs.open(TabDoc::Environment { id: "demo-env".into() }, "Staging");
+    if let Some(tab) = shell.tabs.tabs.last_mut() {
+        tab.preview = true;
+    }
     shell.state.theme_mode = match mode.as_str() {
         "light" => postguy_ui_egui::ThemeMode::Light,
         "system" => postguy_ui_egui::ThemeMode::System,

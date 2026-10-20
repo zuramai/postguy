@@ -21,6 +21,13 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-20 (M3.3):** Tab strip: preview tabs replacing each other and promoting on a
+  permanent open, painted close buttons and dirty dots, middle-click close, drag reorder,
+  overflow search over open and recently closed tabs, the full tab context menu, the environment
+  selector in the strip, and a strict Save/Don't save/Cancel dialog for dirty closes. Tabs
+  serialise with drafts; the app writes tabs, sidebar sections/heights and theme into the store's
+  session file atomically (throttled), restores them on launch, drops tabs whose documents no
+  longer exist, and reports an unclean exit. 11 tab tests + 4 app session tests.
 - **2026-10-20 (M3.2, core):** Sidebar tree and workspace editing: COLLECTIONS/ENVIRONMENTS/
   HISTORY with painted chevrons, 26 px rows, method labels, examples collapsed per request,
   preview-open clicks, arrows/Enter/F2/Delete, Cmd/Ctrl and Shift multi-select, inline rename,

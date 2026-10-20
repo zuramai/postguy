@@ -7,8 +7,8 @@ use egui_kittest::kittest::Queryable;
 use postguy_model::{
     Collection, Environment, Example, Folder, HistoryEntry, HttpMethod, HttpRequest, Id, Item, KeyValue, Request, RequestKind, Variable,
 };
+use postguy_ui_egui::PostguyShell;
 use postguy_ui_egui::sidebar::{RequestProtocol, RowKind, Sidebar, SidebarAction, SidebarData, SidebarState};
-use postguy_ui_egui::{PostguyShell, ShellTab};
 
 fn request(id: &str, name: &str, method: HttpMethod, url: &str) -> Request {
     Request {
@@ -326,8 +326,7 @@ fn the_shell_opens_a_sidebar_row_in_the_detail_area() {
     harness.run();
     harness.get_by_label("Users").click();
     harness.run();
-    assert_eq!(harness.state().state.tab, ShellTab::Detail);
-    assert_eq!(harness.state().state.detail.as_ref().map(|(name, _)| name.as_str()), Some("Users"));
+    assert_eq!(harness.state().tabs.active_tab().map(|tab| tab.title.as_str()), Some("Users"));
 }
 
 #[test]

@@ -20,6 +20,10 @@ The egui shell: theme, widgets and all screens.
   highlighting, painted carets, preview-open intents, keyboard navigation, multi-select, inline
   rename, typed delete confirmation, drag/drop with insertion lines and folder nesting, and the
   per-target context menus. `apps/postguy` applies its `SidebarAction`s through the engine.
+- `tabs` — the tab model and strip: preview/permanent documents, dirty dots, painted close
+  buttons, drag reorder, middle-click, overflow search with recently closed, the tab context
+  menu, the strict dirty-close dialog and the environment selector. Tabs (with drafts) are
+  serde for session restore.
 - `examples/shot.rs` — headless wgpu render of the real shell (`cargo run -p postguy-ui-egui
   --example shot -- out.png light|dark`), the start of the M3.10 shot harness.
 

@@ -8,7 +8,7 @@ use postguy_ui_egui::widgets::{
     self, CodeEditor, CodeLanguage, ConfirmOutcome, InlineRename, LargeTextView, MessageDirection, RenameAction, SelectGroup, SelectItem,
     TableVariant, Timeline, TimelineEntry,
 };
-use postguy_ui_egui::{PostguyShell, ShellState, ShellTab};
+use postguy_ui_egui::{PostguyShell, ShellState};
 use std::sync::Arc;
 
 #[derive(Default)]
@@ -392,7 +392,7 @@ fn the_shell_draws_its_regions_and_opens_settings() {
     assert!(harness.query_by_label("HISTORY").is_some());
     harness.get_by_label("Settings").click();
     harness.run();
-    assert_eq!(harness.state().state.tab, ShellTab::Settings);
+    assert!(harness.state().tabs.active_tab().is_some_and(|tab| matches!(tab.doc, postguy_ui_egui::TabDoc::Settings)));
     assert!(harness.query_by_label_contains("Theme").is_some());
     let state: &ShellState = &harness.state().state;
     assert!(state.sidebar_open);

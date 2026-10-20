@@ -2828,6 +2828,9 @@ dependencies = [
  "postguy-model",
  "postguy-store",
  "postguy-ui-egui",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -2995,6 +2998,7 @@ dependencies = [
  "egui_kittest",
  "image",
  "postguy-model",
+ "serde",
  "serde_json",
 ]
 
