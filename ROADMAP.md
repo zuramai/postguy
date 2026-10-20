@@ -21,6 +21,13 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-20 (M2.7):** Proxy and auth: `ProxyPolicy` resolves `HTTP_PROXY`/`HTTPS_PROXY`/
+  `ALL_PROXY`/`NO_PROXY` or the custom Settings > Proxy block (custom wins), with wildcard
+  bypass lists; the connector sends plain HTTP in absolute-form through an HTTP proxy, opens
+  CONNECT tunnels for HTTPS, and speaks SOCKS5/SOCKS5h itself (RFC 1928/1929). Proxy basic auth
+  rides plain requests and CONNECT; credentials are redacted from `Debug`. `http::auth` applies
+  Basic, Bearer and API key (header or query), and errors actionably for v1-unsupported kinds.
+  Testkit gained forwarding HTTP and SOCKS5 proxy fixtures. 6 wire + 5 unit tests.
 - **2026-10-20 (M2.6):** Cookie jar (`http::jar`): RFC 6265 storage and matching, default
   path, expiration and Max-Age deletion, secure/HTTP-only flags, host-only vs Domain cookies,
   a minimal public-suffix guard (IP/dotless Domain refused), per-domain and total caps,

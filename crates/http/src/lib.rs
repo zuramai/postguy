@@ -5,20 +5,24 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod auth;
 pub mod build;
 pub mod client;
 pub mod connector;
 pub mod decode;
 pub mod error;
 pub mod jar;
+pub mod proxy;
 pub mod redirect;
 pub mod tls;
 
+pub use auth::{AuthPlacement, apply_auth};
 pub use build::{BuildInput, BuiltRequest, LoadFile, build};
 pub use client::{Cancel, Client, ClientConfig, HttpVersionPreference, RequestSpec, ResponseData, ResponseTimings};
 pub use connector::ConnectTimings;
 pub use decode::{DecodeCaps, DecodedBody};
 pub use error::{HttpError, Result};
 pub use jar::{CookieJar, StoredCookie};
+pub use proxy::{ProxyEnvironment, ProxyPolicy, ProxyRoute, bypass_matches};
 pub use redirect::{RedirectHop, RedirectOutcome, RedirectPolicy, origins_differ, resolve_location};
 pub use tls::TlsMode;

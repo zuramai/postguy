@@ -31,6 +31,10 @@ pub enum HttpError {
     BodyTooLarge { cap: usize },
     /// A configuration problem (bad CA PEM, unusable client config).
     Config { reason: String },
+    /// The proxy could not be used (CONNECT refused, SOCKS5 handshake failed, auth rejected).
+    Proxy { address: String, reason: String },
+    /// The auth configuration cannot be applied (empty token, unsupported type).
+    Auth { kind: String, reason: String },
 }
 
 impl std::fmt::Display for HttpError {
@@ -53,6 +57,8 @@ impl std::fmt::Display for HttpError {
             HttpError::Protocol { reason } => write!(f, "protocol: {reason}"),
             HttpError::BodyTooLarge { cap } => write!(f, "response body exceeds the {cap}-byte cap"),
             HttpError::Config { reason } => write!(f, "configuration: {reason}"),
+            HttpError::Proxy { address, reason } => write!(f, "proxy {address}: {reason}"),
+            HttpError::Auth { kind, reason } => write!(f, "{kind} auth: {reason}"),
         }
     }
 }
@@ -71,8 +77,9 @@ impl HttpError {
     /// The timing phase this failure belongs to, for the timeline and console.
     pub fn phase(&self) -> &'static str {
         match self {
-            HttpError::BadUrl { .. } | HttpError::Config { .. } => "prepare",
+            HttpError::BadUrl { .. } | HttpError::Config { .. } | HttpError::Auth { .. } => "prepare",
             HttpError::Dns { .. } => "dns",
+            HttpError::Proxy { .. } => "connect",
             HttpError::Connect { .. } => "connect",
             HttpError::Tls { .. } => "tls",
             HttpError::Transport { .. } | HttpError::Client { .. } | HttpError::Protocol { .. } => "request",
