@@ -297,6 +297,15 @@ impl Workspace {
         history::latest(&self.paths.history_file(), limit)
     }
 
+    /// Remove one history entry by id.
+    pub fn delete_history(&self, id: &str) -> Result<bool> {
+        let removed = history::remove(&self.paths.history_file(), id)?;
+        if removed && let Ok(mut count) = self.history_count.lock() {
+            *count = count.saturating_sub(1);
+        }
+        Ok(removed)
+    }
+
     /// Empty the history file atomically (the History panel's Clear).
     pub fn clear_history(&self) -> Result<()> {
         history::clear(&self.paths.history_file())?;

@@ -15,6 +15,11 @@ The egui shell: theme, widgets and all screens.
   reports AccessKit state and has a kittest.
 - `shell` — header, sidebar, tab-strip placeholder, central panel, optional right panel and
   bottom bar; `apps/postguy` hosts it with eframe/glow.
+- `sidebar` — the data-in/actions-out tree: COLLECTIONS/ENVIRONMENTS/HISTORY sections, a
+  10k-row cached flattening (release: 3.8 ms cold, 3.4 ms filtered), name/URL filter with match
+  highlighting, painted carets, preview-open intents, keyboard navigation, multi-select, inline
+  rename, typed delete confirmation, drag/drop with insertion lines and folder nesting, and the
+  per-target context menus. `apps/postguy` applies its `SidebarAction`s through the engine.
 - `examples/shot.rs` — headless wgpu render of the real shell (`cargo run -p postguy-ui-egui
   --example shot -- out.png light|dark`), the start of the M3.10 shot harness.
 

@@ -8,10 +8,12 @@ pub mod icons_gen;
 
 pub mod icons;
 pub mod shell;
+pub mod sidebar;
 pub mod theme;
 pub mod widgets;
 
 pub use shell::{PostguyShell, ShellState, ShellTab};
+pub use sidebar::{RequestProtocol, RowKind, Sidebar, SidebarAction, SidebarData, SidebarRow, SidebarState};
 pub use theme::{Palette, Theme, ThemeMode};
 pub use widgets::{
     CodeEditor, CodeLanguage, ConfirmOutcome, InlineRename, LargeTextView, MessageDirection, RenameAction, SelectGroup, SelectItem, TableVariant,

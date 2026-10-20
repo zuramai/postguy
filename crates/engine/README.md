@@ -17,6 +17,9 @@ Facade and session: workspace handle, edits and undo, the send pipeline, command
   Stored requests resolve through their folder/collection ancestors; inline requests are for
   automation and tests.
 - `console` — 5000 entries / 24 h ring buffer with masked messages and 1 MiB detail bodies.
+- `edit` — workspace edits behind the sidebar (M3.2): collection/environment CRUD, folder and
+  request creation, rename, deep duplicate with fresh ids, move/copy with cycle refusal,
+  examples, trash parking and history deletion. Saves go through the store's atomic writers.
 - `runtime` — one runtime, owned here; frontends never touch tokio directly.
 
 Conventions (AGENTS.md): `Result` everywhere, no panic paths, no `unsafe`, checked

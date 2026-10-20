@@ -2824,6 +2824,9 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
+ "postguy-engine",
+ "postguy-model",
+ "postguy-store",
  "postguy-ui-egui",
 ]
 

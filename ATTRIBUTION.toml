@@ -30,6 +30,39 @@ usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.r
 sha256 = "288397fdb73bb4f783cf9eabb726ff47357df1d4e3f1201dd748090579f108b9"
 
 [[asset]]
+path = "assets/icons/folder.svg"
+title = "Lucide icon: folder"
+author = "Lucide contributors"
+source = "github.com/lucide-icons/lucide at tag 1.59.0 (icons/folder.svg)"
+licence = "ISC"
+licence_file = "assets/icons/LICENSE-lucide.txt"
+kind = "icon"
+usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.rs)"
+sha256 = "f0d92b94b797a8ab7d4c4ae33c3236c47f64068351b4e14bdb5014ee42898a39"
+
+[[asset]]
+path = "assets/icons/file-text.svg"
+title = "Lucide icon: file-text"
+author = "Lucide contributors"
+source = "github.com/lucide-icons/lucide at tag 1.59.0 (icons/file-text.svg)"
+licence = "ISC"
+licence_file = "assets/icons/LICENSE-lucide.txt"
+kind = "icon"
+usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.rs)"
+sha256 = "486fab70d8ad3cdc69b5ff9b6c356a58d41fcc4c885359cbf9d6e088a7c47f70"
+
+[[asset]]
+path = "assets/icons/clock.svg"
+title = "Lucide icon: clock"
+author = "Lucide contributors"
+source = "github.com/lucide-icons/lucide at tag 1.59.0 (icons/clock.svg)"
+licence = "ISC"
+licence_file = "assets/icons/LICENSE-lucide.txt"
+kind = "icon"
+usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.rs)"
+sha256 = "d2a56d78af09140fab13a04e946af707bbf0c2dfbdfde7576b7d1e100888fc70"
+
+[[asset]]
 path = "assets/icons/circle-check.svg"
 title = "Lucide icon: circle-check"
 author = "Lucide contributors"
