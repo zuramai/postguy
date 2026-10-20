@@ -8,11 +8,13 @@
 pub mod build;
 pub mod client;
 pub mod connector;
+pub mod decode;
 pub mod error;
 pub mod tls;
 
 pub use build::{BuildInput, BuiltRequest, LoadFile, build};
 pub use client::{Cancel, Client, ClientConfig, HttpVersionPreference, RequestSpec, ResponseData, ResponseTimings};
 pub use connector::ConnectTimings;
+pub use decode::{DecodeCaps, DecodedBody};
 pub use error::{HttpError, Result};
 pub use tls::TlsMode;

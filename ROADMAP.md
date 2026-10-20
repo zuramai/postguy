@@ -21,6 +21,13 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-20 (M2.4):** Response handling: automatic Content-Encoding decode for gzip,
+  deflate (zlib with raw-deflate fallback), brotli and zstd (pure-Rust ruzstd), chained
+  encodings in reverse order, decoded-size cap enforced WHILE reading plus a 200x ratio cap
+  (compression-bomb regression tests), header/body encoded/decoded size breakdown for the
+  hover chips, decode-off mode, and Send-and-Download streaming to a file with the same body
+  cap and no full-body buffer (files hold wire bytes for now: documented follow-up).
+  16 unit tests + 9 socket integration tests.
 - **2026-10-20 (M2.3):** Request building: every body mode (form-data multipart with a
   collision-resistant boundary, urlencoded, raw with language content types, binary via the
   caller's file loader, GraphQL JSON with invalid-variables warning), the documented automatic

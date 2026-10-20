@@ -2732,8 +2732,10 @@ version = "0.1.0"
 name = "postguy-http"
 version = "0.1.0"
 dependencies = [
+ "brotli",
  "bytes",
  "fastrand",
+ "flate2",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -2744,6 +2746,7 @@ dependencies = [
  "rustls",
  "rustls-native-certs",
  "rustls-pemfile",
+ "ruzstd",
  "serde",
  "serde_json",
  "tempfile",
@@ -3194,6 +3197,12 @@ dependencies = [
  "tempfile",
  "wait-timeout",
 ]
+
+[[package]]
+name = "ruzstd"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69e4ce4a039f42bf25920b95667e4d789e98749ab11bbb8d2c2936f788421bb5"
 
 [[package]]
 name = "same-file"

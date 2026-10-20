@@ -16,6 +16,7 @@ use hyper_util::rt::TokioExecutor;
 use tokio::sync::watch;
 
 use crate::connector::{ConnectTimings, ConnectorConfig, TimedConnector};
+use crate::decode::{DecodeCaps, header_bytes};
 use crate::error::{HttpError, Result};
 use crate::tls::TlsMode;
 
@@ -81,11 +82,21 @@ pub struct RequestSpec {
     pub timeout_ms: u64,
     /// Response body cap; exceeding it is an error with the partial body dropped.
     pub max_body_bytes: usize,
+    /// Decode `Content-Encoding` automatically (Postman behaviour). Off shows wire bytes.
+    pub decode_compression: bool,
 }
 
 impl RequestSpec {
     pub fn get(url: impl Into<String>) -> RequestSpec {
-        RequestSpec { method: Method::GET, url: url.into(), headers: Vec::new(), body: Vec::new(), timeout_ms: 0, max_body_bytes: 50 << 20 }
+        RequestSpec {
+            method: Method::GET,
+            url: url.into(),
+            headers: Vec::new(),
+            body: Vec::new(),
+            timeout_ms: 0,
+            max_body_bytes: 50 << 20,
+            decode_compression: true,
+        }
     }
 }
 
@@ -111,8 +122,24 @@ pub struct ResponseData {
     /// Received order, name as the server sent it (lowercased by HTTP/1 parsing rules; the
     /// original case is not preserved by hyper's http1 codec — noted in the Console).
     pub headers: Vec<(String, String)>,
+    /// DECODED body bytes (wire bytes when decoding is off or no encoding was present).
     pub body: Vec<u8>,
     pub timings: ResponseTimings,
+    /// Hover numbers: headers vs body, encoded vs decoded (PROMPT.md 5.4).
+    pub size: ResponseSize,
+}
+
+/// The size breakdown the response viewer shows on hover.
+#[derive(Debug, Clone, Copy, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResponseSize {
+    pub header_bytes: usize,
+    /// Body bytes as received (compressed length when a Content-Encoding was present).
+    pub body_encoded_bytes: usize,
+    /// Body bytes after decoding.
+    pub body_decoded_bytes: usize,
+    /// The encoding that was undone, if any.
+    pub content_encoding: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
@@ -233,6 +260,23 @@ impl Client {
             }
         }
         let total_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let content_encoding = headers.iter().find(|(name, _)| name == "content-encoding").map(|(_, value)| value.clone());
+        let body_encoded_bytes = body.len();
+        let mut size = ResponseSize {
+            header_bytes: header_bytes(status.as_u16(), &headers),
+            body_encoded_bytes,
+            body_decoded_bytes: body_encoded_bytes,
+            content_encoding: None,
+        };
+        if spec.decode_compression
+            && let Some(encoding) = &content_encoding
+        {
+            let caps = DecodeCaps { max_decoded_bytes: spec.max_body_bytes, max_ratio: DecodeCaps::default().max_ratio };
+            let decoded = crate::decode::decode(&body, encoding, caps)?;
+            size.body_decoded_bytes = decoded.decoded_bytes;
+            size.content_encoding = Some(leak_encoding(&decoded.encoding));
+            body = decoded.bytes;
+        }
         Ok(ResponseData {
             status,
             version,
@@ -244,7 +288,112 @@ impl Client {
                 total_ms,
                 download_ms: total_ms.saturating_sub(ttfb_ms),
             },
+            size,
         })
+    }
+
+    /// Send and Download (PROMPT.md 5.4): stream the body straight to a file, never holding it
+    /// in memory. The file receives the WIRE bytes (decoding for a saved file is a follow-up;
+    /// the viewer shows decoded bytes). Returns the metadata the response strip needs.
+    pub async fn send_to_file(&self, spec: RequestSpec, cancel: &Cancel, file_path: &std::path::Path) -> Result<StreamedResponse> {
+        if cancel.is_cancelled() {
+            return Err(HttpError::Cancelled);
+        }
+        let uri: hyper::Uri = spec.url.parse().map_err(|err| HttpError::BadUrl { url: spec.url.clone(), reason: format!("{err}") })?;
+        let mut builder = Request::builder().method(spec.method.clone()).uri(uri);
+        for (name, value) in &spec.headers {
+            let header_name = HeaderName::from_bytes(name.as_bytes())
+                .map_err(|err| HttpError::BadUrl { url: spec.url.clone(), reason: format!("bad header `{name}`: {err}") })?;
+            let header_value = HeaderValue::from_str(value)
+                .map_err(|err| HttpError::BadUrl { url: spec.url.clone(), reason: format!("bad header value for `{name}`: {err}") })?;
+            builder = builder.header(header_name, header_value);
+        }
+        let request =
+            builder.body(Full::new(Bytes::from(spec.body))).map_err(|err| HttpError::BadUrl { url: spec.url.clone(), reason: err.to_string() })?;
+
+        let started = Instant::now();
+        let response = {
+            let send = self.inner.request(request);
+            if spec.timeout_ms > 0 {
+                tokio::select! {
+                    outcome = send => outcome.map_err(classify_client_error)?,
+                    _ = cancel.cancelled() => return Err(HttpError::Cancelled),
+                    _ = tokio::time::sleep(Duration::from_millis(spec.timeout_ms)) => return Err(HttpError::Timeout { millis: spec.timeout_ms }),
+                }
+            } else {
+                tokio::select! {
+                    outcome = send => outcome.map_err(classify_client_error)?,
+                    _ = cancel.cancelled() => return Err(HttpError::Cancelled),
+                }
+            }
+        };
+        let ttfb_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let status = response.status();
+        let headers: Vec<(String, String)> = response
+            .headers()
+            .iter()
+            .map(|(name, value)| (name.as_str().to_string(), String::from_utf8_lossy(value.as_bytes()).into_owned()))
+            .collect();
+        let mut file = tokio::fs::File::create(file_path)
+            .await
+            .map_err(|err| HttpError::Config { reason: format!("creating {}: {err}", file_path.display()) })?;
+        let mut incoming: Incoming = response.into_body();
+        let mut written: usize = 0;
+        loop {
+            let fence = tokio::select! {
+                frame = incoming.frame() => frame,
+                _ = cancel.cancelled() => return Err(HttpError::Cancelled),
+                _ = async {
+                    if spec.timeout_ms > 0 { tokio::time::sleep(Duration::from_millis(spec.timeout_ms)).await } else { std::future::pending::<()>().await }
+                } => return Err(HttpError::Timeout { millis: spec.timeout_ms }),
+            };
+            let Some(frame) = fence else { break };
+            let frame = frame.map_err(|source| HttpError::Transport { source })?;
+            if let Ok(data) = frame.into_data() {
+                written = written.saturating_add(data.len());
+                if written > spec.max_body_bytes {
+                    return Err(HttpError::BodyTooLarge { cap: spec.max_body_bytes });
+                }
+                use tokio::io::AsyncWriteExt as _;
+                file.write_all(&data).await.map_err(|err| HttpError::Config { reason: format!("writing {}: {err}", file_path.display()) })?;
+            }
+        }
+        use tokio::io::AsyncWriteExt as _;
+        file.flush().await.map_err(|err| HttpError::Config { reason: format!("flushing {}: {err}", file_path.display()) })?;
+        let total_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        Ok(StreamedResponse {
+            status,
+            headers,
+            bytes_written: written,
+            timings: ResponseTimings {
+                connect: self.connector.last_timings().unwrap_or_default(),
+                ttfb_ms,
+                total_ms,
+                download_ms: total_ms.saturating_sub(ttfb_ms),
+            },
+        })
+    }
+}
+
+/// Streaming save metadata (no body: it lives on disk).
+#[derive(Debug)]
+pub struct StreamedResponse {
+    pub status: StatusCode,
+    pub headers: Vec<(String, String)>,
+    pub bytes_written: usize,
+    pub timings: ResponseTimings,
+}
+
+/// Leak the encoding label as `'static`: the list of supported labels is closed, so the
+/// values come from a fixed set.
+fn leak_encoding(label: &str) -> &'static str {
+    match label {
+        "gzip" => "gzip",
+        "deflate" => "deflate",
+        "br" => "br",
+        "zstd" => "zstd",
+        "gzip, br" | "br, gzip" => "gzip, br",
+        _ => "other",
     }
 }
 

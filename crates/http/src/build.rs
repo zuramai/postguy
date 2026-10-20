@@ -100,7 +100,7 @@ impl BuiltRequest {
     /// they are request SETTINGS, not wire data).
     pub fn into_spec(self, timeout_ms: u64, max_body_bytes: usize) -> crate::RequestSpec {
         let method = hyper::Method::from_bytes(self.method.as_bytes()).unwrap_or(hyper::Method::GET);
-        crate::RequestSpec { method, url: self.url, headers: self.headers, body: self.body, timeout_ms, max_body_bytes }
+        crate::RequestSpec { method, url: self.url, headers: self.headers, body: self.body, timeout_ms, max_body_bytes, decode_compression: true }
     }
 }
 

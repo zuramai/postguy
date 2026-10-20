@@ -106,15 +106,48 @@ fn the_body_cap_refuses_oversized_responses() {
 }
 
 #[test]
-fn compressed_bytes_are_returned_raw_for_the_decode_layer() {
+fn compressed_responses_decode_with_the_size_breakdown() {
     let server = Server::start();
     let runtime = runtime();
     let client = Client::new(ClientConfig::default()).expect("client");
-    let response = runtime
-        .block_on(client.send(RequestSpec::get(format!("{}/compressed?kind=gzip&size=4096", server.base_url())), &Cancel::new()))
-        .expect("send");
-    assert!(response.headers.iter().any(|(name, value)| name == "content-encoding" && value == "gzip"));
-    assert_eq!(&response.body[..2], &[0x1F, 0x8B], "raw gzip bytes reach the caller (decode is M2.4)");
+    for kind in ["gzip", "deflate", "br", "zstd"] {
+        let response = runtime
+            .block_on(client.send(RequestSpec::get(format!("{}/compressed?kind={kind}&size=4096", server.base_url())), &Cancel::new()))
+            .expect("send");
+        assert!(response.headers.iter().any(|(name, value)| name == "content-encoding" && value == kind), "{kind}");
+        assert_eq!(response.body.len(), 4096, "{kind} decoded to the pattern length");
+        assert!(response.body.iter().all(u8::is_ascii_digit), "{kind} pattern bytes");
+        assert_eq!(response.size.body_decoded_bytes, 4096);
+        assert!(response.size.body_encoded_bytes < 4096 || kind == "zstd", "{kind} arrived compressed (raw-block zstd adds framing)");
+        assert!(response.size.header_bytes > 0);
+        assert!(response.size.content_encoding.is_some(), "{kind} encoding reported");
+    }
+    // Decoding OFF shows wire bytes and the encoded/decoded numbers agree.
+    let raw_spec = RequestSpec {
+        decode_compression: false,
+        max_body_bytes: 1 << 20,
+        ..RequestSpec::get(format!("{}/compressed?kind=gzip&size=4096", server.base_url()))
+    };
+    let raw = runtime.block_on(client.send(raw_spec, &Cancel::new())).expect("raw send");
+    assert_eq!(&raw.body[..2], &[0x1F, 0x8B]);
+    assert_eq!(raw.size.body_encoded_bytes, raw.size.body_decoded_bytes);
+}
+
+#[test]
+fn send_to_file_streams_the_body_without_buffering_it() {
+    let server = Server::start();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let target = dir.path().join("body.bin");
+    let runtime = runtime();
+    let client = Client::new(ClientConfig::default()).expect("client");
+    let spec = RequestSpec::get(format!("{}/huge?mb=2", server.base_url()));
+    let meta = runtime.block_on(client.send_to_file(spec, &Cancel::new(), &target)).expect("stream");
+    assert_eq!(meta.status, 200);
+    assert_eq!(meta.bytes_written, 2 * 1024 * 1024);
+    let written = std::fs::read(&target).expect("file");
+    assert_eq!(written.len(), 2 * 1024 * 1024);
+    assert_eq!(written[0], b'0');
+    assert!(meta.timings.total_ms >= meta.timings.ttfb_ms);
 }
 
 #[test]
