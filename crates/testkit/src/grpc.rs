@@ -7,15 +7,22 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use postguy_grpc::DynamicCodec;
-use prost_reflect::{DescriptorPool, DynamicMessage, MessageDescriptor};
+use prost_reflect::{DescriptorPool, DynamicMessage, MessageDescriptor, Value};
 use tokio::net::TcpListener;
-use tonic::server::{Grpc, NamedService, UnaryService};
+use tokio_stream::Stream;
+use tonic::Streaming as TonicStreaming;
+use tonic::server::{ClientStreamingService, Grpc, NamedService, ServerStreamingService, StreamingService, UnaryService};
 use tonic::{Request, Response, Status};
 
 const PROTO: &str = r#"
 syntax = "proto3";
 package echo;
-service Echo { rpc Say (EchoMessage) returns (EchoMessage); }
+service Echo {
+  rpc Say (EchoMessage) returns (EchoMessage);
+  rpc ServerStream (EchoMessage) returns (stream EchoMessage);
+  rpc ClientStream (stream EchoMessage) returns (EchoMessage);
+  rpc Bidi (stream EchoMessage) returns (stream EchoMessage);
+}
 message EchoMessage { string text = 1; int32 number = 2; }
 "#;
 
@@ -90,9 +97,15 @@ impl tower::Service<http::Request<tonic::body::Body>> for EchoService {
 
     fn call(&mut self, request: http::Request<tonic::body::Body>) -> Self::Future {
         let descriptor = self.descriptor.clone();
+        let path = request.uri().path().to_string();
         Box::pin(async move {
             let mut grpc = Grpc::new(DynamicCodec::new(&descriptor));
-            Ok(grpc.unary(EchoCall, request).await)
+            match path.as_str() {
+                "/echo.Echo/ServerStream" => Ok(grpc.server_streaming(EchoServerStream, request).await),
+                "/echo.Echo/ClientStream" => Ok(grpc.client_streaming(EchoClientStream { descriptor }, request).await),
+                "/echo.Echo/Bidi" => Ok(grpc.streaming(EchoBidi, request).await),
+                _ => Ok(grpc.unary(EchoCall, request).await),
+            }
         })
     }
 }
@@ -111,6 +124,69 @@ impl UnaryService<DynamicMessage> for EchoCall {
                 return Err(Status::invalid_argument("requested failure"));
             }
             Ok(Response::new(message))
+        })
+    }
+}
+
+type EchoStream = Pin<Box<dyn Stream<Item = Result<DynamicMessage, Status>> + Send>>;
+
+struct EchoServerStream;
+
+impl ServerStreamingService<DynamicMessage> for EchoServerStream {
+    type Response = DynamicMessage;
+    type ResponseStream = EchoStream;
+    type Future = Pin<Box<dyn Future<Output = Result<Response<Self::ResponseStream>, Status>> + Send>>;
+
+    fn call(&mut self, request: Request<DynamicMessage>) -> Self::Future {
+        Box::pin(async move {
+            let message = request.into_inner();
+            let stream = tokio_stream::iter((1..=3).map(move |index| {
+                let mut copy = message.clone();
+                copy.set_field_by_name("number", Value::I32(index));
+                Ok(copy)
+            }));
+            Ok(Response::new(Box::pin(stream) as EchoStream))
+        })
+    }
+}
+
+struct EchoClientStream {
+    descriptor: MessageDescriptor,
+}
+
+impl ClientStreamingService<DynamicMessage> for EchoClientStream {
+    type Response = DynamicMessage;
+    type Future = Pin<Box<dyn Future<Output = Result<Response<Self::Response>, Status>> + Send>>;
+
+    fn call(&mut self, request: Request<TonicStreaming<DynamicMessage>>) -> Self::Future {
+        let descriptor = self.descriptor.clone();
+        Box::pin(async move {
+            let mut stream = request.into_inner();
+            let mut count = 0i32;
+            let mut total = 0i32;
+            while let Some(message) = stream.message().await? {
+                count += 1;
+                total += message.get_field_by_name("number").and_then(|value| value.as_i32()).unwrap_or_default();
+            }
+            let mut response = DynamicMessage::new(descriptor);
+            response.set_field_by_name("text", Value::String(format!("{count} messages, total {total}")));
+            response.set_field_by_name("number", Value::I32(total));
+            Ok(Response::new(response))
+        })
+    }
+}
+
+struct EchoBidi;
+
+impl StreamingService<DynamicMessage> for EchoBidi {
+    type Response = DynamicMessage;
+    type ResponseStream = EchoStream;
+    type Future = Pin<Box<dyn Future<Output = Result<Response<Self::ResponseStream>, Status>> + Send>>;
+
+    fn call(&mut self, request: Request<TonicStreaming<DynamicMessage>>) -> Self::Future {
+        Box::pin(async move {
+            let stream = request.into_inner();
+            Ok(Response::new(Box::pin(stream) as EchoStream))
         })
     }
 }

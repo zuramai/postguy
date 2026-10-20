@@ -17,7 +17,7 @@ pub mod pipeline;
 pub mod runtime;
 pub mod workspace_zip;
 pub mod ws_session;
-pub use postguy_grpc::UnaryResult;
+pub use postguy_grpc::{StreamResult, UnaryResult};
 
 use std::collections::{HashMap, VecDeque};
 use std::panic::AssertUnwindSafe;

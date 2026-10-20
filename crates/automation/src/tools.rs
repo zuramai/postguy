@@ -331,6 +331,18 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
             destructive: false,
         },
         ToolDef {
+            name: "grpc_stream",
+            title: "Invoke a streaming gRPC method",
+            description: "Calls a server-, client- or bidi-streaming method with an array of JSON messages and returns every response message in arrival order (cap 10,000). Unary methods use grpc_invoke.",
+            input_schema: schema! {
+                "collection": req("collection id"),
+                "request": req("request id"),
+                "messages": (json!({"type": "array", "description": "request messages in order (server streaming uses the first)"}), false)
+            },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
             name: "ws_connect",
             title: "Open a WebSocket",
             description: "Connects a saved WebSocket request (variables resolved at connect), returns a session id. Events are read with ws_messages.",
@@ -915,6 +927,29 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
             };
             let result = session.engine()?.grpc_invoke_unary(grpc, message)?;
             Ok(json!({"message": result.json, "metadata": result.metadata, "status": result.status}))
+        }
+        "grpc_stream" => {
+            let collection = session.load_collection(&string_arg(args, tool, "collection")?)?;
+            let request_id = string_arg(args, tool, "request")?;
+            let item =
+                find_item(&collection, &request_id).ok_or_else(|| AutomationError::NotFound { kind: "request".into(), id: request_id.clone() })?;
+            let postguy_model::Item::Request(request) = item else {
+                return Err(AutomationError::Failed { message: format!("`{request_id}` is a folder, not a request") });
+            };
+            let postguy_model::RequestKind::Grpc(grpc) = &request.kind else {
+                return Err(AutomationError::Failed { message: "grpc_stream expects a gRPC request".into() });
+            };
+            let messages = match args.get("messages") {
+                Some(Value::Array(messages)) => messages.clone(),
+                _ => serde_json::from_str::<Vec<serde_json::Value>>(&grpc.message).map_err(|err| AutomationError::BadArgument {
+                    tool: tool.to_string(),
+                    argument: "messages".into(),
+                    expected: "an array of JSON messages (or store one array in the request message)".into(),
+                    got: err.to_string(),
+                })?,
+            };
+            let result = session.engine()?.grpc_stream(grpc, messages)?;
+            Ok(json!({"messages": result.messages, "metadata": result.metadata, "status": result.status}))
         }
         "ws_connect" => {
             let collection_id = string_arg(args, tool, "collection")?;

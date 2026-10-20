@@ -173,7 +173,12 @@ fn grpc_tools_describe_example_and_invoke_unary() {
         proto_dir.join("echo.proto"),
         r#"syntax = "proto3";
 package echo;
-service Echo { rpc Say (EchoMessage) returns (EchoMessage); }
+service Echo {
+  rpc Say (EchoMessage) returns (EchoMessage);
+  rpc ServerStream (EchoMessage) returns (stream EchoMessage);
+  rpc ClientStream (stream EchoMessage) returns (EchoMessage);
+  rpc Bidi (stream EchoMessage) returns (stream EchoMessage);
+}
 message EchoMessage { string text = 1; int32 number = 2; }
 "#,
     )
@@ -225,6 +230,37 @@ message EchoMessage { string text = 1; int32 number = 2; }
     );
     let reflected = call(&automation, "grpc_invoke", json!({"collection": collection, "request": request}));
     assert_eq!(reflected["message"]["text"], "reflected");
+    let update_method = |path: &str| {
+        call(
+            &automation,
+            "request_update",
+            json!({
+                "collection": collection,
+                "request": request,
+                "definition": {
+                    "type": "grpc",
+                    "url": server.url(),
+                    "serviceDefinition": {"source": "protoSet", "name": "echo"},
+                    "methodPath": path,
+                    "message": ""
+                }
+            }),
+        );
+    };
+    update_method("echo.Echo/ServerStream");
+    let streamed = call(&automation, "grpc_stream", json!({"collection": collection, "request": request, "messages": [{"text": "s"}]}));
+    assert_eq!(streamed["messages"].as_array().map(Vec::len), Some(3));
+    assert_eq!(streamed["messages"][2]["number"], 3);
+    update_method("echo.Echo/ClientStream");
+    let collected =
+        call(&automation, "grpc_stream", json!({"collection": collection, "request": request, "messages": [{"number": 4}, {"number": 6}]}));
+    assert_eq!(collected["messages"].as_array().map(Vec::len), Some(1));
+    assert_eq!(collected["messages"][0]["number"], 10);
+    assert_eq!(collected["messages"][0]["text"], "2 messages, total 10");
+    update_method("echo.Echo/Bidi");
+    let bidi = call(&automation, "grpc_stream", json!({"collection": collection, "request": request, "messages": [{"text": "a"}, {"text": "b"}]}));
+    assert_eq!(bidi["messages"].as_array().map(Vec::len), Some(2));
+    assert_eq!(bidi["messages"][1]["text"], "b");
 }
 
 #[test]

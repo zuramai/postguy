@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use postguy_grpc::{DescriptorPool, GrpcError, GrpcTls, UnaryResult};
+use postguy_grpc::{DescriptorPool, GrpcError, GrpcTls, StreamResult, UnaryResult};
 use postguy_model::{GrpcRequest, ServiceDefinition};
 
 use crate::Engine;
@@ -53,6 +53,31 @@ impl Engine {
     pub fn grpc_example(&self, request: &GrpcRequest) -> Result<serde_json::Value> {
         let pool = self.grpc_pool(request)?;
         postguy_grpc::example_message(&pool, &request.method_path).map_err(grpc_error)
+    }
+
+    /// Invoke a server-, client- or bidi-streaming method. A unary method is rejected; a
+    /// client-streaming reply becomes the single element of `messages`.
+    pub fn grpc_stream(&self, request: &GrpcRequest, messages: Vec<serde_json::Value>) -> Result<StreamResult> {
+        let pool = self.grpc_pool(request)?;
+        let method = postguy_grpc::method(&pool, &request.method_path).map_err(grpc_error)?;
+        let (endpoint, tls) = self.grpc_connection(request)?;
+        let metadata: Vec<(String, String)> =
+            request.metadata.iter().filter(|row| row.enabled && !row.key.is_empty()).map(|row| (row.key.clone(), row.value.clone())).collect();
+        let runtime = &self.inner.runtime;
+        if method.is_server_streaming() && !method.is_client_streaming() {
+            let first = messages
+                .into_iter()
+                .next()
+                .ok_or_else(|| EngineError::BadRequest { reason: "a server-streaming call needs one request message".into() })?;
+            runtime.block_on(postguy_grpc::server_streaming(&endpoint, &tls, &method, first, &metadata)).map_err(grpc_error)
+        } else if method.is_client_streaming() && !method.is_server_streaming() {
+            let result = runtime.block_on(postguy_grpc::client_streaming(&endpoint, &tls, &method, messages, &metadata)).map_err(grpc_error)?;
+            Ok(StreamResult { messages: vec![result.json], status: result.status, metadata: result.metadata })
+        } else if method.is_client_streaming() && method.is_server_streaming() {
+            runtime.block_on(postguy_grpc::bidi_streaming(&endpoint, &tls, &method, messages, &metadata)).map_err(grpc_error)
+        } else {
+            Err(EngineError::BadRequest { reason: "this method is unary; use grpc_invoke".into() })
+        }
     }
 
     /// Invoke one unary method with JSON input. Blocks via the engine runtime.

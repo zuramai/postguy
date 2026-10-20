@@ -481,7 +481,7 @@ area = "D"
 tier = "P0"
 milestone = "M7.6"
 status = "partial"
-notes = "The composer takes a package.Service/Method path and can describe services/methods; the grouped selector with type glyphs is still open."
+notes = "The composer takes a package.Service/Method path and grpc_describe lists services/methods; the grouped selector with type glyphs is still open."
 
 evidence = ["crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary"]
 [[feature]]
@@ -520,9 +520,10 @@ title = "Server, client and bidirectional streaming with End streaming"
 area = "D"
 tier = "P1"
 milestone = "M7.3"
-status = "planned"
-notes = "Reverse-chronological timeline, ring-buffer caps, Save example after stream end."
+status = "partial"
+notes = "Server, client and bidi streaming use finite message arrays and collect up to 10,000 replies; the composer has Invoke stream. Interactive Send/End streaming, cancellation and the reverse-chronological timeline are still open."
 
+evidence = ["crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary", "apps/postguy/src/main.rs::grpc_editor_invokes_a_unary_method"]
 [[feature]]
 id = "d.status-trailers"
 title = "Status code, trailers and grpc-status-details-bin decoding"

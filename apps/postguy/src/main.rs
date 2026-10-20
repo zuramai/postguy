@@ -119,6 +119,7 @@ struct GrpcEditor {
 
 enum GrpcUiAction {
     Invoke,
+    Stream,
     Save,
 }
 
@@ -1618,11 +1619,14 @@ impl App {
                     Err(err) => editor.error = Some(err.to_string()),
                 }
             }
-            GrpcUiAction::Invoke => {
+            GrpcUiAction::Invoke | GrpcUiAction::Stream => {
+                let stream = matches!(action, GrpcUiAction::Stream);
                 let Some(editor) = self.grpc_editors.get_mut(&tab_id) else { return };
                 editor.error = None;
-                let message: serde_json::Value = match serde_json::from_str(&editor.draft.message) {
-                    Ok(message) => message,
+                let messages: Vec<serde_json::Value> = match serde_json::from_str::<serde_json::Value>(&editor.draft.message) {
+                    Ok(serde_json::Value::Array(messages)) => messages,
+                    Ok(message) if stream => vec![message],
+                    Ok(message) => vec![message],
                     Err(err) => {
                         editor.error = Some(format!("request message is not JSON: {err}"));
                         return;
@@ -1644,8 +1648,17 @@ impl App {
                 std::thread::Builder::new()
                     .name("postguy-grpc".into())
                     .spawn(move || {
-                        let result = engine.grpc_invoke_unary(&draft, message).map_err(|err| err.to_string());
-                        let _ = sender.send(result);
+                        let result = if stream {
+                            engine.grpc_stream(&draft, messages).map(|stream| postguy_engine::UnaryResult {
+                                json: serde_json::Value::Array(stream.messages),
+                                status: stream.status,
+                                metadata: stream.metadata,
+                            })
+                        } else {
+                            let message = messages.into_iter().next().unwrap_or(serde_json::Value::Null);
+                            engine.grpc_invoke_unary(&draft, message)
+                        };
+                        let _ = sender.send(result.map_err(|err| err.to_string()));
                     })
                     .ok();
             }
@@ -2474,6 +2487,9 @@ fn grpc_panel(ui: &mut egui::Ui, editor: &mut GrpcEditor) -> Option<GrpcUiAction
             if ui.add(egui::Button::new("Invoke")).clicked() {
                 action = Some(GrpcUiAction::Invoke);
             }
+            if ui.add(egui::Button::new("Invoke stream")).clicked() {
+                action = Some(GrpcUiAction::Stream);
+            }
             if editor.dirty && ui.add(egui::Button::new("Save")).clicked() {
                 action = Some(GrpcUiAction::Save);
             }
@@ -3299,7 +3315,10 @@ mod tests {
             proto_dir.join("echo.proto"),
             r#"syntax = "proto3";
 package echo;
-service Echo { rpc Say (EchoMessage) returns (EchoMessage); }
+service Echo {
+  rpc Say (EchoMessage) returns (EchoMessage);
+  rpc ServerStream (EchoMessage) returns (stream EchoMessage);
+}
 message EchoMessage { string text = 1; int32 number = 2; }
 "#,
         )
@@ -3334,6 +3353,22 @@ message EchoMessage { string text = 1; int32 number = 2; }
         let response = editor.response.as_ref().unwrap_or_else(|| panic!("gRPC response: {:?}", editor.error));
         assert_eq!(response.json["text"], "ui");
         assert_eq!(response.json["number"], 7);
+        let editor = app.grpc_editors.get_mut(&tab).expect("gRPC editor");
+        editor.draft.method_path = "echo.Echo/ServerStream".into();
+        editor.draft.message = "[{\"text\":\"s\"}]".into();
+        editor.response = None;
+        editor.error = None;
+        app.apply_grpc_action(tab, GrpcUiAction::Stream);
+        for _ in 0..300 {
+            app.poll_grpc();
+            if app.grpc_editors.get(&tab).is_some_and(|editor| editor.response.is_some() || editor.error.is_some()) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let editor = app.grpc_editors.get(&tab).expect("gRPC editor");
+        let response = editor.response.as_ref().unwrap_or_else(|| panic!("gRPC stream response: {:?}", editor.error));
+        assert_eq!(response.json.as_array().map(Vec::len), Some(3));
     }
 
     #[test]

@@ -136,6 +136,18 @@ pub struct UnaryResult {
     pub metadata: Vec<(String, String)>,
 }
 
+/// A streaming call result: every response message in arrival order (up to the cap), plus the
+/// terminal metadata/status.
+#[derive(Debug, Clone)]
+pub struct StreamResult {
+    pub messages: Vec<serde_json::Value>,
+    pub status: Option<String>,
+    pub metadata: Vec<(String, String)>,
+}
+
+/// Cap on collected messages, so a chatty server cannot exhaust memory (never-crash).
+pub const MAX_STREAM_MESSAGES: usize = 10_000;
+
 /// TLS options for the channel (custom CA and PEM client identity).
 #[derive(Debug, Clone, Default)]
 pub struct GrpcTls {
@@ -173,17 +185,117 @@ pub async fn unary(
         .unary(request, path, DynamicCodec::new(&method.output()))
         .await
         .map_err(|status| GrpcError::Status { code: status.code() as i32, message: status.message().to_string() })?;
-    let metadata = response
-        .metadata()
+    let metadata = ascii_metadata(response.metadata());
+    let output = response.into_inner();
+    let json = serde_json::to_value(&output).map_err(|err| GrpcError::Json(err.to_string()))?;
+    Ok(UnaryResult { json, status: None, metadata })
+}
+
+/// Invoke a server-streaming method and collect up to [`MAX_STREAM_MESSAGES`] messages.
+pub async fn server_streaming(
+    endpoint: &str,
+    tls: &GrpcTls,
+    method: &MethodDescriptor,
+    request_json: serde_json::Value,
+    metadata: &[(String, String)],
+) -> Result<StreamResult, GrpcError> {
+    let channel = connect(endpoint, tls).await?;
+    let input = message_from_json(method.input(), request_json)?;
+    let request = request_with_metadata(input, metadata)?;
+    let path = method_path(method)?;
+    let mut client = Grpc::new(channel);
+    client.ready().await.map_err(|err| GrpcError::Connect(err.to_string()))?;
+    let response = client.server_streaming(request, path, DynamicCodec::new(&method.output())).await.map_err(status_error)?;
+    collect_messages(response).await
+}
+
+/// Invoke a client-streaming method with every input message, returning the single reply.
+pub async fn client_streaming(
+    endpoint: &str,
+    tls: &GrpcTls,
+    method: &MethodDescriptor,
+    messages: Vec<serde_json::Value>,
+    metadata: &[(String, String)],
+) -> Result<UnaryResult, GrpcError> {
+    let channel = connect(endpoint, tls).await?;
+    let inputs =
+        messages.into_iter().take(MAX_STREAM_MESSAGES).map(|value| message_from_json(method.input(), value)).collect::<Result<Vec<_>, _>>()?;
+    let request = request_with_metadata(tokio_stream::iter(inputs), metadata)?;
+    let path = method_path(method)?;
+    let mut client = Grpc::new(channel);
+    client.ready().await.map_err(|err| GrpcError::Connect(err.to_string()))?;
+    let response = client.client_streaming(request, path, DynamicCodec::new(&method.output())).await.map_err(status_error)?;
+    let metadata = ascii_metadata(response.metadata());
+    let output = response.into_inner();
+    let json = serde_json::to_value(&output).map_err(|err| GrpcError::Json(err.to_string()))?;
+    Ok(UnaryResult { json, status: None, metadata })
+}
+
+/// Invoke a bidirectional method with a finite input stream, collecting replies.
+pub async fn bidi_streaming(
+    endpoint: &str,
+    tls: &GrpcTls,
+    method: &MethodDescriptor,
+    messages: Vec<serde_json::Value>,
+    metadata: &[(String, String)],
+) -> Result<StreamResult, GrpcError> {
+    let channel = connect(endpoint, tls).await?;
+    let inputs =
+        messages.into_iter().take(MAX_STREAM_MESSAGES).map(|value| message_from_json(method.input(), value)).collect::<Result<Vec<_>, _>>()?;
+    let request = request_with_metadata(tokio_stream::iter(inputs), metadata)?;
+    let path = method_path(method)?;
+    let mut client = Grpc::new(channel);
+    client.ready().await.map_err(|err| GrpcError::Connect(err.to_string()))?;
+    let response = client.streaming(request, path, DynamicCodec::new(&method.output())).await.map_err(status_error)?;
+    collect_messages(response).await
+}
+
+async fn collect_messages(response: tonic::Response<tonic::Streaming<DynamicMessage>>) -> Result<StreamResult, GrpcError> {
+    let metadata = ascii_metadata(response.metadata());
+    let mut stream = response.into_inner();
+    let mut messages = Vec::new();
+    while let Some(message) = stream.message().await.map_err(status_error)? {
+        if messages.len() >= MAX_STREAM_MESSAGES {
+            return Err(GrpcError::Status {
+                code: tonic::Code::ResourceExhausted as i32,
+                message: format!("response exceeded {MAX_STREAM_MESSAGES} messages"),
+            });
+        }
+        messages.push(serde_json::to_value(&message).map_err(|err| GrpcError::Json(err.to_string()))?);
+    }
+    Ok(StreamResult { messages, status: None, metadata })
+}
+
+fn message_from_json(descriptor: MessageDescriptor, request_json: serde_json::Value) -> Result<DynamicMessage, GrpcError> {
+    let text = serde_json::to_string(&request_json).map_err(|err| GrpcError::Json(err.to_string()))?;
+    DynamicMessage::deserialize(descriptor, &mut serde_json::Deserializer::from_str(&text)).map_err(|err| GrpcError::Json(err.to_string()))
+}
+
+fn request_with_metadata<T>(message: T, metadata: &[(String, String)]) -> Result<Request<T>, GrpcError> {
+    let mut request = Request::new(message);
+    for (name, value) in metadata {
+        let key: tonic::metadata::MetadataKey<tonic::metadata::Ascii> =
+            name.to_ascii_lowercase().parse().map_err(|err| GrpcError::Descriptor(format!("metadata key `{name}`: {err}")))?;
+        let value: tonic::metadata::MetadataValue<tonic::metadata::Ascii> =
+            value.parse().map_err(|err| GrpcError::Descriptor(format!("metadata value for `{name}`: {err}")))?;
+        request.metadata_mut().append(key, value);
+    }
+    Ok(request)
+}
+
+fn method_path(method: &MethodDescriptor) -> Result<http::uri::PathAndQuery, GrpcError> {
+    http::uri::PathAndQuery::from_maybe_shared(format!("/{}/{}", method.parent_service().full_name(), method.name()))
+        .map_err(|err| GrpcError::Descriptor(err.to_string()))
+}
+
+fn ascii_metadata(metadata: &tonic::metadata::MetadataMap) -> Vec<(String, String)> {
+    metadata
         .iter()
         .filter_map(|entry| match entry {
             KeyAndValueRef::Ascii(key, value) => Some((key.as_str().to_string(), value.to_str().ok().unwrap_or_default().to_string())),
             KeyAndValueRef::Binary(_, _) => None,
         })
-        .collect();
-    let output = response.into_inner();
-    let json = serde_json::to_value(&output).map_err(|err| GrpcError::Json(err.to_string()))?;
-    Ok(UnaryResult { json, status: None, metadata })
+        .collect()
 }
 
 pub(crate) async fn connect(endpoint: &str, tls: &GrpcTls) -> Result<Channel, GrpcError> {
