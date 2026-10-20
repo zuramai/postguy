@@ -6,16 +6,16 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use base64::Engine as _;
-use postguy_engine::{Cancel, SendOptions, SendTarget};
+use postguy_engine::{Cancel, ImportOptions, SendOptions, SendTarget};
 use postguy_model::{Environment, Id, Item, Variable};
-use postguy_util::json::{Caps, parse_json_str};
 use serde_json::{Value, json};
 
 use crate::Session;
 use crate::error::{AutomationError, Result};
 use crate::root::Root;
 use crate::session::{
-    bool_arg, clone_with_new_ids, counts, find_item, find_item_mut, insert_item, new_request, optional_string, string_arg, take_item, write_output,
+    bool_arg, clone_with_new_ids, counts, find_item, find_item_mut, insert_item, json_kind, new_request, optional_string, string_arg, take_item,
+    write_output,
 };
 
 /// One tool: name, human title, description, JSON-Schema-ish input, and safety flags.
@@ -303,6 +303,20 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
             destructive: false,
         },
         ToolDef {
+            name: "snippet_generate",
+            title: "Generate a code snippet",
+            description: "One HTTP request as cURL, raw HTTP, fetch, Python requests, Go, Rust reqwest, PowerShell or Node axios; variables stay unresolved. gRPC/WS snippets arrive with their milestones.",
+            input_schema: schema! {
+                "collection": req("collection id"),
+                "request": req("request id"),
+                "language": opt("curl (default), raw-http, fetch, python, go, rust, powershell or node-axios"),
+                "indent": (json!({"type": "integer", "minimum": 0, "maximum": 8, "description": "spaces per level; 0 means a tab (default 2)"}), false),
+                "include_boilerplate": opt_bool("wrap the request in imports/main (default true)")
+            },
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
             name: "request_update",
             title: "Update a request",
             description: "Replaces name, description and/or the kind-specific `definition` (the serialized RequestKind object).",
@@ -451,20 +465,37 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
         },
         ToolDef {
             name: "import_text",
-            title: "Import Postman JSON text",
-            description: "Collection (v2.0/v2.1), environment or globals; returns the ImportReport.",
+            title: "Import text",
+            description: "Postman collection (v2.0/v2.1), environment or globals JSON, or cURL commands; auto-detected, name clashes get a suffix unless `replace` is set; returns the ImportReport.",
             input_schema: schema! {
-                "text": req("the JSON document"),
-                "format": opt("\"auto\" (default) — other formats arrive with M4")
+                "text": req("the JSON document or cURL command text"),
+                "format": opt("\"auto\" (default); OpenAPI and HAR arrive later"),
+                "replace": opt_bool("replace a same-id collection/environment or the existing globals instead of suffixing/refusing")
             },
             read_only: false,
             destructive: false,
         },
         ToolDef {
             name: "import_file",
-            title: "Import a Postman JSON file",
-            description: "Size-capped read, then the same mapping as import_text; the path resolves inside --root.",
-            input_schema: schema! { "path": req("file path") },
+            title: "Import a JSON or cURL file",
+            description: "Size-capped (100 MB) read, then the same mapping as import_text; the path resolves inside --root.",
+            input_schema: schema! { "path": req("file path"), "replace": opt_bool("replace instead of suffixing") },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "import_zip",
+            title: "Import a zip of JSON documents",
+            description: "Reads .json entries (collection/environment/globals) from a zip through the normal importers; unsafe paths are refused, arbitrary entries are skipped.",
+            input_schema: schema! { "path": req("zip file path"), "replace": opt_bool("replace same-id documents instead of suffixing") },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "workspace_export_zip",
+            title: "Export all workspace data",
+            description: "Zip the workspace documents (not .postguy secrets/cookies/cache and not .trash); path resolves inside --root.",
+            input_schema: schema! { "out": req("zip file path") },
             read_only: false,
             destructive: false,
         },
@@ -483,16 +514,16 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
         ToolDef {
             name: "export_environment",
             title: "Export an environment",
-            description: "Postman environment shape; writes `out` or returns the JSON.",
-            input_schema: schema! { "environment": req("environment id"), "out": opt("file path to write") },
+            description: "Postman environment shape; secret values are omitted unless include_secrets is set. Writes `out` or returns the JSON.",
+            input_schema: schema! { "environment": req("environment id"), "out": opt("file path to write"), "include_secrets": opt_bool("include secret values") },
             read_only: false,
             destructive: false,
         },
         ToolDef {
             name: "export_globals",
             title: "Export globals",
-            description: "Postman globals shape; writes `out` or returns the JSON.",
-            input_schema: schema! { "out": opt("file path to write") },
+            description: "Postman globals shape; secret values are omitted unless include_secrets is set. Writes `out` or returns the JSON.",
+            input_schema: schema! { "out": opt("file path to write"), "include_secrets": opt_bool("include secret values") },
             read_only: false,
             destructive: false,
         },
@@ -762,6 +793,43 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
                 None => Err(AutomationError::NotFound { kind: "request".into(), id: request_id }),
             }
         }
+        "snippet_generate" => {
+            let collection = session.load_collection(&string_arg(args, tool, "collection")?)?;
+            let request_id = string_arg(args, tool, "request")?;
+            let language_id = optional_string(args, tool, "language")?.unwrap_or_else(|| "curl".into());
+            let language = postguy_snippets::Language::parse(&language_id).ok_or_else(|| AutomationError::BadArgument {
+                tool: tool.to_string(),
+                argument: "language".into(),
+                expected: format!("one of {}", postguy_snippets::Language::all().iter().map(|language| language.id()).collect::<Vec<_>>().join(", ")),
+                got: language_id,
+            })?;
+            let indent = match args.get("indent") {
+                None | Some(Value::Null) => 2,
+                Some(Value::Number(value)) => value.as_u64().unwrap_or(2).min(8) as usize,
+                Some(other) => {
+                    return Err(AutomationError::BadArgument {
+                        tool: tool.to_string(),
+                        argument: "indent".into(),
+                        expected: "an integer from 0 to 8".into(),
+                        got: json_kind(other).to_string(),
+                    });
+                }
+            };
+            let include_boilerplate = bool_arg(args, tool, "include_boilerplate", true)?;
+            match find_item(&collection, &request_id) {
+                Some(Item::Request(request)) => match &request.kind {
+                    postguy_model::RequestKind::Http(http) => {
+                        let snippet = postguy_snippets::generate(language, http, postguy_snippets::Options { indent, include_boilerplate });
+                        Ok(json!({"language": language.id(), "snippet": snippet}))
+                    }
+                    _ => Err(AutomationError::Failed {
+                        message: "snippet_generate supports HTTP requests in M4; gRPC/WS snippets arrive with M6/M7".into(),
+                    }),
+                },
+                Some(Item::Folder(_)) => Err(AutomationError::Failed { message: format!("`{request_id}` is a folder, not a request") }),
+                None => Err(AutomationError::NotFound { kind: "request".into(), id: request_id }),
+            }
+        }
         "request_update" => {
             let collection_id = string_arg(args, tool, "collection")?;
             let request_id = string_arg(args, tool, "request")?;
@@ -938,24 +1006,35 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
         "import_text" => {
             let text = string_arg(args, tool, "text")?;
             let format = optional_string(args, tool, "format")?.unwrap_or_else(|| "auto".to_string());
-            import_text(session, &text, &format)
+            let replace = bool_arg(args, tool, "replace", false)?;
+            import_text(session, &text, &format, replace)
         }
         "import_file" => {
             let path = string_arg(args, tool, "path")?;
             let resolved = session.resolve_existing(&path)?;
-            let bytes = postguy_util::read_file_capped(&resolved, 100 << 20)?;
-            let text = String::from_utf8(bytes).map_err(|_| AutomationError::Failed {
-                message: format!("{} is not UTF-8; only JSON text imports are supported in M1", resolved.display()),
-            })?;
-            import_text(session, &text, "auto")
+            let replace = bool_arg(args, tool, "replace", false)?;
+            let outcome = session.engine()?.import_file(&resolved, ImportOptions { replace })?;
+            serde_json::to_value(outcome).map_err(json_error)
+        }
+        "import_zip" => {
+            let path = string_arg(args, tool, "path")?;
+            let resolved = session.resolve_existing(&path)?;
+            let replace = bool_arg(args, tool, "replace", false)?;
+            let outcome = session.engine()?.import_zip(&resolved, ImportOptions { replace })?;
+            serde_json::to_value(outcome).map_err(json_error)
+        }
+        "workspace_export_zip" => {
+            let out = string_arg(args, tool, "out")?;
+            let path = session.resolve(&out)?;
+            let bytes = session.engine()?.export_workspace_zip(&path)?;
+            Ok(json!({"written": path.to_string_lossy(), "bytes": bytes}))
         }
         "export_collection" => {
             let id = string_arg(args, tool, "collection")?;
-            let collection = session.load_collection(&id)?;
             let format = optional_string(args, tool, "format")?.unwrap_or_else(|| "postman".to_string());
             let value = match format.as_str() {
-                "postman" => postguy_interop::export_collection(&collection),
-                "native" => serde_json::to_value(&collection).map_err(json_error)?,
+                "postman" => session.engine()?.export_collection_value(&Id(id), postguy_engine::CollectionFormat::Postman)?,
+                "native" => session.engine()?.export_collection_value(&Id(id), postguy_engine::CollectionFormat::Native)?,
                 other => {
                     return Err(AutomationError::BadArgument {
                         tool: tool.to_string(),
@@ -969,14 +1048,13 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
         }
         "export_environment" => {
             let id = string_arg(args, tool, "environment")?;
-            let environment = load_environment(session, &id)?;
-            let value = postguy_interop::export_environment(&environment, "environment");
+            let include_secrets = bool_arg(args, tool, "include_secrets", false)?;
+            let value = session.engine()?.export_environment_value(&Id(id), include_secrets)?;
             finish_export(session, args, value)
         }
         "export_globals" => {
-            let workspace = session.workspace()?;
-            let globals = workspace.load_globals()?.into_value();
-            let value = postguy_interop::export_environment(&globals, "globals");
+            let include_secrets = bool_arg(args, tool, "include_secrets", false)?;
+            let value = session.engine()?.export_globals_value(include_secrets)?;
             finish_export(session, args, value)
         }
         "response_get" => {
@@ -1263,37 +1341,12 @@ fn finish_export(session: &Session, args: &serde_json::Map<String, Value>, value
     }
 }
 
-fn import_text(session: &mut Session, text: &str, format: &str) -> Result<Value> {
+fn import_text(session: &mut Session, text: &str, format: &str, replace: bool) -> Result<Value> {
     if format != "auto" {
-        return Err(AutomationError::Failed { message: format!("format `{format}` is not supported yet; M1 imports Postman JSON (\"auto\")") });
+        return Err(AutomationError::Failed { message: format!("format `{format}` is not supported; use \"auto\" (OpenAPI and HAR arrive later)") });
     }
-    let parsed = parse_json_str(text, &Caps::default()).map_err(|err| AutomationError::Interop { message: err.to_string() })?;
-    let (imported, report) = postguy_interop::import_value(&parsed).map_err(|err| AutomationError::Interop { message: err.to_string() })?;
-    let workspace = session.workspace()?;
-    let report = serde_json::to_value(&report).map_err(json_error)?;
-    match imported {
-        postguy_interop::Imported::Collection(collection) => {
-            let existing = workspace.load_collection(&collection.id)?;
-            if !matches!(existing, postguy_store::LoadOutcome::Fresh(_)) {
-                return Err(AutomationError::Failed {
-                    message: format!(
-                        "a collection with id {} already exists ({}); delete it first or import into another workspace",
-                        collection.id.0, collection.name
-                    ),
-                });
-            }
-            workspace.save_collection(&collection)?;
-            Ok(json!({"kind": "collection", "id": collection.id.0, "name": collection.name, "report": report}))
-        }
-        postguy_interop::Imported::Environment(environment) => {
-            workspace.save_environment(&environment)?;
-            Ok(json!({"kind": "environment", "id": environment.id.0, "name": environment.name, "report": report}))
-        }
-        postguy_interop::Imported::Globals(environment) => {
-            workspace.save_globals(&environment)?;
-            Ok(json!({"kind": "globals", "name": environment.name, "report": report}))
-        }
-    }
+    let outcome = session.engine()?.import_text(text, ImportOptions { replace })?;
+    serde_json::to_value(outcome).map_err(json_error)
 }
 
 fn json_error(err: serde_json::Error) -> AutomationError {

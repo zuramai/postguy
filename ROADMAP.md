@@ -1,6 +1,6 @@
 # Postguy roadmap
 
-**Stage: M3 exit review (REVIEW STOP 2)** · shell complete; measured what the budgets need, remaining gaps in `docs/gaps.md`
+**Stage: M4.4 complete · REVIEW STOP 3 (v0.1) pending** · imports, snippets and export dialogs in; remaining gaps in `docs/gaps.md`
 
 Postguy is a clean-room, offline, native API client (HTTP, WebSocket, gRPC) in Rust + egui.
 The full picture: `PROMPT.md` (product brief), `PLAN.md` (order of work, exit criteria),
@@ -20,6 +20,20 @@ The full picture: `PROMPT.md` (product brief), `PLAN.md` (order of work, exit cr
 The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
+
+- **2026-10-20 (M4.1-M4.3, core):** Import dialog (paste Postman JSON/env/globals/cURL, multiple
+  files, folders, drop anywhere, async native pickers, report with Open, numeric name suffixes,
+  explicit replace); engine/automation import auto-detection with guided refusals for URL,
+  OpenAPI/HAR/YAML. All eight snippet languages share `postguy-snippets` with golden files,
+  indent/boilerplate options and `snippet_generate`; Copy as cURL. Export dialogs and tools for
+  Postman/native collections, environments, globals and the all-data zip (secret values omitted
+  unless opted in), plus safe zip import of JSON documents (traversal refused, arbitrary entries
+  skipped). Import/export/snippet/zip tests; live dialog screenshots added to `xtask
+  screenshots`. Remaining M4 gap: response-body save picker still writes to `<workspace>/files`.
+- **2026-10-20 (M4.4):** parity rows for imports, snippets and zip exports updated; release
+  budget app 8.63 MiB / CLI 3.80 MiB; `xtask bench --check` green (tree 5.5 ms,
+  10 MB Raw 9.8 ms); screenshots regenerated for import, export, Rust snippet, dark/light and
+  environment. **REVIEW STOP 3 (v0.1) pending.**
 
 - **2026-10-20 (M3.10 exit measurements):** `xtask bench` added: headless frame-time capture for a
   10 000-request tree and a 10 MB Raw body, `--check` enforces the budgets. Release numbers:

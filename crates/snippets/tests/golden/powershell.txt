@@ -1,0 +1,7 @@
+$headers = @{
+  'Accept' = 'application/json'
+  'X-Trace' = 'abc'
+}
+
+$response = Invoke-RestMethod -Uri 'https://api.example.com/v1/items?limit=2' -Method Post -Headers $headers -Body '{"name":"widget","price":9.5}'
+$response | ConvertTo-Json -Depth 10

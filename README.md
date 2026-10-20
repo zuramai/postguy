@@ -10,15 +10,16 @@ bind every contributor. [PLAN.md](PLAN.md) is the execution order.
 
 ## Status
 
-Bootstrap (M0): workspace skeleton and tooling. No features yet; nothing here is usable end to
-end. The roadmap lives in [ROADMAP.md](ROADMAP.md), the milestone table in
-[docs/roadmap.md](docs/roadmap.md).
+**v0.1 review pending (M4.4):** desktop HTTP client with collections, environments, variables,
+request builder, response viewer, imports (Postman/cURL/zip documents), snippets and export
+dialogs. WebSocket, gRPC, scripts and the runner are later milestones. The roadmap lives in
+[ROADMAP.md](ROADMAP.md), the milestone table in [docs/roadmap.md](docs/roadmap.md).
 
 ## Building
 
 ```
 cargo build -p postguy            # desktop app
-cargo build -p postguy-cli        # headless CLI (run, tools, import/export, mcp, ui)
+cargo build -p postguy-cli        # headless CLI (run --script, tools/call, ui); import/export via call
 cargo xtask ci                    # fmt, clippy -D warnings, tests, layers, assets, parity
 ```
 

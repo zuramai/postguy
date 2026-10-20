@@ -1,0 +1,7 @@
+POST /v1/items?limit=2 HTTP/1.1
+Accept: application/json
+X-Trace: abc
+Host: api.example.com
+Content-Length: 29
+
+{"name":"widget","price":9.5}

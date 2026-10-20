@@ -1,0 +1,28 @@
+package main
+
+import (
+  "fmt"
+  "io"
+  "net/http"
+  "strings"
+)
+
+func main() {
+  payload := strings.NewReader("{\"name\":\"widget\",\"price\":9.5}")
+  req, err := http.NewRequest("POST", "https://api.example.com/v1/items?limit=2", payload)
+  if err != nil {
+    panic(err)
+  }
+  req.Header.Add("Accept", "application/json")
+  req.Header.Add("X-Trace", "abc")
+  resp, err := http.DefaultClient.Do(req)
+  if err != nil {
+    panic(err)
+  }
+  defer resp.Body.Close()
+  data, err := io.ReadAll(resp.Body)
+  if err != nil {
+    panic(err)
+  }
+  fmt.Println(string(data))
+}

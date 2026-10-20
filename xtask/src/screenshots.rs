@@ -10,7 +10,14 @@ use std::process::Command;
 use anyhow::{Context, Result, bail};
 
 /// (mode passed to the example, file name under the output directory).
-const SETS: &[(&str, &str)] = &[("dark", "shell-dark.png"), ("light", "shell-light.png"), ("env", "environment-dark.png")];
+const SETS: &[(&str, &str)] = &[
+    ("dark", "shell-dark.png"),
+    ("light", "shell-light.png"),
+    ("env", "environment-dark.png"),
+    ("import", "import-dialog-dark.png"),
+    ("export", "export-dialog-dark.png"),
+    ("snippet", "snippet-rust-dark.png"),
+];
 
 pub fn run(args: &[String]) -> Result<()> {
     let out = match args.iter().position(|arg| arg == "--out").and_then(|index| args.get(index + 1)) {

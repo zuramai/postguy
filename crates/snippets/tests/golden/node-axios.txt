@@ -1,0 +1,15 @@
+const axios = require("axios");
+
+(async () => {
+  const response = await axios.post(
+    "https://api.example.com/v1/items?limit=2",
+    {
+      headers: {
+        "Accept": "application/json",
+        "X-Trace": "abc",
+      },
+      data: "{\"name\":\"widget\",\"price\":9.5}",
+    }
+  );
+  console.log(response.data);
+})();

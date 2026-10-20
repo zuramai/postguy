@@ -1,6 +1,6 @@
 # Architecture
 
-**Status:** M3.10. Revised 2026-10-20: the desktop shell, control channel and screenshot pipeline are in.
+**Status:** M4.4. Revised 2026-10-20: imports (Postman/cURL/zip documents), snippets, export dialogs and all-data zip are in; v0.1 review pending.
 
 ## Layer table (enforced by `cargo xtask layers`; PROMPT.md 4.1)
 

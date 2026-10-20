@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use egui::{Align, Layout, vec2};
-use postguy_engine::{Cancel, Engine, SendOptions, SendTarget};
+use postguy_engine::{Cancel, CollectionFormat, Engine, ImportKind, ImportOptions, ImportOutcome, SendOptions, SendTarget};
 use postguy_model::{Collection, Environment, HttpRequest, Id, Item, Request, RequestKind};
 use postguy_store::{StorePaths, config_dir};
 use postguy_ui_egui::builder::{BodyDrafts, BuilderAction, BuilderTab, RequestBuilder, SendProgress};
@@ -20,6 +20,8 @@ use postguy_ui_egui::commands::CommandAction;
 use postguy_ui_egui::console::ConsoleRow;
 use postguy_ui_egui::cookies::{CookieAction, CookieData, CookieRow, cookie_manager};
 use postguy_ui_egui::environment::{EnvironmentAction, EnvironmentEditor};
+use postguy_ui_egui::export::{ExportFormat, ExportRequest, ExportState, ExportTarget};
+use postguy_ui_egui::import::{ImportAction, ImportItemView, ImportState, ImportSummary};
 use postguy_ui_egui::response::{ResponseAction, ResponseData, ResponseViewerState, response_view};
 use postguy_ui_egui::settings::SettingsAction;
 use postguy_ui_egui::shell::PanelAction;
@@ -113,6 +115,19 @@ enum UndoEntry {
     Move { collection: Id, id: Id, from_parent: Option<Id>, from_index: usize, to_parent: Option<Id>, to_index: usize },
 }
 
+struct ImportJob {
+    receiver: std::sync::mpsc::Receiver<ImportSummary>,
+}
+
+/// Requests a repaint when the native file dialog future completes (it polls on the UI thread).
+struct RepaintWake(egui::Context);
+
+impl std::task::Wake for RepaintWake {
+    fn wake(self: std::sync::Arc<Self>) {
+        self.0.request_repaint();
+    }
+}
+
 struct PendingScreenshot {
     id: u64,
     path: PathBuf,
@@ -149,6 +164,14 @@ struct App {
     control_server: Option<control::ControlServer>,
     control_queue: Option<control::ControlQueue>,
     pending_screenshot: Option<PendingScreenshot>,
+    import: ImportState,
+    import_job: Option<ImportJob>,
+    import_picker: Option<std::pin::Pin<Box<dyn std::future::Future<Output = Vec<PathBuf>>>>>,
+    export: ExportState,
+    export_request: Option<ExportRequest>,
+    export_save: Option<std::pin::Pin<Box<dyn std::future::Future<Output = Option<PathBuf>>>>>,
+    export_job: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
+    pending_clipboard: Option<String>,
 }
 
 impl App {
@@ -178,6 +201,14 @@ impl App {
                     control_server: None,
                     control_queue: None,
                     pending_screenshot: None,
+                    import: ImportState::default(),
+                    import_job: None,
+                    import_picker: None,
+                    export: ExportState::default(),
+                    export_request: None,
+                    export_save: None,
+                    export_job: None,
+                    pending_clipboard: None,
                 };
                 app.shell.settings_value = app.engine.as_ref().map(|engine| engine.settings()).unwrap_or_default();
                 app.refresh();
@@ -207,6 +238,14 @@ impl App {
                     control_server: None,
                     control_queue: None,
                     pending_screenshot: None,
+                    import: ImportState::default(),
+                    import_job: None,
+                    import_picker: None,
+                    export: ExportState::default(),
+                    export_request: None,
+                    export_save: None,
+                    export_job: None,
+                    pending_clipboard: None,
                 }
             }
         }
@@ -377,6 +416,249 @@ impl App {
             "consoleRows": self.shell.console_rows.len(),
             "engine": self.engine.is_some(),
         })
+    }
+
+    fn open_export(&mut self, target: ExportTarget) {
+        postguy_ui_egui::export::open(&mut self.export, target);
+    }
+
+    fn begin_export(&mut self, request: ExportRequest) {
+        if self.export_save.is_some() || self.export_job.is_some() {
+            self.export.error = Some("an export is already running".into());
+            return;
+        }
+        self.export.busy = true;
+        self.export.error = None;
+        self.export.done = None;
+        self.export_request = Some(request.clone());
+        self.export_save = Some(postguy_platform::save_export(request.default_name, request.extension));
+    }
+
+    fn poll_export(&mut self, ctx: &egui::Context) {
+        self.poll_export_save(ctx);
+        if let Some(receiver) = self.export_job.take() {
+            match receiver.try_recv() {
+                Ok(result) => {
+                    self.export.busy = false;
+                    match result {
+                        Ok(message) => {
+                            self.export.done = Some(message.clone());
+                            self.shell.state.status = message;
+                        }
+                        Err(error) => self.export.error = Some(error),
+                    }
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => self.export_job = Some(receiver),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.export.busy = false;
+                    self.export.error = Some("the export worker stopped without a result".into());
+                }
+            }
+        }
+    }
+
+    fn poll_export_save(&mut self, ctx: &egui::Context) {
+        let Some(mut picker) = self.export_save.take() else { return };
+        let waker = std::task::Waker::from(std::sync::Arc::new(RepaintWake(ctx.clone())));
+        let mut task = std::task::Context::from_waker(&waker);
+        match picker.as_mut().poll(&mut task) {
+            std::task::Poll::Pending => {
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
+                self.export_save = Some(picker);
+            }
+            std::task::Poll::Ready(path) => match path {
+                Some(path) => {
+                    if let Some(request) = self.export_request.take() {
+                        self.start_export(request, path);
+                    }
+                }
+                None => {
+                    self.export_request = None;
+                    self.export.busy = false;
+                }
+            },
+        }
+    }
+
+    fn start_export(&mut self, request: ExportRequest, path: PathBuf) {
+        let Some(engine) = self.engine.clone() else {
+            self.export.busy = false;
+            self.export.error = Some("no workspace is open".into());
+            return;
+        };
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.export_job = Some(receiver);
+        std::thread::Builder::new()
+            .name("postguy-export".into())
+            .spawn(move || {
+                let result = (|| -> Result<String, String> {
+                    match request.target.clone() {
+                        ExportTarget::Collection { id, name } => {
+                            let format = match request.format {
+                                ExportFormat::Postman => CollectionFormat::Postman,
+                                ExportFormat::Native => CollectionFormat::Native,
+                                ExportFormat::Zip => return Err("a collection cannot be exported as a workspace zip".into()),
+                            };
+                            let value = engine.export_collection_value(&postguy_model::Id(id), format).map_err(|err| err.to_string())?;
+                            let bytes = serde_json::to_vec_pretty(&value).map_err(|err| err.to_string())?;
+                            postguy_util::atomic_write(&path, &bytes).map_err(|err| err.to_string())?;
+                            Ok(format!("Exported `{name}` to {}", path.display()))
+                        }
+                        ExportTarget::Environment { id, name } => {
+                            let value =
+                                engine.export_environment_value(&postguy_model::Id(id), request.include_secrets).map_err(|err| err.to_string())?;
+                            let bytes = serde_json::to_vec_pretty(&value).map_err(|err| err.to_string())?;
+                            postguy_util::atomic_write(&path, &bytes).map_err(|err| err.to_string())?;
+                            Ok(format!("Exported environment `{name}` to {}", path.display()))
+                        }
+                        ExportTarget::Globals => {
+                            let value = engine.export_globals_value(request.include_secrets).map_err(|err| err.to_string())?;
+                            let bytes = serde_json::to_vec_pretty(&value).map_err(|err| err.to_string())?;
+                            postguy_util::atomic_write(&path, &bytes).map_err(|err| err.to_string())?;
+                            Ok(format!("Exported globals to {}", path.display()))
+                        }
+                        ExportTarget::Workspace => {
+                            let bytes = engine.export_workspace_zip(&path).map_err(|err| err.to_string())?;
+                            Ok(format!("Exported the workspace ({bytes} bytes) to {}", path.display()))
+                        }
+                    }
+                })();
+                let _ = sender.send(result);
+            })
+            .ok();
+    }
+
+    fn open_import(&mut self) {
+        postguy_ui_egui::import::open(&mut self.import);
+    }
+
+    fn apply_import_action(&mut self, action: ImportAction) {
+        match action {
+            ImportAction::ImportText { text, replace } => self.start_import_text(text, replace),
+            ImportAction::PickFiles { folder } => {
+                if self.import_picker.is_none() {
+                    self.import.error = None;
+                    self.import_picker = Some(postguy_platform::pick_import_paths(folder));
+                }
+            }
+            ImportAction::Open { index } => self.open_imported(index),
+        }
+    }
+
+    fn start_import_text(&mut self, text: String, replace: bool) {
+        let Some(engine) = self.engine.clone() else {
+            self.import.error = Some("no workspace is open".into());
+            return;
+        };
+        if self.import_job.is_some() {
+            self.import.error = Some("an import is already running".into());
+            return;
+        }
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.import.busy = true;
+        self.import.error = None;
+        self.import.summary = None;
+        self.import_job = Some(ImportJob { receiver });
+        std::thread::Builder::new()
+            .name("postguy-import".into())
+            .spawn(move || {
+                let summary = match engine.import_text(&text, ImportOptions { replace }) {
+                    Ok(outcome) => ImportSummary { items: vec![import_item("Pasted text", outcome)], problems: Vec::new() },
+                    Err(err) => ImportSummary { items: Vec::new(), problems: vec![err.to_string()] },
+                };
+                let _ = sender.send(summary);
+            })
+            .ok();
+    }
+
+    fn start_import_paths(&mut self, paths: Vec<PathBuf>) {
+        let Some(engine) = self.engine.clone() else {
+            self.import.error = Some("no workspace is open".into());
+            return;
+        };
+        if self.import_job.is_some() {
+            self.import.error = Some("an import is already running".into());
+            return;
+        }
+        let replace = self.import.replace;
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.import.busy = true;
+        self.import.error = None;
+        self.import.summary = None;
+        self.import_job = Some(ImportJob { receiver });
+        std::thread::Builder::new()
+            .name("postguy-import".into())
+            .spawn(move || {
+                let (files, problems) = postguy_engine::walk_import_paths(paths);
+                let mut summary = ImportSummary { items: Vec::new(), problems };
+                for path in files {
+                    match engine.import_file(&path, ImportOptions { replace }) {
+                        Ok(outcome) => summary.items.push(import_item(&path.display().to_string(), outcome)),
+                        Err(err) => summary.items.push(ImportItemView {
+                            source: path.display().to_string(),
+                            error: Some(err.to_string()),
+                            ..ImportItemView::default()
+                        }),
+                    }
+                }
+                let _ = sender.send(summary);
+            })
+            .ok();
+    }
+
+    fn poll_import_picker(&mut self, ctx: &egui::Context) {
+        let Some(mut picker) = self.import_picker.take() else { return };
+        let waker = std::task::Waker::from(std::sync::Arc::new(RepaintWake(ctx.clone())));
+        let mut task = std::task::Context::from_waker(&waker);
+        match picker.as_mut().poll(&mut task) {
+            std::task::Poll::Pending => self.import_picker = Some(picker),
+            std::task::Poll::Ready(paths) => {
+                if !paths.is_empty() {
+                    self.start_import_paths(paths);
+                }
+            }
+        }
+    }
+
+    fn poll_import(&mut self) {
+        let Some(job) = self.import_job.take() else { return };
+        match job.receiver.try_recv() {
+            Ok(summary) => {
+                self.import.busy = false;
+                self.import.error = None;
+                self.import.summary = Some(summary);
+                self.refresh();
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => self.import_job = Some(job),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.import.busy = false;
+                self.import.error = Some("the import worker stopped without a result".into());
+            }
+        }
+    }
+
+    fn open_imported(&mut self, index: usize) {
+        let Some(item) = self.import.summary.as_ref().and_then(|summary| summary.items.get(index)).cloned() else { return };
+        if item.error.is_some() {
+            return;
+        }
+        match item.kind.as_str() {
+            "collection" => {
+                if let Some(id) = item.id {
+                    self.shell.tabs.open(TabDoc::Collection { id }, item.name);
+                }
+            }
+            "environment" => {
+                if let Some(id) = item.id {
+                    self.shell.tabs.open(TabDoc::Environment { id }, item.name);
+                }
+            }
+            "globals" => {
+                self.shell.tabs.open(TabDoc::Globals, "Globals");
+            }
+            _ => {}
+        }
+        self.import.open = false;
     }
 
     fn capture_screenshot(&mut self, ctx: &egui::Context) {
@@ -822,10 +1104,35 @@ impl App {
                 Ok(format!("Created example `{}`", example.name))
             }
             SidebarAction::Run { .. } => Ok("The runner arrives in M3.8/M9".into()),
-            SidebarAction::Export { .. } => Ok("Export arrives with M4".into()),
-            SidebarAction::CopyAsCurl { .. } => Ok("Copy as cURL arrives with snippets (M4)".into()),
+            SidebarAction::Export { id } => {
+                let id = Id(id.clone());
+                if let Ok(collection) = engine.collection(&id) {
+                    self.open_export(ExportTarget::Collection { id: collection.id.0, name: collection.name });
+                } else if let Ok(environment) = engine.environment(&id) {
+                    self.open_export(ExportTarget::Environment { id: environment.id.0, name: environment.name });
+                } else {
+                    return Err(format!("`{}` is not a collection or environment", id.0));
+                }
+                Ok("Export…".into())
+            }
+            SidebarAction::CopyAsCurl { id } => {
+                let id = Id(id.clone());
+                let Some((_collection, item)) = item_with_collection(&collections, &id) else {
+                    return Err(format!("`{}` is not a request", id.0));
+                };
+                let postguy_model::Item::Request(request) = item else { return Err("Copy as cURL applies to requests".into()) };
+                let postguy_model::RequestKind::Http(http) = &request.kind else {
+                    return Err("Copy as cURL supports HTTP requests in M4".into());
+                };
+                self.pending_clipboard =
+                    Some(postguy_snippets::generate(postguy_snippets::Language::Curl, http, postguy_snippets::Options::default()));
+                Ok("Copied as cURL".into())
+            }
             SidebarAction::OpenInNewTab { id, .. } => Ok(format!("Open in new tab: {id} (tab model arrives in M3.3)")),
-            SidebarAction::Import => Ok("Import arrives with M4".into()),
+            SidebarAction::Import => {
+                self.open_import();
+                Ok("Import…".into())
+            }
         }
     }
 }
@@ -951,7 +1258,13 @@ impl App {
                 }
             }
             EnvironmentAction::Export => {
-                self.shell.state.status = "Environment export arrives with M4".into();
+                if let Some(editor) = self.env_editors.get(&tab_id) {
+                    if editor.globals {
+                        self.open_export(ExportTarget::Globals);
+                    } else {
+                        self.open_export(ExportTarget::Environment { id: editor.environment.id.0.clone(), name: editor.environment.name.clone() });
+                    }
+                }
             }
             EnvironmentAction::Delete => {
                 self.pending_env_save = None;
@@ -1064,7 +1377,11 @@ impl App {
                     }
                 }
             }
-            CollectionAction::Export => self.shell.state.status = "Collection export arrives with M4".into(),
+            CollectionAction::Export => {
+                if let Some(editor) = self.detail_editors.get(&tab_id) {
+                    self.open_export(ExportTarget::Collection { id: editor.collection.id.0.clone(), name: editor.collection.name.clone() });
+                }
+            }
             CollectionAction::Delete => {
                 self.pending_detail_save = None;
                 if let Some(editor) = self.detail_editors.remove(&tab_id) {
@@ -1416,7 +1733,8 @@ impl App {
             NewRequest => self.apply_tab(TabAction::NewRequest),
             NewCollection => self.apply(SidebarAction::NewCollection),
             NewEnvironment => self.apply_tab(TabAction::CreateEnvironment),
-            Import => self.shell.state.status = "Import arrives with M4".into(),
+            Import => self.open_import(),
+            ExportWorkspace => self.open_export(ExportTarget::Workspace),
             OpenSettings => {
                 self.shell.tabs.open(TabDoc::Settings, "Settings");
             }
@@ -1588,6 +1906,15 @@ fn validate_tabs(tabs: &mut Tabs, data: &SidebarData) -> usize {
     })
 }
 
+fn import_item(source: &str, outcome: ImportOutcome) -> ImportItemView {
+    let kind = match outcome.kind {
+        ImportKind::Collection => "collection",
+        ImportKind::Environment => "environment",
+        ImportKind::Globals => "globals",
+    };
+    ImportItemView { source: source.to_string(), kind: kind.to_string(), name: outcome.name, id: outcome.id, report: outcome.report, error: None }
+}
+
 fn response_from_cached(cached: &postguy_engine::CachedResponse) -> ResponseData {
     let response = &cached.response;
     let revision = cached.history_id.bytes().fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3));
@@ -1700,6 +2027,14 @@ fn resolve_target(collections: &[Collection], target: &Id) -> Result<(Id, Option
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_control(ui.ctx());
+        self.poll_import();
+        self.poll_import_picker(ui.ctx());
+        self.poll_export(ui.ctx());
+        let dropped: Vec<PathBuf> = ui.ctx().input(|input| input.raw.dropped_files.iter().map(|file| file.path().to_path_buf()).collect());
+        if !dropped.is_empty() {
+            self.open_import();
+            self.start_import_paths(dropped);
+        }
         if !ui.ctx().egui_wants_keyboard_input() && ui.input(|input| input.modifiers.command && input.key_pressed(egui::Key::Z)) {
             if ui.input(|input| input.modifiers.shift) {
                 self.redo();
@@ -1851,6 +2186,15 @@ impl eframe::App for App {
         }
         if let Some(action) = self.shell.command_action.take() {
             self.apply_command(action);
+        }
+        if let Some(text) = self.pending_clipboard.take() {
+            ui.ctx().copy_text(text);
+        }
+        if let Some(action) = postguy_ui_egui::import::import_dialog(ui.ctx(), &mut self.import) {
+            self.apply_import_action(action);
+        }
+        if let Some(request) = postguy_ui_egui::export::export_dialog(ui.ctx(), &mut self.export) {
+            self.begin_export(request);
         }
         if let Some(action) = panel_result {
             match action {
@@ -2315,6 +2659,57 @@ mod tests {
     }
 
     #[test]
+    fn import_text_runs_off_thread_lists_the_report_and_opens_the_collection() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let text = r#"{"info":{"name":"Imported","schema":"https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},"item":[{"name":"Ping","request":{"method":"GET","url":"https://example.test/ping"}}]}"#;
+        app.start_import_text(text.to_string(), false);
+        for _ in 0..500 {
+            app.poll_import();
+            if app.import_job.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(!app.import.busy);
+        let summary = app.import.summary.as_ref().expect("summary");
+        assert_eq!(summary.items.len(), 1);
+        assert_eq!(summary.items[0].name, "Imported");
+        assert_eq!(summary.items[0].kind, "collection");
+        app.open_imported(0);
+        assert!(!app.import.open);
+        assert!(app.shell.tabs.active_tab().is_some_and(|tab| matches!(tab.doc, TabDoc::Collection { .. })));
+        app.apply_command(CommandAction::Import);
+        assert!(app.import.open, "Cmd/Ctrl+I opens the dialog");
+    }
+
+    #[test]
+    fn import_folder_reports_valid_and_invalid_files_separately() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let folder = dir.path().join("dump");
+        std::fs::create_dir_all(&folder).expect("folder");
+        std::fs::write(
+            folder.join("ok.json"),
+            r#"{"info":{"name":"Dumped","schema":"https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},"item":[]}"#,
+        )
+        .expect("collection");
+        std::fs::write(folder.join("broken.json"), "{not json").expect("broken");
+        app.start_import_paths(vec![folder]);
+        for _ in 0..500 {
+            app.poll_import();
+            if app.import_job.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let summary = app.import.summary.as_ref().expect("summary");
+        assert_eq!(summary.items.len(), 2);
+        assert!(summary.items.iter().any(|item| item.error.is_none() && item.name == "Dumped"));
+        assert!(summary.items.iter().any(|item| item.error.is_some()), "the broken file is reported, not fatal");
+    }
+
+    #[test]
     fn control_inspect_set_and_commands_drive_the_real_ui_state() {
         let dir = tempfile::tempdir().expect("tempdir");
         let mut app = app_in(dir.path());
@@ -2344,6 +2739,63 @@ mod tests {
         app.apply_control(control::ControlCommand::Set("url".into(), serde_json::json!("https://example.test/control"))).expect("set url");
         assert_eq!(app.editors.get(&tab).expect("editor").draft.url, "https://example.test/control");
         assert!(app.editors.get(&tab).expect("editor").dirty);
+    }
+
+    #[test]
+    fn exporting_a_collection_writes_stripped_secrets_and_a_workspace_zip() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let mut collection = engine.create_collection("Export me").expect("collection");
+        collection.variables.push(postguy_model::Variable {
+            key: "token".into(),
+            value: "hunter2".into(),
+            secret: true,
+            ..postguy_model::Variable::default()
+        });
+        engine.workspace().save_collection(&collection).expect("save collection");
+        let path = dir.path().join("export.postman.json");
+        app.start_export(
+            ExportRequest {
+                target: ExportTarget::Collection { id: collection.id.0.clone(), name: collection.name.clone() },
+                format: ExportFormat::Postman,
+                include_secrets: false,
+                default_name: "export.postman.json".into(),
+                extension: "json",
+            },
+            path.clone(),
+        );
+        for _ in 0..500 {
+            app.poll_export(&egui::Context::default());
+            if app.export_job.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(path.exists(), "the export file was written");
+        let exported = std::fs::read_to_string(&path).expect("export text");
+        assert!(exported.contains("token"));
+        assert!(!exported.contains("hunter2"), "secret values are stripped: {exported}");
+
+        let zip_path = dir.path().join("workspace.zip");
+        app.start_export(
+            ExportRequest {
+                target: ExportTarget::Workspace,
+                format: ExportFormat::Zip,
+                include_secrets: false,
+                default_name: "workspace.zip".into(),
+                extension: "zip",
+            },
+            zip_path.clone(),
+        );
+        for _ in 0..500 {
+            app.poll_export(&egui::Context::default());
+            if app.export_job.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(zip_path.exists(), "the workspace zip was written");
     }
 
     #[test]

@@ -19,6 +19,8 @@ pub enum EngineError {
     Unsupported { what: String },
     /// A panic escaped the pipeline; it became this error instead of taking the app down.
     Panicked { message: String },
+    /// An import could not be parsed or written; the message is user-presentable.
+    Import { message: String },
 }
 
 impl std::fmt::Display for EngineError {
@@ -30,6 +32,7 @@ impl std::fmt::Display for EngineError {
             EngineError::BadRequest { reason } => write!(f, "cannot send: {reason}"),
             EngineError::Unsupported { what } => write!(f, "not supported yet: {what}"),
             EngineError::Panicked { message } => write!(f, "the send failed unexpectedly: {message}"),
+            EngineError::Import { message } => write!(f, "{message}"),
         }
     }
 }

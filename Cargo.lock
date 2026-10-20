@@ -889,6 +889,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e0e367e4e7da84520dedcac1901e4da967309406d1e51017ae1abfb97adbd38"
 dependencies = [
  "bitflags 2.13.2",
+ "block2 0.6.2",
+ "libc",
  "objc2 0.6.5",
 ]
 
@@ -967,7 +969,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
- "pollster",
+ "pollster 1.0.1",
  "profiling",
  "raw-window-handle",
  "static_assertions",
@@ -1066,7 +1068,7 @@ dependencies = [
  "image",
  "kittest",
  "log",
- "pollster",
+ "pollster 1.0.1",
  "serde",
  "toml 1.1.8+spec-1.1.0",
  "wgpu",
@@ -2204,6 +2206,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nix"
+version = "0.31.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
+dependencies = [
+ "bitflags 2.13.2",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
+]
+
+[[package]]
 name = "nohash-hasher"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2295,6 +2309,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d49e936b501e5c5bf01fda3a9452ff86dc3ea98ad5f283e1455153142d97518c"
 dependencies = [
  "bitflags 2.13.2",
+ "block2 0.6.2",
  "objc2 0.6.5",
  "objc2-core-foundation",
  "objc2-core-graphics",
@@ -2790,6 +2805,12 @@ dependencies = [
 
 [[package]]
 name = "pollster"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3"
+
+[[package]]
+name = "pollster"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc6355899e1c9462875b6757c79f3caa011a1fdae12bbb1a2e72dd1f234f8336"
@@ -2829,6 +2850,8 @@ dependencies = [
  "postguy-engine",
  "postguy-interop",
  "postguy-model",
+ "postguy-platform",
+ "postguy-snippets",
  "postguy-store",
  "postguy-testkit",
  "postguy-ui-egui",
@@ -2850,6 +2873,7 @@ dependencies = [
  "postguy-engine",
  "postguy-interop",
  "postguy-model",
+ "postguy-snippets",
  "postguy-store",
  "postguy-testkit",
  "postguy-util",
@@ -2857,6 +2881,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "zip",
 ]
 
 [[package]]
@@ -2881,6 +2906,7 @@ dependencies = [
  "base64",
  "hyper",
  "postguy-http",
+ "postguy-interop",
  "postguy-model",
  "postguy-store",
  "postguy-testkit",
@@ -2891,6 +2917,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "zip",
 ]
 
 [[package]]
@@ -2950,6 +2977,9 @@ dependencies = [
 [[package]]
 name = "postguy-platform"
 version = "0.1.0"
+dependencies = [
+ "rfd",
+]
 
 [[package]]
 name = "postguy-runner"
@@ -2962,6 +2992,11 @@ version = "0.1.0"
 [[package]]
 name = "postguy-snippets"
 version = "0.1.0"
+dependencies = [
+ "postguy-interop",
+ "postguy-model",
+ "serde_json",
+]
 
 [[package]]
 name = "postguy-store"
@@ -3005,6 +3040,7 @@ dependencies = [
  "image",
  "postguy-interop",
  "postguy-model",
+ "postguy-snippets",
  "postguy-urlkit",
  "serde",
  "serde_json",
@@ -3264,6 +3300,30 @@ name = "renderdoc-sys"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
+
+[[package]]
+name = "rfd"
+version = "0.17.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20dafead71c16a34e1ff357ddefc8afc11e7d51d6d2b9fbd07eaa48e3e540220"
+dependencies = [
+ "block2 0.6.2",
+ "dispatch2",
+ "js-sys",
+ "libc",
+ "log",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-core-foundation",
+ "objc2-foundation 0.3.2",
+ "percent-encoding",
+ "pollster 0.4.0",
+ "raw-window-handle",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "windows-sys 0.61.2",
+]
 
 [[package]]
 name = "ring"
@@ -4106,6 +4166,12 @@ checksum = "cb30dbbd9036155e74adad6812e9898d03ec374946234fbcebd5dfc7b9187b90"
 dependencies = [
  "rustc-hash 2.1.3",
 ]
+
+[[package]]
+name = "typed-path"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54ec2755506471f54baf5e4bb5499d8e510cc1caf271270e778a736bd2d7336c"
 
 [[package]]
 name = "typenum"
@@ -5237,6 +5303,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
+]
+
+[[package]]
+name = "zip"
+version = "9.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e04976da629d3b04204ba8105b396a193af8ad2583b2c79bfb3ab8af580a11e"
+dependencies = [
+ "crc32fast",
+ "flate2",
+ "indexmap",
+ "memchr",
+ "nix",
+ "typed-path",
 ]
 
 [[package]]

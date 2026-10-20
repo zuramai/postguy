@@ -1,6 +1,6 @@
 # Development
 
-**Status:** M3.10 (desktop shell), headed for the M3 exit review. Every session follows AGENTS.md 5.
+**Status:** M4.4 (v0.1 feature set), headed for REVIEW STOP 3. Every session follows AGENTS.md 5.
 
 ## Toolchain
 
@@ -15,6 +15,8 @@ cargo run -p postguy -- --workspace DIR --control /tmp/postguy-control.json
                                           # opt-in control channel (loopback, fresh owner-only token)
 cargo run -p postguy-cli -- run --script STEPS.json --root DIR   # engine harness (M1.8+)
 cargo run -p postguy-cli -- ui --control FILE inspect             # or command/set/screenshot (M3.10)
+cargo run -p postguy-cli -- call import_file --json '{"path":"collection.json"}'
+cargo run -p postguy-cli -- call snippet_generate --json '{"collection":"C","request":"R","language":"rust"}'
 cargo xtask ci                            # fmt, clippy -D warnings, test, layers, assets, parity, deny
 cargo xtask layers                        # dependency layering only
 cargo xtask assets [--write]              # asset policy against ATTRIBUTION.toml (ATTRIBUTION.md regenerate)

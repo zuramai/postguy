@@ -1,0 +1,4 @@
+curl --location --request POST 'https://api.example.com/v1/items?limit=2' \
+  --header 'Accept: application/json' \
+  --header 'X-Trace: abc' \
+  --data-raw '{"name":"widget","price":9.5}'

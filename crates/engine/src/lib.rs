@@ -9,14 +9,19 @@
 pub mod console;
 pub mod edit;
 pub mod error;
+pub mod exports;
+pub mod import;
 pub mod pipeline;
 pub mod runtime;
+pub mod workspace_zip;
 
 use std::collections::VecDeque;
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};
 
 pub use error::{EngineError, Result};
+pub use exports::CollectionFormat;
+pub use import::{Detected, IMPORT_FILE_CAP, ImportKind, ImportOptions, ImportOutcome, detect, walk_import_paths};
 pub use pipeline::{ResponseView, SendOptions, SendOutcome, SendTarget, SentRequest};
 
 pub use postguy_http::Cancel;

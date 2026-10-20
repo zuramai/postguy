@@ -3,6 +3,7 @@
 
 use postguy_automation::{Automation, Root};
 use serde_json::{Value, json};
+use std::io::Write as _;
 
 fn automation_in(dir: &std::path::Path) -> Automation {
     let root = Root::new(dir).expect("temp root canonicalizes");
@@ -53,6 +54,15 @@ fn the_tool_table_round_trips_a_workspace() {
     );
     let got = call(&automation, "request_get", json!({"collection": collection, "request": request}));
     assert_eq!(got["request"]["kind"]["method"], "POST");
+    let snippet = call(
+        &automation,
+        "snippet_generate",
+        json!({"collection": collection, "request": request, "language": "python", "include_boilerplate": false}),
+    );
+    assert_eq!(snippet["language"], "python");
+    assert!(snippet["snippet"].as_str().is_some_and(|text| text.contains("requests.post")), "{}", snippet["snippet"]);
+    let bad = automation.call("snippet_generate", &json!({"collection": collection, "request": request, "language": "cobol"}));
+    assert!(bad.is_err(), "unknown languages are refused");
 
     // Move the request to the collection root and delete the now-empty folder.
     call(&automation, "request_move", json!({"collection": collection, "request": request}));
@@ -75,11 +85,32 @@ fn the_tool_table_round_trips_a_workspace() {
     assert_eq!(loaded["environment"]["variables"][0]["value"], "hunter2", "readers see the value rehydrated");
     call(&automation, "env_set_active", json!({"environment": environment}));
     assert_eq!(call(&automation, "workspace_info", json!({}))["activeEnvironmentId"], environment);
+    let hidden = call(&automation, "export_environment", json!({"environment": environment}));
+    assert_eq!(hidden["json"]["values"][0]["value"], "", "secret values are omitted by default");
+    let shown = call(&automation, "export_environment", json!({"environment": environment, "include_secrets": true}));
+    assert_eq!(shown["json"]["values"][0]["value"], "hunter2", "the explicit opt-in includes the secret");
+    let zip = call(&automation, "workspace_export_zip", json!({"out": "exports/workspace.zip"}));
+    assert!(zip["bytes"].as_u64().is_some_and(|bytes| bytes > 0));
+    assert!(dir.path().join("exports/workspace.zip").exists());
 
     // Globals share the shape.
     call(&automation, "globals_set_var", json!({"key": "region", "value": "eu-west-1"}));
     let globals = call(&automation, "globals_get", json!({}));
     assert_eq!(globals["globals"]["variables"][0]["key"], "region");
+
+    // Zip import reads JSON documents, applies clash suffixes and skips unrelated entries.
+    let zip_path = dir.path().join("incoming.zip");
+    let file = std::fs::File::create(&zip_path).expect("zip");
+    let mut writer = zip::ZipWriter::new(file);
+    writer.start_file("nested/imported.json", zip::write::SimpleFileOptions::default()).expect("entry");
+    writer
+        .write_all(br#"{"info":{"name":"Zipped","schema":"https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},"item":[]}"#)
+        .expect("write");
+    writer.finish().expect("finish");
+    let zipped = call(&automation, "import_zip", json!({"path": "incoming.zip"}));
+    assert_eq!(zipped["items"][0]["outcome"]["name"], "Zipped");
+    let zipped_id = zipped["items"][0]["outcome"]["id"].as_str().expect("zip collection id").to_string();
+    call(&automation, "collection_delete", json!({"collection": zipped_id}));
 
     // Delete the collection; it lands in the trash with its item record intact.
     call(&automation, "collection_delete", json!({"collection": collection}));
@@ -102,8 +133,11 @@ fn imports_go_through_the_report_and_the_workspace() {
     let imported = call(&automation, "import_text", json!({"text": collection_json}));
     assert_eq!(imported["kind"], "collection");
     assert_eq!(imported["id"], "11111111-2222-3333-4444-555555555555");
-    let second = automation.call("import_text", &json!({"text": collection_json}));
-    assert!(second.is_err(), "the same id cannot be imported twice silently: {second:?}");
+    let second = call(&automation, "import_text", json!({"text": collection_json}));
+    assert_eq!(second["name"], "Imported (2)", "a name clash gets a suffix, never a silent overwrite");
+    assert_ne!(second["id"], "11111111-2222-3333-4444-555555555555", "the clashing id gets a fresh id");
+    let replaced = call(&automation, "import_text", json!({"text": collection_json, "replace": true}));
+    assert_eq!(replaced["id"], "11111111-2222-3333-4444-555555555555");
 
     let env_json = r#"{
         "id": "env-1", "name": "Imported Env", "_postman_variable_scope": "environment",

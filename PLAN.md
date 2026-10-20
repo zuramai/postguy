@@ -134,10 +134,10 @@ Planned observation requests:
 
 #### M4 Imports, snippets, exports
 
-- [ ] M4.1 Import dialog (paste, files, folders, drop anywhere), auto-detect, report view, name-clash handling.
-- [ ] M4.2 Snippets: raw HTTP, JS fetch, Python requests, Go, Rust reqwest, PowerShell, Node axios; golden tests per language.
-- [ ] M4.3 Export dialogs (collection v2.1 and native, environment, globals, response body), all-data zip, zip import.
-- [ ] M4.4 Parity file, docs and screenshots up to date; budget report.
+- [x] M4.1 Import dialog (paste, files, folders, drop anywhere), auto-detect, report view, name-clash handling. (URL-to-file fetching is refused; OpenAPI/HAR/V3 YAML get guided refusals until their milestones.)
+- [x] M4.2 Snippets: raw HTTP, JS fetch, Python requests, Go, Rust reqwest, PowerShell, Node axios; golden tests per language. (Panel gear: indent 2/4/tab, boilerplate toggle; tool `snippet_generate`.)
+- [~] M4.3 Export dialogs (collection v2.1 and native, environment, globals, response body), all-data zip, zip import. (Collection/environment/globals/all-data dialogs and tools are in; response body still uses the automatic `<workspace>/files` save, and zip import reads JSON documents but skips files/protos.)
+- [x] M4.4 Parity file, docs and screenshots up to date; budget report. (Release: app 8.63 MiB, CLI 3.80 MiB; `xtask bench --check` green; import/export/snippet dialogs rendered in `target/screenshots/`.)
 
 **Exit: tag v0.1. REVIEW STOP 3 (owner).**
 

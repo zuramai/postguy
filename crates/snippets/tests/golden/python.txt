@@ -1,0 +1,9 @@
+import requests
+
+headers = {
+  "Accept": "application/json",
+  "X-Trace": "abc",
+}
+
+response = requests.post("https://api.example.com/v1/items?limit=2", headers=headers, data="{\"name\":\"widget\",\"price\":9.5}")
+print(response.text)

@@ -4,8 +4,11 @@
 
 use egui_kittest::Harness;
 use postguy_model::{Collection, Environment, HistoryEntry, HttpMethod, HttpRequest, Id, Item, KeyValue, Request, RequestKind, Variable};
+use postguy_snippets::Language;
 use postguy_ui_egui::PostguyShell;
 use postguy_ui_egui::builder::{BodyDrafts, BuilderTab, RequestBuilder};
+use postguy_ui_egui::export::{self, ExportState, ExportTarget};
+use postguy_ui_egui::import::{self, ImportItemView, ImportState, ImportSummary};
 use postguy_ui_egui::response::{ResponseData, ResponseViewerState, response_view};
 use postguy_ui_egui::shell::PanelAction;
 use postguy_ui_egui::sidebar::SidebarData;
@@ -25,6 +28,8 @@ struct DemoState {
     tab: BuilderTab,
     response: ResponseData,
     viewer: ResponseViewerState,
+    import: ImportState,
+    export: ExportState,
 }
 
 impl DemoState {
@@ -59,6 +64,8 @@ impl DemoState {
             bodies: BodyDrafts::default(),
             dirty: true,
             tab: BuilderTab::Params,
+            import: ImportState::default(),
+            export: ExportState::default(),
             response: ResponseData {
                 status: 200,
                 status_text: "OK".into(),
@@ -245,8 +252,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 _ => None,
             };
             state.shell.ui_with(ui, Some(&mut panel));
+            if state.import.open {
+                import::import_dialog(ui.ctx(), &mut state.import);
+            }
+            if state.export.open {
+                export::export_dialog(ui.ctx(), &mut state.export);
+            }
         },
-        DemoState::new(shell),
+        {
+            let mut demo = DemoState::new(shell);
+            if mode == "export" {
+                export::open(&mut demo.export, ExportTarget::Collection { id: "demo-collection".into(), name: "Payments API".into() });
+            }
+            if mode == "snippet" {
+                demo.shell.state.right_panel_open = true;
+                demo.shell.snippet.language = Language::Rust;
+                demo.shell.snippet.indent = 4;
+            }
+            if mode == "import" {
+                import::open(&mut demo.import);
+                demo.import.text =
+                    "curl -X POST 'https://staging.example.com/payments' -H 'Content-Type: application/json' -d '{\"amount\":2500}'".into();
+                demo.import.summary = Some(ImportSummary {
+                    items: vec![ImportItemView {
+                        source: "payments.postman_collection.json".into(),
+                        kind: "collection".into(),
+                        name: "Payments API".into(),
+                        id: Some("demo-import".into()),
+                        report: postguy_interop::ImportReport {
+                            collections: 1,
+                            requests: 12,
+                            folders: 2,
+                            examples: 3,
+                            warnings: vec!["item[0].auth.type: mapped `apikey` to API key auth".into()],
+                            ..postguy_interop::ImportReport::default()
+                        },
+                        error: None,
+                    }],
+                    problems: vec!["notes.txt: not a Postman document or cURL command".into()],
+                });
+            }
+            demo
+        },
     );
     harness.run();
     let image = harness.render().map_err(|err| format!("render: {err}"))?;
