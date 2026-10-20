@@ -27,6 +27,7 @@ postguy-automation = { path = "crates/automation", version = "0.1.0" }
 postguy-http = { path = "crates/http", version = "0.1.0" }
 postguy-engine = { path = "crates/engine", version = "0.1.0" }
 postguy-snippets = { path = "crates/snippets", version = "0.1.0" }
+postguy-ws = { path = "crates/ws", version = "0.1.0" }
 postguy-platform = { path = "crates/platform", version = "0.1.0" }
 postguy-testkit = { path = "crates/testkit", version = "0.1.0" }
 serde = { version = "1", default-features = false, features = ["std", "derive"] }
@@ -47,6 +48,8 @@ hyper-rustls = { version = "0.27", default-features = false, features = ["http1"
 rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
 rustls-native-certs = "0.8"
 rustls-pemfile = "2"
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-native-roots"] }
+futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring", "pem"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }

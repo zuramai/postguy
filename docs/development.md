@@ -1,6 +1,6 @@
 # Development
 
-**Status:** M5.1 (Digest/JWT/OAuth1/AWSv4/Hawk + auth forms); OAuth 2.0 is next. Every session follows AGENTS.md 5.
+**Status:** M6 core (auth/OAuth2, certificates, GraphQL introspection, WebSocket sessions/tools/panel); gRPC is next. Every session follows AGENTS.md 5.
 
 ## Toolchain
 

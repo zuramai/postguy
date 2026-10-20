@@ -9,6 +9,9 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+postguy-urlkit.workspace = true
+postguy-ws.workspace = true
+postguy-http.workspace = true
 postguy-model.workspace = true
 postguy-engine.workspace = true
 postguy-vars.workspace = true

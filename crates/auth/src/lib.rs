@@ -10,6 +10,7 @@ pub mod error;
 pub mod hawk;
 pub mod jwt;
 pub mod oauth1;
+pub mod oauth2;
 mod util;
 
 pub use error::{AuthError, Result};

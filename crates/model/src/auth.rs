@@ -458,6 +458,9 @@ pub struct OAuth2Auth {
     pub access_token: String,
     #[serde(default)]
     pub refresh_token: String,
+    /// Unix milliseconds when the access token expires (0 = unknown); set by the token flow.
+    #[serde(default)]
+    pub access_token_expires_at_ms: i64,
     #[serde(default)]
     pub extra_params: Vec<OAuth2Param>,
     #[serde(default, flatten)]

@@ -186,6 +186,29 @@ fn digest_auth_retries_once_with_the_challenge_answer() {
 }
 
 #[test]
+fn an_expired_oauth2_token_is_refreshed_before_the_request() {
+    let server = Server::start();
+    let fixture = Fixture::new();
+    let engine = fixture.engine();
+    let mut http = HttpRequest { method: HttpMethod::Get, url: format!("{}/echo", server.base_url()), ..HttpRequest::default() };
+    http.auth = AuthConfig::OAuth2(Box::new(postguy_model::auth::OAuth2Auth {
+        token_url: format!("{}/token", server.base_url()),
+        client_id: "client".into(),
+        client_secret: "secret".into(),
+        client_authentication: postguy_model::auth::OAuth2ClientAuthentication::Body,
+        access_token: "stale".into(),
+        refresh_token: "refresh".into(),
+        access_token_expires_at_ms: 1,
+        ..postguy_model::auth::OAuth2Auth::default()
+    }));
+    let outcome = engine.send(inline(http), SendOptions::default()).expect("send");
+    assert_eq!(outcome.response.status, 200);
+    let echo = echo_json(&outcome.response.body);
+    assert_eq!(header_of(&echo, "authorization").as_deref(), Some("Bearer postguy-refreshed-token"));
+    assert!(outcome.warnings.iter().any(|warning| warning.contains("refreshed")), "{:?}", outcome.warnings);
+}
+
+#[test]
 fn cookies_survive_a_restart_through_the_persisted_jar() {
     let server = Server::start();
     let fixture = Fixture::new();

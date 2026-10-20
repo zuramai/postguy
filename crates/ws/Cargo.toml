@@ -9,3 +9,13 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+postguy-http.workspace = true
+postguy-model.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+http = { version = "1", default-features = false }
+serde.workspace = true
+
+[dev-dependencies]
+postguy-testkit.workspace = true

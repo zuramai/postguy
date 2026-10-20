@@ -24,6 +24,8 @@ pub mod proxy;
 pub mod routes;
 pub mod server;
 pub mod tls;
+pub mod ws;
 
 pub use proxy::{ProxySeen, ProxyServer, Socks5Server, SocksSeen};
 pub use server::Server;
+pub use ws::WsEchoServer;

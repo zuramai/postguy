@@ -216,6 +216,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         |ui, state: &mut DemoState| {
             let mut panel = |ui: &mut egui::Ui, doc: &TabDoc| match doc {
                 TabDoc::Request { .. } => {
+                    let mut oauth2_action = None;
                     let mut builder = RequestBuilder {
                         name: &mut state.name,
                         description: &mut state.description,
@@ -228,6 +229,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         sending: None,
                         undo_paste: false,
                         inherited_auth: Some("basic"),
+                        oauth2_action: &mut oauth2_action,
+                        graphql_schema: None,
                     };
                     let total = ui.available_height();
                     let request_height = (total * 0.52).max(170.0);

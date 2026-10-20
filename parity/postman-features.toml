@@ -280,8 +280,8 @@ area = "C"
 tier = "P0"
 milestone = "M2.3"
 status = "shipped"
-notes = "All six modes build wire bodies (GraphQL UI lands in M5.4); switching type keeps other modes' data until save."
-evidence = ["crates/http/src/build.rs::urlencoded_rows_encode_and_skip_disabled_and_empty_rows", "crates/http/src/build.rs::multipart_has_boundary_text_and_file_parts", "crates/http/src/build.rs::graphql_bodies_serialise_query_variables_and_operation", "crates/engine/tests/pipeline.rs::file_bodies_are_confined_to_the_working_directory"]
+notes = "All six modes build wire bodies; GraphQL has an editor and schema introspection with a Refresh button (types/fields listed). Switching type keeps other modes' data until save."
+evidence = ["crates/http/src/build.rs::graphql_bodies_serialise_query_variables_and_operation", "crates/ui-egui/tests/builder.rs::advanced_auth_types_switch_and_show_their_fields", "apps/postguy/src/main.rs::graphql_schema_response_maps_types_and_fields"]
 [[feature]]
 id = "c.auth-p0"
 title = "Auth: No Auth, Inherit, API Key, Basic, Bearer"
@@ -298,9 +298,9 @@ area = "C"
 tier = "P1"
 milestone = "M5"
 status = "partial"
-notes = "Digest/JWT/OAuth 1.0/AWS SigV4/Hawk are implemented and applied; Digest retries once on the 401 challenge. OAuth 2.0 flows/token store are M5.2. NTLM/EdgeGrid/ASAP remain P2."
+notes = "Digest/JWT/OAuth 1.0/AWS SigV4/Hawk are applied; Digest retries once on the 401 challenge. OAuth 2.0 supports client credentials, password, authorization code + PKCE, refresh, browser loopback and secret token storage. Missing: implicit grant and the Manage-tokens screen. NTLM/EdgeGrid/ASAP remain P2."
 
-evidence = ["crates/auth/src/digest.rs::rfc_7616_md5_example_matches", "crates/auth/src/jwt.rs::rfc_7515_hs256_mac_matches_the_appendix", "crates/auth/src/jwt.rs::rsa_and_ecdsa_tokens_verify_with_their_public_keys", "crates/auth/src/oauth1.rs::rfc_5849_hmac_sha1_example_matches", "crates/auth/src/aws.rs::aws_get_vanilla_vector_matches", "crates/auth/src/hawk.rs::hawk_readme_vector_matches", "crates/engine/tests/pipeline.rs::digest_auth_retries_once_with_the_challenge_answer"]
+evidence = ["crates/auth/src/digest.rs::rfc_7616_md5_example_matches", "crates/auth/src/jwt.rs::rfc_7515_hs256_mac_matches_the_appendix", "crates/auth/src/oauth1.rs::rfc_5849_hmac_sha1_example_matches", "crates/auth/src/aws.rs::aws_get_vanilla_vector_matches", "crates/auth/src/hawk.rs::hawk_readme_vector_matches", "crates/engine/tests/pipeline.rs::digest_auth_retries_once_with_the_challenge_answer", "crates/engine/tests/pipeline.rs::an_expired_oauth2_token_is_refreshed_before_the_request", "crates/automation/tests/tools.rs::oauth2_client_credentials_tool_updates_the_request_and_secret_store", "crates/engine/tests/edits.rs::oauth2_tokens_stay_out_of_collection_files_and_rehydrate"]
 [[feature]]
 id = "c.redirects"
 title = "Manual redirects: per-hop record, method rules, credential drop"
@@ -353,18 +353,20 @@ title = "Client certificates (PEM, PFX) and CA bundle UI"
 area = "C"
 tier = "P1"
 milestone = "M5.3"
-status = "planned"
-notes = "Per host pattern; passphrases never written to disk in v1; TLS 1.2 minimum."
+status = "partial"
+notes = "PEM client certificate/key and a custom CA bundle are wired through rustls and editable in Settings > Certificates; verification-off is warned. Missing: PFX files, encrypted keys, per-host certificate entries and passphrase storage."
 
+evidence = ["crates/http/src/tls.rs::a_generated_pem_identity_builds_a_client_config", "crates/http/src/tls.rs::missing_identity_paths_are_actionable"]
 [[feature]]
 id = "c.settings-tab"
 title = "Per-request Settings tab (HTTP version, redirects, size, timeout...)"
 area = "C"
 tier = "P1"
 milestone = "M5.3"
-status = "planned"
-notes = "Each setting has a one-line description and Restore default; inherits global defaults."
+status = "shipped"
+notes = "Per-request HTTP version, SSL verification, redirects/method/auth rules, redirect cap, timeout and max response size, with tests."
 
+evidence = ["crates/ui-egui/tests/builder.rs::settings_toggles_persist_into_the_request_settings"]
 [[feature]]
 id = "c.response-viewer"
 title = "Response viewer: Pretty/Raw/Preview/Hex, strip chips"
@@ -561,36 +563,40 @@ title = "Connect/Disconnect with handshake headers, params, subprotocols"
 area = "E"
 tier = "P0"
 milestone = "M6.1"
-status = "planned"
-notes = "Managed headers warned about; redirects followed with the timer reset; proxy and TLS as HTTP."
+status = "partial"
+notes = "Custom headers, params and subprotocols are sent; TLS/client certs use the HTTP policy. Missing handshake redirects, proxies and the managed-header warning."
 
+evidence = ["crates/ws/tests/echo.rs::greeting_and_custom_headers_reach_the_handshake"]
 [[feature]]
 id = "e.composer"
 title = "Message composer: Text/JSON/XML/HTML/Binary (Base64/Hex)"
 area = "E"
 tier = "P0"
 milestone = "M6.3"
-status = "planned"
-notes = "Send keeps text; save to saved messages; variables resolve at send time."
+status = "partial"
+notes = "The minimal panel sends text; binary and format-specific composers are in the automation tool only. Saved messages still planned."
 
+evidence = ["crates/automation/tests/tools.rs::websocket_tools_connect_echo_and_close"]
 [[feature]]
 id = "e.timeline"
 title = "Message timeline with network events, search, filters"
 area = "E"
 tier = "P0"
 milestone = "M6.3"
-status = "planned"
-notes = "Follow-bottom unless scrolled up; clear with Restore; select two messages for the time difference."
+status = "partial"
+notes = "Live sent/received/network rows with sequence and bounded buffer; search, filters, clear/restore, expand and time-diff remain."
 
+evidence = ["crates/automation/tests/tools.rs::websocket_tools_connect_echo_and_close"]
 [[feature]]
 id = "e.binary"
 title = "Binary messages with hexdump view"
 area = "E"
 tier = "P1"
 milestone = "M6.3"
-status = "planned"
-notes = "Show hexdump / show message toggle; size caps from settings."
+status = "partial"
+notes = "Binary frames round-trip through the crate and ws_send binary_base64; the hexdump UI remains."
 
+evidence = ["crates/ws/tests/echo.rs::text_and_binary_round_trip"]
 [[feature]]
 id = "e.saved-messages"
 title = "Saved messages stored with the request"
@@ -606,22 +612,24 @@ title = "WS settings: verify, timeouts, reconnects, max message size"
 area = "E"
 tier = "P1"
 milestone = "M6.1"
-status = "planned"
-notes = "Ping/pong answered automatically and shown; permessage-deflate explicitly unsupported in v1."
+status = "partial"
+notes = "Verify toggle, handshake timeout and max message size are applied and capped. Reconnect policy is stored but not acted on yet."
 
+evidence = ["crates/ws/tests/echo.rs::invalid_urls_and_schemes_are_actionable"]
 [[feature]]
 id = "e.subprotocols"
 title = "Subprotocols sent and negotiated"
 area = "E"
 tier = "P1"
 milestone = "M6.1"
-status = "planned"
-notes = "Sec-WebSocket-Protocol field on the request."
+status = "shipped"
+notes = "The request protocols become Sec-WebSocket-Protocol and the negotiated response is exposed."
 
 # ==================================================================================================
 # F. Automation: scripts, runner, CLI, agent tools (PROMPT.md 5.6)
 # ==================================================================================================
 
+evidence = ["crates/ws/tests/echo.rs::greeting_and_custom_headers_reach_the_handshake", "crates/testkit/src/ws.rs"]
 [[feature]]
 id = "f.scripts"
 title = "Pre-request and post-response scripts with the pm API subset"

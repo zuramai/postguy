@@ -193,7 +193,7 @@ impl CollectionDetail<'_> {
             }
             DetailTab::Authorization => {
                 let default_auth = if is_folder { AuthConfig::Inherit } else { AuthConfig::NoAuth };
-                if auth_editor(ui, parts.auth.get_or_insert(default_auth), is_folder, None) {
+                if auth_editor(ui, parts.auth.get_or_insert(default_auth), is_folder, None).changed {
                     changed = true;
                 }
                 if is_folder {

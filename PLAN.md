@@ -146,18 +146,18 @@ Planned observation requests:
 #### M5 Remaining HTTP auth, certificates, GraphQL
 
 - [x] M5.1 `auth`: Digest (challenge retry once), JWT (HS/RS/ES/PS), OAuth 1.0, AWS Signature v4, Hawk. Known-answer tests from the specs; `curl` or external tools only as test oracles.
-- [ ] M5.2 OAuth 2.0 in `http`: all grants, PKCE, loopback redirect listener opened only on demand and closed after, token store (secrets file), Manage tokens, auto-refresh.
-- [ ] M5.3 Client certificates (PEM and PFX), CA bundle UI, request Settings tab complete.
-- [ ] M5.4 GraphQL body mode and basic introspection with a Refresh button.
+- [~] M5.2 OAuth 2.0 in `http`: all grants, PKCE, loopback redirect listener opened only on demand and closed after, token store (secrets file), Manage tokens, auto-refresh. (Client credentials/password/code+PKCE/refresh, browser loopback, secret token storage, auto-refresh, UI form and `oauth2_token` tool are in; implicit grant and the Manage-tokens screen remain.)
+- [~] M5.3 Client certificates (PEM and PFX), CA bundle UI, request Settings tab complete. (PEM client cert/key and CA bundle are wired through rustls and Settings; PFX and per-host certificates remain. Request Settings tab is complete.)
+- [x] M5.4 GraphQL body mode and basic introspection with a Refresh button.
 - [~] M5.5 UI for all auth forms (Appendix E) and tools. Digest/JWT/OAuth1/AWS/Hawk forms land with M5.1; OAuth 2.0 forms wait for M5.2. NTLM, EdgeGrid, ASAP only if time allows (P2).
 
 **M5.1 budget (2026-10-20):** release app 8.99 MiB (budget 18), CLI 4.11 MiB; 548 packages licence-checked; `xtask ci` green.
 
 #### M6 WebSocket
 
-- [ ] M6.1 `ws` crate (tokio-tungstenite): handshake headers, subprotocols, TLS, redirects, ping/pong, close codes, reconnect policy, size caps. Testkit echo server.
-- [ ] M6.2 Tools `ws_*` and end-to-end tests.
-- [ ] M6.3 UI: request bar, composer (Text/JSON/XML/HTML/Binary with Base64 or Hex), saved messages, timeline (search, filters, expand, hexdump, time diff, ring buffer), settings. Observation request 4 (WebSocket part).
+- [~] M6.1 `ws` crate (tokio-tungstenite): handshake headers, subprotocols, TLS, redirects, ping/pong, close codes, reconnect policy, size caps. Testkit echo server. (Headers, subprotocols, TLS/client certs, ping/pong, close codes, size caps and the testkit echo server are in; handshake redirects, proxy and reconnect policy remain.)
+- [x] M6.2 Tools `ws_*` and end-to-end tests.
+- [~] M6.3 UI: request bar, composer (Text/JSON/XML/HTML/Binary with Base64 or Hex), saved messages, timeline (search, filters, expand, hexdump, time diff, ring buffer), settings. Observation request 4 (WebSocket part). (Minimal request bar, connect/disconnect, text composer and live event list; saved messages, format/hash composers and timeline polish remain.)
 
 #### M7 gRPC
 

@@ -303,6 +303,52 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
             destructive: false,
         },
         ToolDef {
+            name: "ws_connect",
+            title: "Open a WebSocket",
+            description: "Connects a saved WebSocket request (variables resolved at connect), returns a session id. Events are read with ws_messages.",
+            input_schema: schema! { "collection": req("collection id"), "request": req("request id") },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "ws_send",
+            title: "Send a WebSocket message",
+            description: "Send text or base64 binary to an open session; the echo/event log records it.",
+            input_schema: schema! { "session": req("session id"), "text": opt("text message"), "binary_base64": opt("base64 binary message") },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "ws_messages",
+            title: "Read WebSocket events",
+            description: "Events after `since` (default 0) with sequence, direction, kind, text, bytes and close/detail; includes sent, received and network rows.",
+            input_schema: schema! { "session": req("session id"), "since": opt("last sequence number already read") },
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "ws_disconnect",
+            title: "Close a WebSocket",
+            description: "Send a close frame and end the session.",
+            input_schema: schema! { "session": req("session id"), "code": opt("close code (default 1000)"), "reason": opt("close reason") },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "oauth2_token",
+            title: "Get or refresh an OAuth 2.0 token",
+            description: "Runs client_credentials/password/authorization_code (with optional PKCE verifier) against the request's OAuth 2.0 auth, or refreshes it; stores the tokens in the secrets file and updates the request auth.",
+            input_schema: schema! {
+                "collection": req("collection id"),
+                "request": req("request id"),
+                "mode": req("grant | refresh | code"),
+                "code": opt("authorization code for mode=code"),
+                "verifier": opt("PKCE verifier for mode=code with PKCE")
+            },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
             name: "snippet_generate",
             title: "Generate a code snippet",
             description: "One HTTP request as cURL, raw HTTP, fetch, Python requests, Go, Rust reqwest, PowerShell or Node axios; variables stay unresolved. gRPC/WS snippets arrive with their milestones.",
@@ -792,6 +838,117 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
                 Some(Item::Folder(_)) => Err(AutomationError::Failed { message: format!("`{request_id}` is a folder, not a request") }),
                 None => Err(AutomationError::NotFound { kind: "request".into(), id: request_id }),
             }
+        }
+        "ws_connect" => {
+            let collection_id = string_arg(args, tool, "collection")?;
+            let request_id = string_arg(args, tool, "request")?;
+            let collection = session.load_collection(&collection_id)?;
+            let request =
+                find_item(&collection, &request_id).ok_or_else(|| AutomationError::NotFound { kind: "request".into(), id: request_id.clone() })?;
+            let postguy_model::Item::Request(request) = request else {
+                return Err(AutomationError::Failed { message: format!("`{request_id}` is a folder, not a request") });
+            };
+            if !matches!(request.kind, postguy_model::RequestKind::WebSocket(_)) {
+                return Err(AutomationError::Failed { message: "ws_connect expects a WebSocket request".into() });
+            }
+            let id = session.engine()?.ws_connect_saved(&collection.id, &request.id)?;
+            Ok(json!({"session": id, "connected": false}))
+        }
+        "ws_send" => {
+            let session_id = string_arg(args, tool, "session")?;
+            let text = optional_string(args, tool, "text")?;
+            let binary = optional_string(args, tool, "binary_base64")?;
+            let engine = session.engine()?;
+            match (text, binary) {
+                (Some(text), None) => engine.ws_send_text(&session_id, text)?,
+                (None, Some(binary)) => {
+                    let bytes = base64::engine::general_purpose::STANDARD.decode(binary).map_err(|err| AutomationError::BadArgument {
+                        tool: tool.to_string(),
+                        argument: "binary_base64".into(),
+                        expected: "base64".into(),
+                        got: err.to_string(),
+                    })?;
+                    engine.ws_send_binary(&session_id, bytes)?;
+                }
+                (Some(_), Some(_)) => return Err(AutomationError::Failed { message: "ws_send takes text or binary_base64, not both".into() }),
+                (None, None) => return Err(AutomationError::MissingArgument { tool: tool.to_string(), argument: "text or binary_base64".into() }),
+            }
+            Ok(json!({"sent": true}))
+        }
+        "ws_messages" => {
+            let session_id = string_arg(args, tool, "session")?;
+            let since = args.get("since").and_then(Value::as_u64).unwrap_or(0);
+            let engine = session.engine()?;
+            Ok(json!({"events": engine.ws_events(&session_id, since)?, "connected": engine.ws_connected(&session_id)?}))
+        }
+        "ws_disconnect" => {
+            let session_id = string_arg(args, tool, "session")?;
+            let code = args.get("code").and_then(Value::as_u64).unwrap_or(1000).min(4999) as u16;
+            let reason = optional_string(args, tool, "reason")?.unwrap_or_default();
+            session.engine()?.ws_disconnect(&session_id, code, reason)?;
+            Ok(json!({"closed": true}))
+        }
+        "oauth2_token" => {
+            let collection_id = string_arg(args, tool, "collection")?;
+            let request_id = string_arg(args, tool, "request")?;
+            let mode = string_arg(args, tool, "mode")?;
+            let mut collection = session.load_collection(&collection_id)?;
+            let request = match find_item_mut(&mut collection, &request_id) {
+                Some(Item::Request(request)) => request,
+                Some(Item::Folder(_)) => return Err(AutomationError::Failed { message: format!("`{request_id}` is a folder, not a request") }),
+                None => return Err(AutomationError::NotFound { kind: "request".into(), id: request_id }),
+            };
+            let postguy_model::RequestKind::Http(http) = &mut request.kind else {
+                return Err(AutomationError::Failed { message: "OAuth 2.0 tools apply to HTTP requests".into() });
+            };
+            let postguy_model::AuthConfig::OAuth2(auth) = &http.auth else {
+                return Err(AutomationError::Failed { message: "the request's auth is not OAuth 2.0".into() });
+            };
+            let mut auth = (**auth).clone();
+            let engine = session.engine()?;
+            let token = match mode.as_str() {
+                "grant" => engine.oauth2_grant(&auth),
+                "refresh" => {
+                    let refresh = auth.refresh_token.clone();
+                    engine.oauth2_refresh(&auth, &refresh)
+                }
+                "code" => {
+                    let code = optional_string(args, tool, "code")?
+                        .ok_or_else(|| AutomationError::MissingArgument { tool: tool.to_string(), argument: "code".into() })?;
+                    let verifier = optional_string(args, tool, "verifier")?;
+                    engine.oauth2_exchange_code(&auth, &code, verifier.as_deref())
+                }
+                other => {
+                    return Err(AutomationError::BadArgument {
+                        tool: tool.to_string(),
+                        argument: "mode".into(),
+                        expected: "grant, refresh or code".into(),
+                        got: other.to_string(),
+                    });
+                }
+            }
+            .map_err(|err| AutomationError::Failed { message: err.to_string() })?;
+            let now = postguy_util::time::now_unix_ms();
+            let expires_at_ms =
+                token.expires_in.map(|seconds| now.saturating_add(i64::try_from(seconds.saturating_mul(1000)).unwrap_or(i64::MAX))).unwrap_or(0);
+            auth.access_token = token.access_token.clone();
+            auth.access_token_expires_at_ms = expires_at_ms;
+            if !token.refresh_token.is_empty() {
+                auth.refresh_token = token.refresh_token.clone();
+            }
+            if !token.scope.is_empty() {
+                auth.scope = token.scope.clone();
+            }
+            http.auth = postguy_model::AuthConfig::OAuth2(Box::new(auth));
+            session.workspace()?.save_collection(&collection)?;
+            Ok(json!({
+                "access_token": token.access_token,
+                "token_type": token.token_type,
+                "expires_in": token.expires_in,
+                "refresh_token": token.refresh_token,
+                "scope": token.scope,
+                "expires_at_ms": expires_at_ms,
+            }))
         }
         "snippet_generate" => {
             let collection = session.load_collection(&string_arg(args, tool, "collection")?)?;

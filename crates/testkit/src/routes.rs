@@ -359,12 +359,14 @@ fn token(request: &Incoming) -> Reply {
     }
     let form = String::from_utf8_lossy(&request.body).into_owned();
     let pairs = query_pairs(&form);
-    if query_get(&pairs, "grant_type") != Some("client_credentials") {
+    let grant = query_get(&pairs, "grant_type").unwrap_or_default();
+    if grant != "client_credentials" && grant != "refresh_token" {
         return Reply::with_json(&json!({"error": "unsupported_grant_type"})).tap_status(StatusCode::BAD_REQUEST);
     }
     let client_id = query_get(&pairs, "client_id").unwrap_or("postguy");
+    let access_token = if grant == "refresh_token" { "postguy-refreshed-token" } else { "postguy-access-token" };
     Reply::with_json(&json!({
-        "access_token": "postguy-access-token",
+        "access_token": access_token,
         "token_type": "Bearer",
         "expires_in": 3600,
         "refresh_token": "postguy-refresh-token",

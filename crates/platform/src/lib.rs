@@ -16,6 +16,22 @@ use rfd::AsyncFileDialog;
 /// Pick one folder or multiple files for import. The future resolves to an empty list when
 /// the user cancels. Native dialogs are parentless; the caller keeps the app responsive by
 /// polling this from the UI thread (a wake requests a repaint).
+/// Open a URL in the user's default browser. This is always an explicit user action (OAuth
+/// authorization, docs links); the command is passed as an argument, never through a shell.
+pub fn open_url(url: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let mut command = std::process::Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = std::process::Command::new("cmd");
+        command.args(["/C", "start", ""]);
+        command
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = std::process::Command::new("xdg-open");
+    command.arg(url).spawn().map(|_| ()).map_err(|err| format!("opening {url}: {err}"))
+}
+
 pub fn save_export(default_name: String, extension: &'static str) -> Pin<Box<dyn Future<Output = Option<PathBuf>>>> {
     Box::pin(async move {
         AsyncFileDialog::new()

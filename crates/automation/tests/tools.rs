@@ -121,6 +121,84 @@ fn the_tool_table_round_trips_a_workspace() {
 }
 
 #[test]
+fn oauth2_client_credentials_tool_updates_the_request_and_secret_store() {
+    let server = postguy_testkit::Server::start();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let automation = automation_in(dir.path());
+    call(&automation, "workspace_open", json!({"path": "work"}));
+    let collection = call(&automation, "collection_create", json!({"name": "OAuth"}))["collection"].as_str().unwrap().to_string();
+    let request = call(&automation, "request_create", json!({"collection": collection, "kind": "http", "name": "Token"}))["request"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    call(
+        &automation,
+        "request_update",
+        json!({
+            "collection": collection,
+            "request": request,
+            "definition": {
+                "type": "http",
+                "url": "http://example.test/",
+                "auth": {
+                    "kind": "oauth2",
+                    "grantType": "clientCredentials",
+                    "tokenUrl": format!("{}/token", server.base_url()),
+                    "clientId": "client",
+                    "clientSecret": "secret",
+                    "clientAuthentication": "body"
+                }
+            }
+        }),
+    );
+    let token = call(&automation, "oauth2_token", json!({"collection": collection, "request": request, "mode": "grant"}));
+    assert_eq!(token["access_token"], "postguy-access-token");
+    let got = call(&automation, "request_get", json!({"collection": collection, "request": request}));
+    assert_eq!(got["request"]["kind"]["auth"]["accessToken"], "postguy-access-token");
+    let file = std::fs::read_to_string(dir.path().join("work/collections").join(format!("{collection}.json"))).expect("collection file");
+    assert!(!file.contains("postguy-access-token"), "the token lives in the secrets file: {file}");
+    let secrets = std::fs::read_to_string(dir.path().join("work/.postguy/secrets.json")).expect("secrets");
+    assert!(secrets.contains("postguy-access-token"));
+}
+
+#[test]
+fn websocket_tools_connect_echo_and_close() {
+    let server = postguy_testkit::WsEchoServer::start().expect("ws server");
+    let dir = tempfile::tempdir().expect("tempdir");
+    let automation = automation_in(dir.path());
+    call(&automation, "workspace_open", json!({"path": "work"}));
+    let collection = call(&automation, "collection_create", json!({"name": "WS"}))["collection"].as_str().unwrap().to_string();
+    let request = call(&automation, "request_create", json!({"collection": collection, "kind": "websocket", "name": "Echo"}))["request"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    call(
+        &automation,
+        "request_update",
+        json!({"collection": collection, "request": request, "definition": {"type": "webSocket", "url": server.url()}}),
+    );
+    let session = call(&automation, "ws_connect", json!({"collection": collection, "request": request}))["session"].as_str().unwrap().to_string();
+    let open = wait_ws(&automation, &session, 0, |events| events.iter().any(|event| event["kind"] == "open"));
+    assert!(!open.is_empty());
+    call(&automation, "ws_send", json!({"session": session, "text": "hello"}));
+    let events = wait_ws(&automation, &session, 0, |events| events.iter().any(|event| event["direction"] == "received" && event["text"] == "hello"));
+    assert!(events.iter().any(|event| event["direction"] == "sent" && event["text"] == "hello"));
+    call(&automation, "ws_disconnect", json!({"session": session, "code": 1000, "reason": "done"}));
+}
+
+fn wait_ws(automation: &Automation, session: &str, since: u64, done: impl Fn(&[Value]) -> bool) -> Vec<Value> {
+    for _ in 0..200 {
+        let result = call(automation, "ws_messages", json!({"session": session, "since": since}));
+        let events = result["events"].as_array().cloned().unwrap_or_default();
+        if done(&events) {
+            return events;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("WebSocket events did not arrive");
+}
+
+#[test]
 fn imports_go_through_the_report_and_the_workspace() {
     let dir = tempfile::tempdir().expect("tempdir");
     let automation = automation_in(dir.path());

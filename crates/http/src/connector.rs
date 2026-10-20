@@ -40,6 +40,7 @@ impl ConnectTimings {
 #[derive(Debug, Clone)]
 pub struct ConnectorConfig {
     pub tls: TlsMode,
+    pub client_identity: Option<crate::tls::ClientIdentity>,
     /// Connect timeout per phase group (DNS+TCP+TLS share one deadline budget).
     pub connect_timeout: Duration,
     /// ALPN preference for HTTPS connections.
@@ -52,6 +53,7 @@ impl Default for ConnectorConfig {
     fn default() -> Self {
         ConnectorConfig {
             tls: TlsMode::default(),
+            client_identity: None,
             connect_timeout: Duration::from_secs(30),
             alpn: vec![b"h2".to_vec(), b"http/1.1".to_vec()],
             proxy: ProxyPolicy::new(postguy_model::ProxySettings::default()),
@@ -229,7 +231,8 @@ impl tower_service::Service<Uri> for TimedConnector {
             let (stream, http2) = if tls_required {
                 let tls_started = Instant::now();
                 let alpn: Vec<&[u8]> = config.alpn.iter().map(Vec::as_slice).collect();
-                let client_config = tls::client_config(&config.tls, &alpn).map_err(|reason| HttpError::Config { reason })?;
+                let client_config =
+                    tls::client_config(&config.tls, &alpn, config.client_identity.as_ref()).map_err(|reason| HttpError::Config { reason })?;
                 let server_name = rustls::pki_types::ServerName::try_from(host.clone())
                     .map_err(|_| HttpError::Tls { host: host.clone(), reason: "invalid server name for TLS".to_string() })?;
                 let connector = TlsConnector::from(Arc::new(client_config));

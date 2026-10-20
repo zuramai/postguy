@@ -107,6 +107,7 @@ impl RequestSpec {
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
     pub tls: TlsMode,
+    pub client_identity: Option<crate::tls::ClientIdentity>,
     pub version: HttpVersionPreference,
     pub connect_timeout: Duration,
     /// Proxy settings (PROMPT.md 5.5); the environment is read once here.
@@ -117,6 +118,7 @@ impl Default for ClientConfig {
     fn default() -> Self {
         ClientConfig {
             tls: TlsMode::default(),
+            client_identity: None,
             version: HttpVersionPreference::Auto,
             connect_timeout: Duration::from_secs(30),
             proxy: postguy_model::ProxySettings::default(),
@@ -189,8 +191,13 @@ impl Client {
             HttpVersionPreference::Http2 => vec![b"h2".to_vec()],
         };
         let proxy = ProxyPolicy::new(config.proxy.clone());
-        let connector =
-            TimedConnector::new(ConnectorConfig { tls: config.tls.clone(), connect_timeout: config.connect_timeout, alpn, proxy: proxy.clone() });
+        let connector = TimedConnector::new(ConnectorConfig {
+            tls: config.tls.clone(),
+            client_identity: config.client_identity.clone(),
+            connect_timeout: config.connect_timeout,
+            alpn,
+            proxy: proxy.clone(),
+        });
         let mut builder = LegacyClient::builder(TokioExecutor::new());
         builder
             .pool_timer(hyper_util::rt::TokioTimer::new())

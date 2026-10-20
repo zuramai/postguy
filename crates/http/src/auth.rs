@@ -129,6 +129,27 @@ pub fn apply_auth(config: &AuthConfig, spec: &mut RequestSpec) -> Result<AuthPla
                 Ok(AuthPlacement::Query)
             }
         }
+        AuthConfig::OAuth2(auth) => {
+            if auth.access_token.is_empty() {
+                return Err(HttpError::Auth { kind: "oauth2".into(), reason: "no access token; run the authorization flow first".into() });
+            }
+            if auth.access_token_expires_at_ms > 0 && auth.access_token_expires_at_ms <= postguy_util::time::now_unix_ms() {
+                return Err(HttpError::Auth { kind: "oauth2".into(), reason: "the access token has expired; refresh it first".into() });
+            }
+            match auth.location {
+                postguy_model::auth::OAuth2Location::Header => {
+                    let prefix = if auth.header_prefix.is_empty() { "Bearer" } else { auth.header_prefix.as_str() };
+                    let value = if prefix.trim().is_empty() { auth.access_token.clone() } else { format!("{prefix} {}", auth.access_token) };
+                    set_header(spec, "Authorization", value);
+                    Ok(AuthPlacement::Header)
+                }
+                postguy_model::auth::OAuth2Location::Url => {
+                    let name = if auth.token_name.is_empty() { "access_token" } else { auth.token_name.as_str() };
+                    append_query(spec, name, &auth.access_token);
+                    Ok(AuthPlacement::Query)
+                }
+            }
+        }
         AuthConfig::Hawk(auth) => {
             let value =
                 postguy_auth::hawk::authorization(auth, spec.method.as_str(), &spec.url, &spec.body, postguy_auth::now_secs()).map_err(auth_error)?;
@@ -348,6 +369,25 @@ mod tests {
         )
         .expect("hawk");
         assert!(spec.headers.iter().any(|(name, value)| name == "Authorization" && value.starts_with("Hawk ")));
+    }
+
+    #[test]
+    fn oauth2_access_token_goes_to_the_header_or_url_and_rejects_expiry() {
+        let mut auth = postguy_model::auth::OAuth2Auth { access_token: "abc".into(), ..postguy_model::auth::OAuth2Auth::default() };
+        let mut spec = spec_with("http://example.com/");
+        apply_auth(&AuthConfig::OAuth2(Box::new(auth.clone())), &mut spec).expect("oauth2");
+        assert!(spec.headers.iter().any(|(name, value)| name == "Authorization" && value == "Bearer abc"));
+
+        auth.location = postguy_model::auth::OAuth2Location::Url;
+        auth.token_name = "access".into();
+        let mut spec = spec_with("http://example.com/a?x=1");
+        apply_auth(&AuthConfig::OAuth2(Box::new(auth.clone())), &mut spec).expect("query");
+        assert_eq!(spec.url, "http://example.com/a?x=1&access=abc");
+
+        auth.access_token_expires_at_ms = 1;
+        let mut spec = spec_with("http://example.com/");
+        let error = apply_auth(&AuthConfig::OAuth2(Box::new(auth)), &mut spec).expect_err("expired");
+        assert!(error.to_string().contains("expired"), "{error}");
     }
 
     #[test]

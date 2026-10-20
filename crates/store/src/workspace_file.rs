@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use postguy_model::{Collection, Environment, Folder, HistoryEntry, Id, Variable};
+use postguy_model::{AuthConfig, Collection, Environment, Folder, HistoryEntry, Id, Item, RequestKind, Variable};
 use postguy_util::{Result, atomic_write, read_file_capped};
 use serde::{Deserialize, Serialize};
 
@@ -417,11 +417,22 @@ fn rehydrate_variables(variables: &mut [Variable], owner: &str, secrets: &Secret
 fn split_collection_variables(collection: &mut Collection, secrets: &SecretsStore) -> Result<()> {
     let owner = collection.id.0.clone();
     split_variables(&mut collection.variables, &owner, secrets)?;
-    let mut stack: Vec<&mut Folder> = collection.items.iter_mut().filter_map(|item| item.folders_mut()).collect();
-    while let Some(folder) = stack.pop() {
-        let owner = folder.id.0.clone();
-        split_variables(&mut folder.variables, &owner, secrets)?;
-        stack.extend(folder.items.iter_mut().filter_map(|item| item.folders_mut()));
+    split_auth_tokens(&mut collection.auth, &owner, secrets)?;
+    let mut stack: Vec<&mut Item> = collection.items.iter_mut().collect();
+    while let Some(item) = stack.pop() {
+        match item {
+            Item::Folder(folder) => {
+                let owner = folder.id.0.clone();
+                split_variables(&mut folder.variables, &owner, secrets)?;
+                split_auth_tokens(&mut folder.auth, &owner, secrets)?;
+                stack.extend(folder.items.iter_mut());
+            }
+            Item::Request(request) => {
+                if let RequestKind::Http(http) = &mut request.kind {
+                    split_oauth2(&mut http.auth, &request.id.0, secrets)?;
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -430,11 +441,67 @@ fn split_collection_variables(collection: &mut Collection, secrets: &SecretsStor
 fn rehydrate_collection_variables(collection: &mut Collection, secrets: &SecretsStore) -> Result<()> {
     let owner = collection.id.0.clone();
     rehydrate_variables(&mut collection.variables, &owner, secrets)?;
-    let mut stack: Vec<&mut Folder> = collection.items.iter_mut().filter_map(|item| item.folders_mut()).collect();
-    while let Some(folder) = stack.pop() {
-        let owner = folder.id.0.clone();
-        rehydrate_variables(&mut folder.variables, &owner, secrets)?;
-        stack.extend(folder.items.iter_mut().filter_map(|item| item.folders_mut()));
+    rehydrate_auth_tokens(&mut collection.auth, &owner, secrets)?;
+    let mut stack: Vec<&mut Item> = collection.items.iter_mut().collect();
+    while let Some(item) = stack.pop() {
+        match item {
+            Item::Folder(folder) => {
+                let owner = folder.id.0.clone();
+                rehydrate_variables(&mut folder.variables, &owner, secrets)?;
+                rehydrate_auth_tokens(&mut folder.auth, &owner, secrets)?;
+                stack.extend(folder.items.iter_mut());
+            }
+            Item::Request(request) => {
+                if let RequestKind::Http(http) = &mut request.kind {
+                    rehydrate_oauth2(&mut http.auth, &request.id.0, secrets)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// OAuth 2.0 access/refresh tokens are credentials: the collection file keeps only the rest of
+/// the auth block, while the values live in the owner-only secrets store.
+fn split_auth_tokens(auth: &mut Option<AuthConfig>, owner: &str, secrets: &SecretsStore) -> Result<()> {
+    if let Some(auth) = auth {
+        split_oauth2(auth, owner, secrets)?;
+    }
+    Ok(())
+}
+
+fn split_oauth2(auth: &mut AuthConfig, owner: &str, secrets: &SecretsStore) -> Result<()> {
+    let AuthConfig::OAuth2(oauth2) = auth else { return Ok(()) };
+    for (field, value) in [("oauth2.access", &mut oauth2.access_token), ("oauth2.refresh", &mut oauth2.refresh_token)] {
+        if value.is_empty() {
+            secrets.set(owner, field, None)?;
+        } else {
+            secrets.set(owner, field, Some(value))?;
+            value.clear();
+        }
+    }
+    Ok(())
+}
+
+fn rehydrate_auth_tokens(auth: &mut Option<AuthConfig>, owner: &str, secrets: &SecretsStore) -> Result<()> {
+    if let Some(auth) = auth {
+        rehydrate_oauth2(auth, owner, secrets)?;
+    }
+    Ok(())
+}
+
+fn rehydrate_oauth2(auth: &mut AuthConfig, owner: &str, secrets: &SecretsStore) -> Result<()> {
+    let AuthConfig::OAuth2(oauth2) = auth else { return Ok(()) };
+    let stored = secrets.values_for(owner)?;
+    if oauth2.access_token.is_empty()
+        && let Some(value) = stored.get("oauth2.access")
+    {
+        oauth2.access_token.clone_from(value);
+    }
+    if oauth2.refresh_token.is_empty()
+        && let Some(value) = stored.get("oauth2.refresh")
+    {
+        oauth2.refresh_token.clone_from(value);
     }
     Ok(())
 }

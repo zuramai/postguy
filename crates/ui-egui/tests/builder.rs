@@ -24,6 +24,7 @@ struct State {
 fn harness() -> Harness<'static, State> {
     Harness::new_ui_state(
         |ui, state: &mut State| {
+            let mut oauth2_action = None;
             let mut builder = RequestBuilder {
                 name: &mut state.name,
                 description: &mut state.description,
@@ -36,8 +37,11 @@ fn harness() -> Harness<'static, State> {
                 sending: None,
                 undo_paste: state.undo_paste,
                 inherited_auth: state.inherited.as_deref(),
+                oauth2_action: &mut oauth2_action,
+                graphql_schema: None,
             };
-            state.action = builder.show(ui);
+            let action = builder.show(ui);
+            state.action = if let Some(action) = oauth2_action { Some(BuilderAction::OAuth2(action)) } else { action };
             if state.action.is_some() {
                 state.last = state.action.clone();
             }
@@ -117,6 +121,30 @@ fn advanced_auth_types_switch_and_show_their_fields() {
     assert!(matches!(aws_harness.state().draft.auth, AuthConfig::AwsV4(_)));
     assert!(aws_harness.query_by_label("Access key").is_some());
     assert!(aws_harness.query_by_label("Region").is_some());
+
+    let mut oauth_harness = harness();
+    oauth_harness.run();
+    oauth_harness.get_by_label("Authorization").click();
+    oauth_harness.run();
+    oauth_harness.get_by_label_contains("Inherit").click();
+    oauth_harness.run();
+    oauth_harness.get_by_label_contains("OAuth 2.0").click();
+    oauth_harness.run();
+    assert!(matches!(oauth_harness.state().draft.auth, AuthConfig::OAuth2(_)));
+    assert!(oauth_harness.query_by_label("Get New Access Token").is_some());
+    oauth_harness.get_by_label("Get New Access Token").click_accesskit();
+    oauth_harness.run();
+    assert_eq!(oauth_harness.state().last, Some(BuilderAction::OAuth2(postguy_ui_egui::auth::OAuth2Action::Grant)));
+
+    let mut gql_harness = harness();
+    gql_harness.state_mut().draft.body =
+        Body::GraphQL { query: "query { __typename }".into(), variables: "{}".into(), operation_name: None, extras: Default::default() };
+    gql_harness.run();
+    gql_harness.get_by_label("Body").click();
+    gql_harness.run();
+    gql_harness.get_by_label("Refresh schema").click();
+    gql_harness.run();
+    assert_eq!(gql_harness.state().last, Some(BuilderAction::IntrospectGraphql));
 }
 
 #[test]

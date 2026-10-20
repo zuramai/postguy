@@ -82,9 +82,7 @@ impl SettingsEditor<'_> {
                     }
                     ui.label(RichText::new("Import data (zip or folder) and Export all data arrive in M4.").color(theme.palette.text_muted));
                 }
-                SettingsSection::Certificates => {
-                    ui.label(RichText::new("Client certificates and custom CA bundles arrive with M5.").color(theme.palette.text_muted));
-                }
+                SettingsSection::Certificates => changed |= certificates(ui, self.settings),
                 SettingsSection::Proxy => changed |= proxy(ui, self.settings),
                 SettingsSection::About => {
                     ui.label(RichText::new(format!("Postguy {}", env!("CARGO_PKG_VERSION"))).strong());
@@ -103,6 +101,37 @@ impl SettingsEditor<'_> {
             None
         }
     }
+}
+
+fn certificates(ui: &mut Ui, settings: &mut Settings) -> bool {
+    let theme = UiTheme::current(ui.ctx());
+    let mut changed = false;
+    ui.label(RichText::new("Server trust").strong());
+    ui.label("Custom CA bundle (PEM)");
+    changed |= ui.add(egui::TextEdit::singleline(&mut settings.ca_bundle_path).hint_text("/path/to/ca.pem").desired_width(360.0)).changed();
+    ui.label(
+        RichText::new("Added to the OS trust store for every request; leave empty to use the system roots only.")
+            .small()
+            .color(theme.palette.text_muted),
+    );
+    ui.add_space(12.0);
+    ui.label(RichText::new("Client certificate").strong());
+    ui.label("Certificate chain (PEM)");
+    changed |= ui.add(egui::TextEdit::singleline(&mut settings.client_cert_path).hint_text("/path/to/client.pem").desired_width(360.0)).changed();
+    ui.label("Private key (PEM, PKCS#8/PKCS#1/SEC1)");
+    changed |= ui.add(egui::TextEdit::singleline(&mut settings.client_key_path).hint_text("/path/to/client.key").desired_width(360.0)).changed();
+    ui.label(
+        RichText::new("Used for HTTPS requests that ask for a client certificate. Encrypted keys and PFX files are not supported yet.")
+            .small()
+            .color(theme.palette.text_muted),
+    );
+    ui.add_space(12.0);
+    ui.label(RichText::new("SSL verification").strong());
+    changed |= widgets::switch(ui, &mut settings.verify_ssl, "Enable SSL certificate verification").changed();
+    if !settings.verify_ssl {
+        ui.label(RichText::new("Verification is off: responses are encrypted but unauthenticated.").color(theme.palette.warning));
+    }
+    changed
 }
 
 fn shortcuts(ui: &mut Ui) {

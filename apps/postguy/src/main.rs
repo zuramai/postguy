@@ -11,9 +11,15 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use egui::{Align, Layout, vec2};
-use postguy_engine::{Cancel, CollectionFormat, Engine, ImportKind, ImportOptions, ImportOutcome, SendOptions, SendTarget};
+use postguy_auth::oauth2::TokenResponse;
+use postguy_engine::ws_session::WsEventView;
+use postguy_engine::{
+    Cancel, CollectionFormat, Engine, ImportKind, ImportOptions, ImportOutcome, OAuth2Callback, SendOptions, SendTarget, StoredToken,
+};
+use postguy_model::auth::{OAuth2Auth, OAuth2Grant};
 use postguy_model::{Collection, Environment, HttpRequest, Id, Item, Request, RequestKind};
 use postguy_store::{StorePaths, config_dir};
+use postguy_ui_egui::auth::OAuth2Action;
 use postguy_ui_egui::builder::{BodyDrafts, BuilderAction, BuilderTab, RequestBuilder, SendProgress};
 use postguy_ui_egui::collection::{CollectionAction, CollectionDetail, DetailState};
 use postguy_ui_egui::commands::CommandAction;
@@ -85,6 +91,28 @@ struct RequestEditor {
     undo_paste: Option<HttpRequest>,
     /// The auth kind inherited through folders/collection (None = no auth).
     inherited_auth: Option<String>,
+    /// Types/fields returned by the last GraphQL introspection.
+    graphql_schema: Option<Vec<String>>,
+}
+
+struct WsEditor {
+    collection: String,
+    request: Request,
+    draft: postguy_model::WsRequest,
+    dirty: bool,
+    session: Option<String>,
+    connected: bool,
+    events: Vec<WsEventView>,
+    last_seq: u64,
+    message: String,
+    error: Option<String>,
+}
+
+enum WsUiAction {
+    Connect,
+    Disconnect,
+    Send,
+    Save,
 }
 
 struct DetailEditorState {
@@ -172,6 +200,10 @@ struct App {
     export_request: Option<ExportRequest>,
     export_save: Option<std::pin::Pin<Box<dyn std::future::Future<Output = Option<PathBuf>>>>>,
     export_job: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
+    oauth2_job: Option<(u64, std::sync::mpsc::Receiver<Result<TokenResponse, String>>)>,
+    oauth2_browser: Option<(u64, OAuth2Auth, OAuth2Callback)>,
+    graphql_jobs: BTreeMap<u64, std::sync::mpsc::Receiver<Result<Vec<String>, String>>>,
+    ws_editors: BTreeMap<u64, WsEditor>,
     pending_clipboard: Option<String>,
 }
 
@@ -211,6 +243,10 @@ impl App {
                     export_save: None,
                     export_job: None,
                     pending_clipboard: None,
+                    oauth2_job: None,
+                    oauth2_browser: None,
+                    graphql_jobs: BTreeMap::new(),
+                    ws_editors: BTreeMap::new(),
                 };
                 app.shell.settings_value = app.engine.as_ref().map(|engine| engine.settings()).unwrap_or_default();
                 app.refresh();
@@ -249,6 +285,10 @@ impl App {
                     export_save: None,
                     export_job: None,
                     pending_clipboard: None,
+                    oauth2_job: None,
+                    oauth2_browser: None,
+                    graphql_jobs: BTreeMap::new(),
+                    ws_editors: BTreeMap::new(),
                 }
             }
         }
@@ -419,6 +459,212 @@ impl App {
             "consoleRows": self.shell.console_rows.len(),
             "engine": self.engine.is_some(),
         })
+    }
+
+    fn start_oauth2(&mut self, tab_id: u64, action: OAuth2Action) {
+        let Some(editor) = self.editors.get(&tab_id) else { return };
+        let postguy_model::AuthConfig::OAuth2(auth) = &editor.draft.auth else {
+            self.shell.state.status = "OAuth 2.0: the request auth is not OAuth 2.0".into();
+            return;
+        };
+        let auth = (**auth).clone();
+        if self.oauth2_job.is_some() || self.oauth2_browser.is_some() {
+            self.shell.state.status = "OAuth 2.0: a token flow is already running".into();
+            return;
+        }
+        match action {
+            OAuth2Action::Refresh => {
+                if auth.refresh_token.is_empty() {
+                    self.shell.state.status = "OAuth 2.0: there is no refresh token".into();
+                    return;
+                }
+                self.spawn_oauth2_job(tab_id, move |engine| engine.oauth2_refresh(&auth, &auth.refresh_token).map_err(|err| err.to_string()));
+            }
+            OAuth2Action::Grant => match auth.grant_type {
+                OAuth2Grant::ClientCredentials | OAuth2Grant::PasswordCredentials => {
+                    self.spawn_oauth2_job(tab_id, move |engine| engine.oauth2_grant(&auth).map_err(|err| err.to_string()));
+                }
+                OAuth2Grant::AuthorizationCode | OAuth2Grant::AuthorizationCodeWithPkce => {
+                    let method = auth.pkce.as_ref().map(|pkce| pkce.method).unwrap_or_default();
+                    let callback = match OAuth2Callback::start(method) {
+                        Ok(callback) => callback,
+                        Err(err) => {
+                            self.shell.state.status = err.to_string();
+                            return;
+                        }
+                    };
+                    let challenge = auth
+                        .grant_type
+                        .eq(&OAuth2Grant::AuthorizationCodeWithPkce)
+                        .then(|| postguy_auth::oauth2::challenge_for(&callback.verifier, method));
+                    let mut auth = auth;
+                    auth.callback_url = callback.redirect_uri.clone();
+                    let url = match postguy_auth::oauth2::authorize_url(&auth, &callback.redirect_uri, &callback.state, challenge.as_deref()) {
+                        Ok(url) => url,
+                        Err(err) => {
+                            self.shell.state.status = err.to_string();
+                            return;
+                        }
+                    };
+                    if let Err(err) = postguy_platform::open_url(&url) {
+                        self.shell.state.status = err;
+                        return;
+                    }
+                    self.shell.state.status = "OAuth 2.0: waiting for browser authorization…".into();
+                    self.oauth2_browser = Some((tab_id, auth, callback));
+                }
+                OAuth2Grant::Implicit => {
+                    self.shell.state.status = "OAuth 2.0 implicit: the browser redirect carries the token in a fragment this callback cannot read; use the authorization-code grant".into();
+                }
+            },
+        }
+    }
+
+    fn spawn_oauth2_job(&mut self, tab_id: u64, work: impl FnOnce(&Engine) -> Result<TokenResponse, String> + Send + 'static) {
+        let Some(engine) = self.engine.clone() else {
+            self.shell.state.status = "no workspace is open".into();
+            return;
+        };
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.oauth2_job = Some((tab_id, receiver));
+        self.shell.state.status = "OAuth 2.0: requesting a token…".into();
+        std::thread::Builder::new()
+            .name("postguy-oauth2".into())
+            .spawn(move || {
+                let result = work(&engine);
+                let _ = sender.send(result);
+            })
+            .ok();
+    }
+
+    fn poll_oauth2(&mut self, ctx: &egui::Context) {
+        let callback_result = self.oauth2_browser.as_ref().and_then(|(_, _, callback)| callback.try_code());
+        if let Some(result) = callback_result
+            && let Some((tab, auth, callback)) = self.oauth2_browser.take()
+        {
+            match result {
+                Ok(code) => {
+                    let verifier = callback.verifier.clone();
+                    let pkce_grant = auth.grant_type == OAuth2Grant::AuthorizationCodeWithPkce;
+                    self.spawn_oauth2_job(tab, move |engine| {
+                        engine.oauth2_exchange_code(&auth, &code, pkce_grant.then_some(verifier.as_str())).map_err(|err| err.to_string())
+                    });
+                }
+                Err(err) => self.shell.state.status = format!("OAuth 2.0: {err}"),
+            }
+        }
+        if self.oauth2_browser.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
+        if let Some((tab, receiver)) = self.oauth2_job.take() {
+            match receiver.try_recv() {
+                Ok(Ok(token)) => self.apply_oauth2_token(tab, token),
+                Ok(Err(err)) => self.shell.state.status = format!("OAuth 2.0: {err}"),
+                Err(std::sync::mpsc::TryRecvError::Empty) => self.oauth2_job = Some((tab, receiver)),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.shell.state.status = "OAuth 2.0: the token worker stopped".into(),
+            }
+        }
+    }
+
+    fn apply_oauth2_token(&mut self, tab: u64, token: TokenResponse) {
+        let now = postguy_util::time::now_unix_ms();
+        let expires_at_ms =
+            token.expires_in.map(|seconds| now.saturating_add(i64::try_from(seconds.saturating_mul(1000)).unwrap_or(i64::MAX))).unwrap_or(0);
+        let Some(editor) = self.editors.get_mut(&tab) else { return };
+        let postguy_model::AuthConfig::OAuth2(auth) = &mut editor.draft.auth else { return };
+        auth.access_token = token.access_token.clone();
+        if !token.refresh_token.is_empty() {
+            auth.refresh_token = token.refresh_token.clone();
+        }
+        auth.access_token_expires_at_ms = expires_at_ms;
+        if !token.scope.is_empty() {
+            auth.scope = token.scope.clone();
+        }
+        editor.dirty = true;
+        self.shell.tabs.set_dirty(tab, true);
+        let owner = editor.request.id.0.clone();
+        let stored = StoredToken {
+            access_token: token.access_token,
+            refresh_token: auth.refresh_token.clone(),
+            token_type: token.token_type,
+            scope: auth.scope.clone(),
+            expires_at_ms,
+        };
+        let store_error = self.engine.as_ref().and_then(|engine| engine.oauth2_store_token(&owner, &stored).err().map(|err| err.to_string()));
+        self.shell.state.status = match store_error {
+            Some(err) => format!("OAuth 2.0 token received, but storing it failed: {err}"),
+            None => "OAuth 2.0 token received".into(),
+        };
+    }
+
+    fn start_graphql_introspection(&mut self, tab_id: u64) {
+        let Some(editor) = self.editors.get(&tab_id) else { return };
+        if editor.draft.url.trim().is_empty() {
+            self.shell.state.status = "GraphQL introspection needs the request URL".into();
+            return;
+        }
+        let Some(engine) = self.engine.clone() else {
+            self.shell.state.status = "no workspace is open".into();
+            return;
+        };
+        let mut request = editor.draft.clone();
+        request.method = postguy_model::HttpMethod::Post;
+        if !request.headers.iter().any(|row| row.enabled && row.key.eq_ignore_ascii_case("content-type")) {
+            request.headers.push(postguy_model::KeyValue {
+                key: "Content-Type".into(),
+                value: "application/json".into(),
+                ..postguy_model::KeyValue::default()
+            });
+        }
+        request.body = postguy_model::Body::Raw {
+            language: postguy_model::RawLanguage::Json,
+            text: serde_json::json!({"query": GRAPHQL_INTROSPECTION_QUERY}).to_string(),
+            extras: Default::default(),
+        };
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.graphql_jobs.insert(tab_id, receiver);
+        self.shell.state.status = "GraphQL: refreshing schema…".into();
+        std::thread::Builder::new()
+            .name("postguy-graphql".into())
+            .spawn(move || {
+                let result = engine
+                    .send(SendTarget::Inline { request: Box::new(request), name: "GraphQL introspection".into() }, SendOptions::default())
+                    .map_err(|err| err.to_string())
+                    .and_then(|outcome| {
+                        if !(200..300).contains(&outcome.response.status) {
+                            Err(format!("schema request returned HTTP {}", outcome.response.status))
+                        } else {
+                            graphql_schema_types(&outcome.response.body)
+                        }
+                    });
+                let _ = sender.send(result);
+            })
+            .ok();
+    }
+
+    fn poll_graphql(&mut self) {
+        let tabs: Vec<u64> = self.graphql_jobs.keys().copied().collect();
+        for tab in tabs {
+            let Some(receiver) = self.graphql_jobs.get(&tab) else { continue };
+            match receiver.try_recv() {
+                Ok(Ok(schema)) => {
+                    self.graphql_jobs.remove(&tab);
+                    if let Some(editor) = self.editors.get_mut(&tab) {
+                        self.shell.state.status = format!("GraphQL schema refreshed: {} types", schema.len());
+                        editor.graphql_schema = Some(schema);
+                    }
+                }
+                Ok(Err(err)) => {
+                    self.graphql_jobs.remove(&tab);
+                    self.shell.state.status = format!("GraphQL introspection failed: {err}");
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.graphql_jobs.remove(&tab);
+                    self.shell.state.status = "GraphQL introspection worker stopped".into();
+                }
+            }
+        }
     }
 
     fn open_export(&mut self, target: ExportTarget) {
@@ -891,8 +1137,13 @@ impl App {
                 let parent_id = parent.as_ref().map(|id| Id(id.clone()));
                 let collection_id = Id(collection.clone());
                 let request = engine.create_request(&collection_id, parent_id.as_ref(), protocol, "New Request").map_err(|err| err.to_string())?;
+                let method = match protocol {
+                    "grpc" => "gRPC",
+                    "websocket" => "WS",
+                    _ => "GET",
+                };
                 self.shell.tabs.open(
-                    TabDoc::Request { collection, request: request.id.0.clone(), method: "GET".into(), protocol: "http".into() },
+                    TabDoc::Request { collection, request: request.id.0.clone(), method: method.into(), protocol: protocol.into() },
                     request.name.clone(),
                 );
                 Ok("Created request".into())
@@ -1174,12 +1425,138 @@ impl App {
             let tab = stored.as_ref().map(|stored| stored.tab).unwrap_or_default();
             let dirty = self.shell.tabs.tabs.iter().find(|tab| tab.id == tab_id).is_some_and(|tab| tab.dirty);
             let inherited_auth = engine.inherited_auth_kind(&Id(collection.clone()), &Id(request_id.clone())).ok().flatten();
-            self.editors
-                .insert(tab_id, RequestEditor { collection, request, draft, description, bodies, dirty, tab, undo_paste: None, inherited_auth });
+            self.editors.insert(
+                tab_id,
+                RequestEditor { collection, request, draft, description, bodies, dirty, tab, undo_paste: None, inherited_auth, graphql_schema: None },
+            );
         }
     }
 
     /// Load editor state for Environment and Globals tabs, and drop it with closed tabs.
+    fn sync_ws_editors(&mut self) {
+        let Some(engine) = self.engine.clone() else { return };
+        let websocket_tabs: Vec<(u64, String, String)> = self
+            .shell
+            .tabs
+            .tabs
+            .iter()
+            .filter_map(|tab| match &tab.doc {
+                TabDoc::Request { collection, request, protocol, .. } if protocol == "websocket" => {
+                    Some((tab.id, collection.clone(), request.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        self.ws_editors.retain(|id, _| websocket_tabs.iter().any(|(tab, _, _)| tab == id));
+        for (tab_id, collection, request_id) in websocket_tabs {
+            if self.ws_editors.contains_key(&tab_id) {
+                continue;
+            }
+            let Some(request) = engine.request(&Id(collection.clone()), &Id(request_id.clone())).ok() else { continue };
+            let postguy_model::RequestKind::WebSocket(ws) = &request.kind else { continue };
+            let draft = ws.clone();
+            self.ws_editors.insert(
+                tab_id,
+                WsEditor {
+                    collection,
+                    request,
+                    draft,
+                    dirty: false,
+                    session: None,
+                    connected: false,
+                    events: Vec::new(),
+                    last_seq: 0,
+                    message: String::new(),
+                    error: None,
+                },
+            );
+        }
+    }
+
+    fn poll_ws(&mut self) {
+        let Some(engine) = self.engine.clone() else { return };
+        for editor in self.ws_editors.values_mut() {
+            let Some(session) = &editor.session else { continue };
+            match engine.ws_events(session, editor.last_seq) {
+                Ok(events) => {
+                    if let Some(last) = events.last() {
+                        editor.last_seq = last.seq;
+                    }
+                    editor.events.extend(events);
+                    while editor.events.len() > 10_000 {
+                        editor.events.remove(0);
+                    }
+                }
+                Err(err) => editor.error = Some(err.to_string()),
+            }
+            match engine.ws_connected(session) {
+                Ok(connected) => editor.connected = connected,
+                Err(err) => editor.error = Some(err.to_string()),
+            }
+        }
+    }
+
+    fn apply_ws_action(&mut self, tab_id: u64, action: WsUiAction) {
+        let Some(engine) = self.engine.clone() else { return };
+        match action {
+            WsUiAction::Connect => {
+                let Some(editor) = self.ws_editors.get_mut(&tab_id) else { return };
+                editor.error = None;
+                let mut request = editor.request.clone();
+                request.kind = RequestKind::WebSocket(editor.draft.clone());
+                if let Err(err) = engine.save_request(&Id(editor.collection.clone()), &request) {
+                    editor.error = Some(err.to_string());
+                    return;
+                }
+                editor.request = request;
+                editor.dirty = false;
+                match engine.ws_connect_saved(&Id(editor.collection.clone()), &editor.request.id) {
+                    Ok(session) => {
+                        editor.session = Some(session);
+                        editor.events.clear();
+                        editor.last_seq = 0;
+                        editor.connected = false;
+                        self.shell.state.status = "WebSocket connecting…".into();
+                    }
+                    Err(err) => editor.error = Some(err.to_string()),
+                }
+                self.shell.tabs.set_dirty(tab_id, false);
+            }
+            WsUiAction::Disconnect => {
+                if let Some(editor) = self.ws_editors.get_mut(&tab_id)
+                    && let Some(session) = editor.session.take()
+                {
+                    let _ = engine.ws_disconnect(&session, 1000, "client disconnect".into());
+                    editor.connected = false;
+                }
+            }
+            WsUiAction::Send => {
+                let Some(editor) = self.ws_editors.get_mut(&tab_id) else { return };
+                let Some(session) = &editor.session else {
+                    editor.error = Some("connect first".into());
+                    return;
+                };
+                if let Err(err) = engine.ws_send_text(session, editor.message.clone()) {
+                    editor.error = Some(err.to_string());
+                }
+            }
+            WsUiAction::Save => {
+                let Some(editor) = self.ws_editors.get_mut(&tab_id) else { return };
+                let mut request = editor.request.clone();
+                request.kind = RequestKind::WebSocket(editor.draft.clone());
+                match engine.save_request(&Id(editor.collection.clone()), &request) {
+                    Ok(()) => {
+                        editor.request = request;
+                        editor.dirty = false;
+                        self.shell.tabs.set_dirty(tab_id, false);
+                        self.shell.state.status = "Saved".into();
+                    }
+                    Err(err) => editor.error = Some(err.to_string()),
+                }
+            }
+        }
+    }
+
     fn sync_env_editors(&mut self) {
         let Some(engine) = self.engine.clone() else { return };
         let open: Vec<(u64, bool, Option<String>)> = self
@@ -1528,6 +1905,8 @@ impl App {
             BuilderAction::Send { download } => {
                 self.start_send(tab_id, download);
             }
+            BuilderAction::OAuth2(action) => self.start_oauth2(tab_id, action),
+            BuilderAction::IntrospectGraphql => self.start_graphql_introspection(tab_id),
             BuilderAction::Cancel => {
                 if let Some(sending) = &self.sending {
                     sending.cancel.cancel();
@@ -1935,6 +2314,98 @@ fn validate_tabs(tabs: &mut Tabs, data: &SidebarData) -> usize {
     })
 }
 
+const GRAPHQL_INTROSPECTION_QUERY: &str = "query IntrospectionQuery { __schema { types { name kind fields { name } } } }";
+
+fn graphql_schema_types(body: &[u8]) -> Result<Vec<String>, String> {
+    let value: serde_json::Value = serde_json::from_slice(body).map_err(|err| format!("schema response is not JSON: {err}"))?;
+    let types = value
+        .get("data")
+        .and_then(|data| data.get("__schema"))
+        .and_then(|schema| schema.get("types"))
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "schema response has no data.__schema.types".to_string())?;
+    let mut out = Vec::new();
+    for kind in types {
+        let name = kind.get("name").and_then(serde_json::Value::as_str).unwrap_or_default();
+        if name.is_empty() {
+            continue;
+        }
+        let fields = kind
+            .get("fields")
+            .and_then(serde_json::Value::as_array)
+            .map(|fields| fields.iter().filter_map(|field| field.get("name").and_then(serde_json::Value::as_str)).collect::<Vec<_>>().join(", "))
+            .unwrap_or_default();
+        out.push(if fields.is_empty() { name.to_string() } else { format!("{name}: {fields}") });
+        if out.len() >= 5_000 {
+            break;
+        }
+    }
+    Ok(out)
+}
+
+fn ws_panel(ui: &mut egui::Ui, editor: &mut WsEditor) -> Option<WsUiAction> {
+    let theme = postguy_ui_egui::Theme::current(ui.ctx());
+    let mut action = None;
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(&editor.request.name).strong());
+        ui.label(egui::RichText::new("WebSocket").small().color(theme.palette.text_muted));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if editor.connected {
+                if ui.add(egui::Button::new("Disconnect")).clicked() {
+                    action = Some(WsUiAction::Disconnect);
+                }
+            } else if ui.add(egui::Button::new("Connect")).clicked() {
+                action = Some(WsUiAction::Connect);
+            }
+            if editor.dirty && ui.add(egui::Button::new("Save")).clicked() {
+                action = Some(WsUiAction::Save);
+            }
+        });
+    });
+    ui.add_space(4.0);
+    let url = ui.add(egui::TextEdit::singleline(&mut editor.draft.url).hint_text("wss://example.com/socket").desired_width(f32::INFINITY));
+    if url.changed() {
+        editor.dirty = true;
+    }
+    if let Some(error) = &editor.error {
+        ui.label(egui::RichText::new(error).color(theme.palette.danger));
+    }
+    ui.separator();
+    ui.label(egui::RichText::new(if editor.connected { "Connected" } else { "Not connected" }).small().color(theme.palette.text_muted));
+    egui::ScrollArea::vertical().max_height(320.0).stick_to_bottom(true).show(ui, |ui| {
+        for event in editor.events.iter().rev().take(2000) {
+            let text = event.text.as_deref().or(event.detail.as_deref()).unwrap_or_default();
+            let color = match event.direction.as_str() {
+                "sent" => theme.palette.info,
+                "received" => theme.palette.success,
+                _ => theme.palette.text_muted,
+            };
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(format!("{:<8} {:<8}", event.direction, event.kind)).monospace().small().color(color));
+                ui.label(egui::RichText::new(event.seq.to_string()).small().color(theme.palette.text_muted));
+                ui.label(egui::RichText::new(text).monospace().small());
+            });
+        }
+    });
+    ui.separator();
+    ui.horizontal(|ui| {
+        let send = ui.add_enabled(editor.connected, egui::Button::new("Send"));
+        if send.clicked() {
+            action = Some(WsUiAction::Send);
+        }
+        ui.label(egui::RichText::new("Text message").small().color(theme.palette.text_muted));
+    });
+    ui.add(egui::TextEdit::multiline(&mut editor.message).desired_rows(3).desired_width(f32::INFINITY).hint_text("Message"));
+    ui.label(
+        egui::RichText::new(
+            "Headers, subprotocols and reconnect policy are stored in the request; the full composer/timeline lands with the M6.3 polish.",
+        )
+        .small()
+        .color(theme.palette.text_muted),
+    );
+    action
+}
+
 fn import_item(source: &str, outcome: ImportOutcome) -> ImportItemView {
     let kind = match outcome.kind {
         ImportKind::Collection => "collection",
@@ -2059,9 +2530,21 @@ impl eframe::App for App {
         self.poll_import();
         self.poll_import_picker(ui.ctx());
         self.poll_export(ui.ctx());
+        self.poll_oauth2(ui.ctx());
+        self.poll_graphql();
+        self.poll_ws();
         // Sends and background imports/exports finish on other threads; without a repaint the
         // UI would poll only on the next mouse/key event and appear not to have reacted at all.
-        if self.sending.is_some() || self.import_job.is_some() || self.export_job.is_some() || self.import.busy || self.export.busy {
+        if self.sending.is_some()
+            || self.import_job.is_some()
+            || self.export_job.is_some()
+            || self.import.busy
+            || self.export.busy
+            || self.oauth2_job.is_some()
+            || self.oauth2_browser.is_some()
+            || !self.graphql_jobs.is_empty()
+            || self.ws_editors.values().any(|editor| editor.connected || editor.session.is_some())
+        {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
         }
         let dropped: Vec<PathBuf> = ui.ctx().input(|input| input.raw.dropped_files.iter().map(|file| file.path().to_path_buf()).collect());
@@ -2078,6 +2561,7 @@ impl eframe::App for App {
         }
         self.poll_send();
         self.sync_editors();
+        self.sync_ws_editors();
         self.sync_env_editors();
         self.flush_pending_env(false);
         self.sync_detail_editors();
@@ -2118,14 +2602,24 @@ impl eframe::App for App {
             let detail_editors = &mut self.detail_editors;
             let trash_entries = &self.trash_entries;
             let responses = &mut self.responses;
+            let ws_editors = &mut self.ws_editors;
+            let mut ws_action: Option<(u64, WsUiAction)> = None;
             let send_errors = &self.send_errors;
             let viewer_states = &mut self.viewer_states;
             let mut response_action: Option<ResponseAction> = None;
             let mut panel = |ui: &mut egui::Ui, doc: &TabDoc| {
                 let panel_id = active_id?;
                 match doc {
+                    TabDoc::Request { protocol, .. } if protocol == "websocket" => {
+                        let editor = ws_editors.get_mut(&panel_id)?;
+                        if let Some(action) = ws_panel(ui, editor) {
+                            ws_action = Some((panel_id, action));
+                        }
+                        None
+                    }
                     TabDoc::Request { .. } => {
                         let editor = editors.get_mut(&panel_id)?;
+                        let mut oauth2_action = None;
                         let mut builder = RequestBuilder {
                             name: &mut editor.request.name,
                             description: &mut editor.description,
@@ -2138,6 +2632,8 @@ impl eframe::App for App {
                             sending: progress,
                             undo_paste: editor.undo_paste.is_some(),
                             inherited_auth: editor.inherited_auth.as_deref(),
+                            oauth2_action: &mut oauth2_action,
+                            graphql_schema: editor.graphql_schema.as_deref(),
                         };
                         let error = send_errors.get(&panel_id);
                         let response = responses.get_mut(&panel_id);
@@ -2180,7 +2676,13 @@ impl eframe::App for App {
                         } else {
                             builder.show(ui)
                         };
-                        let builder_action = if retry_from_error { Some(BuilderAction::Send { download: false }) } else { builder_action };
+                        let builder_action = if retry_from_error {
+                            Some(BuilderAction::Send { download: false })
+                        } else if let Some(action) = oauth2_action {
+                            Some(BuilderAction::OAuth2(action))
+                        } else {
+                            builder_action
+                        };
                         editor.request.kind = RequestKind::Http(editor.draft.clone());
                         builder_action.map(PanelAction::Builder)
                     }
@@ -2218,8 +2720,12 @@ impl eframe::App for App {
             self.shell.cookie_state = cookie_state;
             self.shell.settings = settings_state;
             self.shell.settings_value = settings_value;
-            result
+            (result, ws_action)
         };
+        let (result, ws_action) = panel_result;
+        if let Some((tab, action)) = ws_action {
+            self.apply_ws_action(tab, action);
+        }
         if let Some(panel_id) = panel_tab
             && let Some(editor) = self.editors.get(&panel_id)
         {
@@ -2243,7 +2749,7 @@ impl eframe::App for App {
         if let Some(request) = postguy_ui_egui::export::export_dialog(ui.ctx(), &mut self.export) {
             self.begin_export(request);
         }
-        if let Some(action) = panel_result {
+        if let Some(action) = result {
             match action {
                 PanelAction::Builder(action) => self.apply_builder(panel_tab.unwrap_or(0), action),
                 PanelAction::Environment(action) => {
@@ -2887,6 +3393,47 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         assert!(zip_path.exists(), "the workspace zip was written");
+    }
+
+    #[test]
+    fn an_oauth2_client_credentials_flow_updates_the_draft_and_secret_store() {
+        let server = postguy_testkit::Server::start();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("OAuth").expect("collection");
+        let request = engine.create_request(&collection.id, None, "http", "Token").expect("request");
+        let tab = editor_for(&mut app, &collection.id, &request.id);
+        app.editors.get_mut(&tab).expect("editor").draft.auth = postguy_model::AuthConfig::OAuth2(Box::new(OAuth2Auth {
+            grant_type: OAuth2Grant::ClientCredentials,
+            token_url: format!("{}/token", server.base_url()),
+            client_id: "client".into(),
+            client_secret: "secret".into(),
+            client_authentication: postguy_model::auth::OAuth2ClientAuthentication::Body,
+            ..OAuth2Auth::default()
+        }));
+        app.start_oauth2(tab, OAuth2Action::Grant);
+        for _ in 0..300 {
+            app.poll_oauth2(&egui::Context::default());
+            if app.oauth2_job.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let postguy_model::AuthConfig::OAuth2(auth) = &app.editors.get(&tab).expect("editor").draft.auth else { panic!("oauth2") };
+        assert_eq!(auth.access_token, "postguy-access-token");
+        assert!(auth.access_token_expires_at_ms > 0);
+        assert!(app.editors.get(&tab).expect("editor").dirty);
+        let stored = engine.oauth2_stored_token(&request.id.0).expect("stored").expect("token");
+        assert_eq!(stored.access_token, "postguy-access-token");
+    }
+
+    #[test]
+    fn graphql_schema_response_maps_types_and_fields() {
+        let body = br#"{"data":{"__schema":{"types":[{"name":"Query","kind":"OBJECT","fields":[{"name":"user"},{"name":"users"}]},{"name":"User","kind":"OBJECT","fields":[{"name":"id"}]},{"name":"String","kind":"SCALAR","fields":null}]}}}"#;
+        let types = graphql_schema_types(body).expect("schema");
+        assert_eq!(types, ["Query: user, users", "User: id", "String"]);
+        assert!(graphql_schema_types(b"{}").is_err());
     }
 
     #[test]

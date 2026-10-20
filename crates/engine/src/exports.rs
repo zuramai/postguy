@@ -3,7 +3,7 @@
 //! blanked unless the caller explicitly asks to include them; the Postman schemas keep the
 //! `secret` type flag either way.
 
-use postguy_model::{Collection, Folder, Item, Variable};
+use postguy_model::{Collection, Item, Variable};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -58,24 +58,40 @@ fn blank_secrets(variables: &mut [Variable]) {
 /// Collection and folder variables can be secret; walk iteratively and blank them.
 fn strip_collection_secrets(collection: &mut Collection) {
     blank_secrets(&mut collection.variables);
-    let mut stack: Vec<&mut Folder> = Vec::new();
-    for item in &mut collection.items {
-        if let Item::Folder(folder) = item {
-            stack.push(folder);
-        }
-    }
+    strip_oauth2_option(&mut collection.auth);
+    let mut stack: Vec<&mut Item> = collection.items.iter_mut().collect();
     let mut budget = 500_000usize;
-    while let Some(folder) = stack.pop() {
+    while let Some(item) = stack.pop() {
         if budget == 0 {
             break;
         }
         budget -= 1;
-        blank_secrets(&mut folder.variables);
-        for item in &mut folder.items {
-            if let Item::Folder(child) = item {
-                stack.push(child);
+        match item {
+            Item::Folder(folder) => {
+                blank_secrets(&mut folder.variables);
+                strip_oauth2_option(&mut folder.auth);
+                stack.extend(folder.items.iter_mut());
+            }
+            Item::Request(request) => {
+                if let postguy_model::RequestKind::Http(http) = &mut request.kind {
+                    strip_oauth2(&mut http.auth);
+                }
             }
         }
+    }
+}
+
+fn strip_oauth2_option(auth: &mut Option<postguy_model::AuthConfig>) {
+    if let Some(auth) = auth {
+        strip_oauth2(auth);
+    }
+}
+
+fn strip_oauth2(auth: &mut postguy_model::AuthConfig) {
+    if let postguy_model::AuthConfig::OAuth2(oauth2) = auth {
+        oauth2.access_token.clear();
+        oauth2.refresh_token.clear();
+        oauth2.access_token_expires_at_ms = 0;
     }
 }
 
@@ -87,9 +103,9 @@ mod tests {
     fn secret_values_are_blanked_but_the_flag_survives() {
         let mut collection = Collection::default();
         collection.variables.push(Variable { key: "token".into(), value: "hunter2".into(), secret: true, ..Variable::default() });
-        collection.items.push(Item::Folder(Box::new(Folder {
+        collection.items.push(Item::Folder(Box::new(postguy_model::Folder {
             variables: vec![Variable { key: "nested".into(), value: "secret".into(), secret: true, ..Variable::default() }],
-            ..Folder::default()
+            ..postguy_model::Folder::default()
         })));
         strip_collection_secrets(&mut collection);
         assert_eq!(collection.variables[0].value, "");

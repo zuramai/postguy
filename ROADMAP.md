@@ -1,6 +1,6 @@
 # Postguy roadmap
 
-**Stage: M5.1 complete (auth algorithms and forms) · M5.2 OAuth 2.0 next** · REVIEW STOP 3 remains pending
+**Stage: M6 core complete** · WebSocket connect/sessions/tools/minimal panel in; full WS UI polish, OAuth2 implicit, PFX and gRPC remain
 
 Postguy is a clean-room, offline, native API client (HTTP, WebSocket, gRPC) in Rust + egui.
 The full picture: `PROMPT.md` (product brief), `PLAN.md` (order of work, exit criteria),
@@ -20,6 +20,22 @@ The full picture: `PROMPT.md` (product brief), `PLAN.md` (order of work, exit cr
 The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
+
+- **2026-10-20 (M6.1/M6.2, core):** `postguy-ws` connects with custom headers, subprotocols,
+  TLS/client certs, handshake timeout, size caps, ping/pong and close codes; the testkit gained
+  a loopback WebSocket echo server. Engine sessions keep a bounded event log and accept
+  text/binary/ping/close commands. `ws_connect`, `ws_send`, `ws_messages`, `ws_disconnect` are
+  in the automation table with an end-to-end echo test. A minimal WebSocket request panel
+  (URL, connect/disconnect, text composer, event list) is wired in the app; redirects, proxy,
+  reconnect policy and the full composer/timeline remain.
+
+- **2026-10-20 (M5.2-M5.4 core):** OAuth 2.0 client-credentials/password/authorization-code
+  (+PKCE) and refresh flows, on-demand loopback callback with state/verifier validation,
+  browser opening, token storage split into `.postguy/secrets.json`, pipeline auto-refresh,
+  builder form/buttons and `oauth2_token` tool. PEM client certificates and CA bundles wired
+  through rustls + Settings (PFX/per-host pending). GraphQL mode gained schema introspection
+  with a Refresh button and type/field list. Tests cover token exchange, refresh, callback
+  parsing, secrets round-trip, OAuth2 form/action, schema parsing and refresh intent.
 
 - **2026-10-20 (fix, send failures):** a failed send only wrote a line into the bottom status bar;
   the response pane did not exist, so a refused/DNS/TLS request looked like "loading then

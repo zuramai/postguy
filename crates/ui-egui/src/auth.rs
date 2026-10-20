@@ -6,17 +6,32 @@ use egui::{RichText, Ui};
 use postguy_model::AuthConfig;
 use postguy_model::auth::{
     ApiKeyAuth, AuthLocation, AwsV4Auth, BasicAuth, BearerAuth, DigestAlgorithm, DigestAuth, HawkAlgorithm, HawkAuth, JwtAlgorithm, JwtAuth,
-    OAuth1Auth, OAuth1SignatureMethod,
+    OAuth1Auth, OAuth1SignatureMethod, OAuth2Auth, OAuth2ClientAuthentication, OAuth2Grant, OAuth2Location, OAuth2ParamDelivery, PkceMethod,
 };
 
 use crate::theme::Theme;
 use crate::widgets::{self, CodeEditor, CodeLanguage, menu_item};
 
+/// OAuth 2.0 buttons the app performs (browser/token endpoint).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OAuth2Action {
+    Grant,
+    Refresh,
+}
+
+/// What one auth-editor frame produced.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AuthEditorResult {
+    pub changed: bool,
+    pub oauth2: Option<OAuth2Action>,
+}
+
 /// Draw the auth editor. `allow_inherit` is false for collection-level auth. `inherited` names
-/// the parent's resolved auth kind for the Inherit hint. Returns true when the config changed.
-pub fn auth_editor(ui: &mut Ui, auth: &mut AuthConfig, allow_inherit: bool, inherited: Option<&str>) -> bool {
+/// the parent's resolved auth kind for the Inherit hint.
+pub fn auth_editor(ui: &mut Ui, auth: &mut AuthConfig, allow_inherit: bool, inherited: Option<&str>) -> AuthEditorResult {
     let theme = Theme::current(ui.ctx());
     let mut changed = false;
+    let mut oauth2_action = None;
     let current = auth.kind();
     let mut basic_items = Vec::new();
     if allow_inherit {
@@ -32,6 +47,7 @@ pub fn auth_editor(ui: &mut Ui, auth: &mut AuthConfig, allow_inherit: bool, inhe
         widgets::SelectItem::new("oauth1", "OAuth 1.0"),
         widgets::SelectItem::new("awsv4", "AWS Signature v4"),
         widgets::SelectItem::new("hawk", "Hawk"),
+        widgets::SelectItem::new("oauth2", "OAuth 2.0"),
     ];
     let groups = [
         widgets::SelectGroup { label: Some("P0".into()), items: basic_items },
@@ -50,6 +66,7 @@ pub fn auth_editor(ui: &mut Ui, auth: &mut AuthConfig, allow_inherit: bool, inhe
             Some("oauth1") => AuthConfig::OAuth1(Box::default()),
             Some("awsv4") => AuthConfig::AwsV4(Box::default()),
             Some("hawk") => AuthConfig::Hawk(Box::default()),
+            Some("oauth2") => AuthConfig::OAuth2(Box::default()),
             _ => auth.clone(),
         };
         changed = true;
@@ -73,6 +90,11 @@ pub fn auth_editor(ui: &mut Ui, auth: &mut AuthConfig, allow_inherit: bool, inhe
         AuthConfig::OAuth1(oauth) => changed |= oauth1_fields(ui, oauth),
         AuthConfig::AwsV4(aws) => changed |= aws_fields(ui, aws),
         AuthConfig::Hawk(hawk) => changed |= hawk_fields(ui, hawk),
+        AuthConfig::OAuth2(oauth2) => {
+            let (field_changed, action) = oauth2_fields(ui, oauth2);
+            changed |= field_changed;
+            oauth2_action = action;
+        }
         other => {
             ui.label(
                 RichText::new(format!("`{}` auth is preserved from the file but cannot be edited in v1.", other.kind())).color(theme.palette.warning),
@@ -80,7 +102,7 @@ pub fn auth_editor(ui: &mut Ui, auth: &mut AuthConfig, allow_inherit: bool, inhe
         }
     }
     let _ = menu_item;
-    changed
+    AuthEditorResult { changed, oauth2: oauth2_action }
 }
 
 fn basic_fields(ui: &mut Ui, auth: &mut BasicAuth) -> bool {
@@ -339,6 +361,145 @@ fn hawk_fields(ui: &mut Ui, auth: &mut HawkAuth) -> bool {
     }
     changed |= widgets::switch(ui, &mut auth.include_payload_hash, "Include payload hash").changed();
     changed
+}
+
+fn oauth2_fields(ui: &mut Ui, auth: &mut OAuth2Auth) -> (bool, Option<OAuth2Action>) {
+    let theme = Theme::current(ui.ctx());
+    let mut changed = false;
+    let mut action = None;
+    let grants = [
+        (OAuth2Grant::AuthorizationCode, "Authorization Code"),
+        (OAuth2Grant::AuthorizationCodeWithPkce, "Authorization Code (PKCE)"),
+        (OAuth2Grant::Implicit, "Implicit"),
+        (OAuth2Grant::PasswordCredentials, "Password Credentials"),
+        (OAuth2Grant::ClientCredentials, "Client Credentials"),
+    ];
+    let mut grant = Some(oauth2_grant_label(auth.grant_type).to_string());
+    let groups = [widgets::SelectGroup { label: None, items: grants.iter().map(|(_, label)| widgets::SelectItem::new(*label, *label)).collect() }];
+    if widgets::select(ui, "auth-oauth2-grant", &mut grant, &groups, oauth2_grant_label(auth.grant_type)) {
+        auth.grant_type = grants.iter().find(|(_, label)| Some(label.to_string()) == grant).map(|(value, _)| *value).unwrap_or_default();
+        changed = true;
+    }
+    for (label, id, value, hint) in [
+        ("Authorization URL", "auth-oauth2-auth-url", &mut auth.auth_url, "https://provider/authorize"),
+        ("Token URL", "auth-oauth2-token-url", &mut auth.token_url, "https://provider/token"),
+        ("Refresh URL", "auth-oauth2-refresh-url", &mut auth.refresh_url, "optional override"),
+        ("Client ID", "auth-oauth2-client-id", &mut auth.client_id, "client id"),
+        ("Client secret", "auth-oauth2-client-secret", &mut auth.client_secret, "client secret"),
+        ("Scope", "auth-oauth2-scope", &mut auth.scope, "read write"),
+        ("Callback URL", "auth-oauth2-callback", &mut auth.callback_url, "http://127.0.0.1:PORT/callback"),
+        ("State", "auth-oauth2-state", &mut auth.state, "generated if empty"),
+        ("Username", "auth-oauth2-user", &mut auth.username, "username"),
+        ("Password", "auth-oauth2-pass", &mut auth.password, "password"),
+        ("Header prefix", "auth-oauth2-prefix", &mut auth.header_prefix, "Bearer"),
+        ("Token name (URL)", "auth-oauth2-token-name", &mut auth.token_name, "access_token"),
+        ("Access token", "auth-oauth2-access", &mut auth.access_token, "run the token flow"),
+        ("Refresh token", "auth-oauth2-refresh", &mut auth.refresh_token, "refresh token"),
+    ] {
+        ui.label(label);
+        if widgets::variable_field(ui, egui::Id::new(id), value, hint).changed() {
+            changed = true;
+        }
+    }
+    let mut location = match auth.location {
+        OAuth2Location::Header => "header".to_string(),
+        OAuth2Location::Url => "url".to_string(),
+    };
+    let mut location_changed = widgets::radio(ui, &mut location, "header", "Header").changed();
+    location_changed |= widgets::radio(ui, &mut location, "url", "URL").changed();
+    if location_changed {
+        auth.location = if location == "url" { OAuth2Location::Url } else { OAuth2Location::Header };
+        changed = true;
+    }
+    let mut client_auth = match auth.client_authentication {
+        OAuth2ClientAuthentication::BasicHeader => "basic".to_string(),
+        OAuth2ClientAuthentication::Body => "body".to_string(),
+    };
+    let mut client_changed = widgets::radio(ui, &mut client_auth, "basic", "Client secret in Basic header").changed();
+    client_changed |= widgets::radio(ui, &mut client_auth, "body", "Client secret in body").changed();
+    if client_changed {
+        auth.client_authentication = if client_auth == "body" { OAuth2ClientAuthentication::Body } else { OAuth2ClientAuthentication::BasicHeader };
+        changed = true;
+    }
+    if auth.grant_type == OAuth2Grant::AuthorizationCodeWithPkce {
+        let mut pkce = auth.pkce.clone().unwrap_or_default();
+        let mut method = match pkce.method {
+            PkceMethod::S256 => "S256".to_string(),
+            PkceMethod::Plain => "Plain".to_string(),
+        };
+        let mut pkce_changed = widgets::radio(ui, &mut method, "S256", "PKCE S256").changed();
+        pkce_changed |= widgets::radio(ui, &mut method, "Plain", "PKCE Plain").changed();
+        if pkce_changed {
+            pkce.method = if method == "Plain" { PkceMethod::Plain } else { PkceMethod::S256 };
+            auth.pkce = Some(pkce);
+            changed = true;
+        }
+    }
+    changed |= widgets::switch(ui, &mut auth.use_browser, "Authorize using browser").changed();
+    let deliveries = [("body", OAuth2ParamDelivery::Body), ("url", OAuth2ParamDelivery::Url), ("headers", OAuth2ParamDelivery::Headers)];
+    ui.label("Extra params");
+    let mut remove = None;
+    for (index, extra) in auth.extra_params.iter_mut().enumerate() {
+        ui.horizontal(|ui| {
+            if widgets::variable_field(ui, egui::Id::new(("oauth2-extra-key", index)), &mut extra.key, "key").changed() {
+                changed = true;
+            }
+            if widgets::variable_field(ui, egui::Id::new(("oauth2-extra-value", index)), &mut extra.value, "value").changed() {
+                changed = true;
+            }
+            let mut delivery = match extra.delivery {
+                OAuth2ParamDelivery::Body => "body",
+                OAuth2ParamDelivery::Url => "url",
+                OAuth2ParamDelivery::Headers => "headers",
+            }
+            .to_string();
+            for (value, _) in deliveries {
+                widgets::radio(ui, &mut delivery, value, value);
+            }
+            extra.delivery = match delivery.as_str() {
+                "url" => OAuth2ParamDelivery::Url,
+                "headers" => OAuth2ParamDelivery::Headers,
+                _ => OAuth2ParamDelivery::Body,
+            };
+            if widgets::icon_button(ui, "x", "Remove extra param").clicked() {
+                remove = Some(index);
+            }
+        });
+    }
+    if let Some(index) = remove {
+        auth.extra_params.remove(index);
+        changed = true;
+    }
+    if ui.add(egui::Button::new("+ Add extra param")).clicked() {
+        auth.extra_params.push(postguy_model::auth::OAuth2Param::default());
+        changed = true;
+    }
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        let grant = !matches!(auth.grant_type, OAuth2Grant::Implicit);
+        if ui.add_enabled(grant, egui::Button::new("Get New Access Token")).clicked() {
+            action = Some(OAuth2Action::Grant);
+        }
+        if ui.add_enabled(!auth.refresh_token.is_empty(), egui::Button::new("Refresh")).clicked() {
+            action = Some(OAuth2Action::Refresh);
+        }
+        if auth.access_token_expires_at_ms > 0 {
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|elapsed| elapsed.as_millis() as i64).unwrap_or(0);
+            let seconds = (auth.access_token_expires_at_ms - now).max(0) / 1000;
+            ui.label(RichText::new(format!("expires in {seconds}s")).small().color(theme.palette.text_muted));
+        }
+    });
+    (changed, action)
+}
+
+fn oauth2_grant_label(grant: OAuth2Grant) -> &'static str {
+    match grant {
+        OAuth2Grant::AuthorizationCode => "Authorization Code",
+        OAuth2Grant::AuthorizationCodeWithPkce => "Authorization Code (PKCE)",
+        OAuth2Grant::Implicit => "Implicit",
+        OAuth2Grant::PasswordCredentials => "Password Credentials",
+        OAuth2Grant::ClientCredentials => "Client Credentials",
+    }
 }
 
 fn api_key_fields(ui: &mut Ui, auth: &mut ApiKeyAuth) -> bool {

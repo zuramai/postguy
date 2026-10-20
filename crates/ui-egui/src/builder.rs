@@ -63,6 +63,10 @@ pub enum BuilderAction {
     ParseCurl(String),
     /// Restore the draft from before the last cURL import.
     UndoPaste,
+    /// Run an OAuth 2.0 token flow for the request's auth config.
+    OAuth2(crate::auth::OAuth2Action),
+    /// Fetch the GraphQL schema for the current URL.
+    IntrospectGraphql,
 }
 
 /// Everything the builder needs for one frame.
@@ -81,6 +85,10 @@ pub struct RequestBuilder<'a> {
     pub undo_paste: bool,
     /// The auth kind inherited through the parents (for the Inherit hint).
     pub inherited_auth: Option<&'a str>,
+    /// OAuth 2.0 action emitted by the authorization form this frame.
+    pub oauth2_action: &'a mut Option<crate::auth::OAuth2Action>,
+    /// Introspected GraphQL types for this request, if any.
+    pub graphql_schema: Option<&'a [String]>,
 }
 
 impl RequestBuilder<'_> {
@@ -108,6 +116,10 @@ impl RequestBuilder<'_> {
             BuilderTab::Settings => self.settings(ui, &theme),
             BuilderTab::Docs => self.docs(ui, &theme),
         });
+        if ui.ctx().data(|data| data.get_temp::<bool>(egui::Id::new("graphql-refresh")).unwrap_or(false)) {
+            ui.ctx().data_mut(|data| data.insert_temp(egui::Id::new("graphql-refresh"), false));
+            action = Some(BuilderAction::IntrospectGraphql);
+        }
         // Cmd/Ctrl+S saves, Cmd/Ctrl+Enter sends (pointer-free flow).
         ui.input(|input| {
             if input.modifiers.command && input.key_pressed(egui::Key::S) {
@@ -326,8 +338,12 @@ impl RequestBuilder<'_> {
     }
 
     fn authorization(&mut self, ui: &mut Ui, _theme: &Theme) {
-        if crate::auth::auth_editor(ui, &mut self.draft.auth, true, self.inherited_auth) {
+        let result = crate::auth::auth_editor(ui, &mut self.draft.auth, true, self.inherited_auth);
+        if result.changed {
             *self.dirty = true;
+        }
+        if result.oauth2.is_some() {
+            *self.oauth2_action = result.oauth2;
         }
     }
 
@@ -456,6 +472,16 @@ impl RequestBuilder<'_> {
                 }
             }
             Body::GraphQL { query, variables, operation_name, .. } => {
+                ui.horizontal(|ui| {
+                    if ui.button("Refresh schema").clicked() {
+                        ui.ctx().data_mut(|data| data.insert_temp(egui::Id::new("graphql-refresh"), true));
+                    }
+                    if self.graphql_schema.is_some() {
+                        ui.label(RichText::new("Schema loaded").small().color(theme.palette.success));
+                    } else {
+                        ui.label(RichText::new("No schema loaded").small().color(theme.palette.text_muted));
+                    }
+                });
                 ui.label(RichText::new("Query").small().color(theme.palette.text_muted));
                 if CodeEditor::new(CodeLanguage::GraphQl).rows(8).id(egui::Id::new("gql-query")).show(ui, query).changed() {
                     changed = true;
@@ -468,6 +494,15 @@ impl RequestBuilder<'_> {
                 if ui.add(egui::TextEdit::singleline(&mut name).hint_text("Operation name (optional)")).changed() {
                     *operation_name = if name.trim().is_empty() { None } else { Some(name) };
                     changed = true;
+                }
+                if let Some(schema) = self.graphql_schema {
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("Introspected schema").small().color(theme.palette.text_muted));
+                    egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+                        for entry in schema.iter().take(2000) {
+                            ui.label(RichText::new(entry).monospace().small().color(theme.palette.text_muted));
+                        }
+                    });
                 }
             }
             _ => {}

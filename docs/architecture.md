@@ -1,6 +1,6 @@
 # Architecture
 
-**Status:** M5.1. Revised 2026-10-20: imports/snippets/exports plus Digest, JWT, OAuth 1.0, AWS SigV4 and Hawk auth are in; OAuth 2.0 is next.
+**Status:** M6 core. Revised 2026-10-20: OAuth2/PKCE/refresh, PEM client certs + CA, GraphQL introspection, and WebSocket client/sessions/tools/panel are in. gRPC is next.
 
 ## Layer table (enforced by `cargo xtask layers`; PROMPT.md 4.1)
 

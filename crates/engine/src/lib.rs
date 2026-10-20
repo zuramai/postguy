@@ -11,21 +11,24 @@ pub mod edit;
 pub mod error;
 pub mod exports;
 pub mod import;
+pub mod oauth2;
 pub mod pipeline;
 pub mod runtime;
 pub mod workspace_zip;
+pub mod ws_session;
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};
 
 pub use error::{EngineError, Result};
 pub use exports::CollectionFormat;
 pub use import::{Detected, IMPORT_FILE_CAP, ImportKind, ImportOptions, ImportOutcome, detect, walk_import_paths};
+pub use oauth2::{OAuth2Callback, StoredToken};
 pub use pipeline::{ResponseView, SendOptions, SendOutcome, SendTarget, SentRequest};
 
 pub use postguy_http::Cancel;
-use postguy_http::{Client, ClientConfig, CookieJar, HttpVersionPreference, ProxyRoute, StoredCookie, TlsMode};
+use postguy_http::{Client, ClientConfig, ClientIdentity, CookieJar, HttpVersionPreference, ProxyRoute, StoredCookie, TlsMode};
 use postguy_model::{HistoryEntry, Id, ProxySettings, RequestSettings, Settings};
 use postguy_store::{StorePaths, Workspace};
 use postguy_vars::Resolver;
@@ -47,6 +50,7 @@ struct Inner {
     settings: Mutex<Settings>,
     /// The newest finished sends, so `response_*` tools and the viewer can ask by history id.
     responses: Mutex<VecDeque<CachedResponse>>,
+    ws_sessions: Mutex<HashMap<String, crate::ws_session::WsHandle>>,
 }
 
 /// One send kept in memory for the response viewer and tools (bounded; 20 is plenty).
@@ -84,6 +88,7 @@ impl Engine {
                 jar: Mutex::new(CookieJar::from_json(&cookie_value)),
                 settings: Mutex::new(settings),
                 responses: Mutex::new(VecDeque::new()),
+                ws_sessions: Mutex::new(HashMap::new()),
             }),
         })
     }
@@ -179,8 +184,17 @@ impl Engine {
             postguy_model::HttpVersion::Http1 => HttpVersionPreference::Http1,
             postguy_model::HttpVersion::Http2 => HttpVersionPreference::Http2,
         };
-        let tls = if request.verify_ssl { TlsMode::Verify { ca_pem_path: None } } else { TlsMode::Insecure };
-        Client::new(ClientConfig { tls, version, proxy: global.proxy.clone(), ..ClientConfig::default() }).map_err(EngineError::Http)
+        let tls = if request.verify_ssl {
+            TlsMode::Verify { ca_pem_path: (!global.ca_bundle_path.trim().is_empty()).then(|| global.ca_bundle_path.clone()) }
+        } else {
+            TlsMode::Insecure
+        };
+        let client_identity = if !global.client_cert_path.trim().is_empty() || !global.client_key_path.trim().is_empty() {
+            Some(ClientIdentity { cert_path: global.client_cert_path.clone(), key_path: global.client_key_path.clone() })
+        } else {
+            None
+        };
+        Client::new(ClientConfig { tls, client_identity, version, proxy: global.proxy.clone(), ..ClientConfig::default() }).map_err(EngineError::Http)
     }
 
     /// The proxy route a URL would use under the current settings (Console and tests).

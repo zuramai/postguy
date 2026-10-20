@@ -121,6 +121,31 @@ fn examples_are_created_renamed_duplicated_and_deleted() {
 }
 
 #[test]
+fn oauth2_tokens_stay_out_of_collection_files_and_rehydrate() {
+    let fixture = Fixture::new();
+    let engine = fixture.engine();
+    let collection = engine.create_collection("OAuth").expect("collection");
+    let request = engine.create_request(&collection.id, None, "http", "Protected").expect("request");
+    let mut loaded = engine.request(&collection.id, &request.id).expect("request");
+    let postguy_model::RequestKind::Http(http) = &mut loaded.kind else { panic!("http") };
+    http.auth = postguy_model::AuthConfig::OAuth2(Box::new(postguy_model::auth::OAuth2Auth {
+        access_token: "access-secret".into(),
+        refresh_token: "refresh-secret".into(),
+        ..postguy_model::auth::OAuth2Auth::default()
+    }));
+    engine.save_request(&collection.id, &loaded).expect("save");
+    let file = std::fs::read_to_string(fixture.dir.path().join("workspace/collections").join(format!("{}.json", collection.id.0))).expect("file");
+    assert!(!file.contains("access-secret") && !file.contains("refresh-secret"), "tokens split out: {file}");
+    let secrets = std::fs::read_to_string(fixture.dir.path().join("workspace/.postguy/secrets.json")).expect("secrets");
+    assert!(secrets.contains("access-secret") && secrets.contains("refresh-secret"));
+    let reloaded = engine.request(&collection.id, &request.id).expect("reloaded");
+    let postguy_model::RequestKind::Http(http) = &reloaded.kind else { panic!("http") };
+    let postguy_model::AuthConfig::OAuth2(oauth2) = &http.auth else { panic!("oauth2") };
+    assert_eq!(oauth2.access_token, "access-secret");
+    assert_eq!(oauth2.refresh_token, "refresh-secret");
+}
+
+#[test]
 fn inherited_auth_walks_folders_and_the_collection() {
     let fixture = Fixture::new();
     let engine = fixture.engine();

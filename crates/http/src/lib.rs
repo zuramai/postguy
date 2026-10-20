@@ -25,4 +25,4 @@ pub use error::{HttpError, Result};
 pub use jar::{CookieJar, StoredCookie};
 pub use proxy::{ProxyEnvironment, ProxyPolicy, ProxyRoute, bypass_matches};
 pub use redirect::{RedirectHop, RedirectOutcome, RedirectPolicy, origins_differ, resolve_location};
-pub use tls::TlsMode;
+pub use tls::{ClientIdentity, TlsMode};

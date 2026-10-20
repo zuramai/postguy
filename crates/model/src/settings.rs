@@ -69,6 +69,9 @@ impl Default for Settings {
             request_timeout_ms: 0,
             max_response_mb: 50,
             verify_ssl: true,
+            ca_bundle_path: String::new(),
+            client_cert_path: String::new(),
+            client_key_path: String::new(),
             disable_cookies: false,
             follow_redirects: true,
             send_no_cache_header: true,
@@ -111,6 +114,14 @@ pub struct Settings {
     pub max_response_mb: u64,
     #[serde(default = "true_value")]
     pub verify_ssl: bool,
+    /// Optional PEM CA bundle added to the OS trust store.
+    #[serde(default)]
+    pub ca_bundle_path: String,
+    /// Optional PEM client certificate chain and matching private key.
+    #[serde(default)]
+    pub client_cert_path: String,
+    #[serde(default)]
+    pub client_key_path: String,
     #[serde(default)]
     pub disable_cookies: bool,
     #[serde(default = "true_value")]
