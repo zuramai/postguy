@@ -460,54 +460,60 @@ title = "Service definitions: import .proto files with import paths"
 area = "D"
 tier = "P0"
 milestone = "M7.1"
-status = "planned"
-notes = "protox compile, copied into <workspace>/protos/<name>/, reusable, per-file errors with line and column."
+status = "partial"
+notes = "Proto sets and inline file lists compile with protox off the workspace, with descriptor errors surfaced. Importing a picked .proto into <workspace>/protos/<name>/ and per-file line/column import reports are still open."
 
+evidence = ["crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary"]
 [[feature]]
 id = "d.unary-invoke"
 title = "Unary invoke with dynamic codec (no codegen)"
 area = "D"
 tier = "P0"
 milestone = "M7.2"
-status = "planned"
-notes = "JSON mapping per proto3 rules; example message generator with guards."
+status = "shipped"
+notes = "Dynamic unary invoke with prost-reflect JSON, example generator, metadata and status errors; reflection resolves descriptors when the service exposes it."
 
+evidence = ["crates/grpc/tests/unary.rs::unary_echo_and_status_errors_work", "crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary", "apps/postguy/src/main.rs::grpc_editor_invokes_a_unary_method"]
 [[feature]]
 id = "d.method-selector"
 title = "Method selector grouped by service with type icons"
 area = "D"
 tier = "P0"
 milestone = "M7.6"
-status = "planned"
-notes = "Unary/server/client/bidi glyphs (Lucide-based); footer shows the definition in use."
+status = "partial"
+notes = "The composer takes a package.Service/Method path and can describe services/methods; the grouped selector with type glyphs is still open."
 
+evidence = ["crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary"]
 [[feature]]
 id = "d.message-editor"
 title = "Message editor with proto-aware autocomplete and tooltips"
 area = "D"
 tier = "P1"
 milestone = "M7.6"
-status = "planned"
-notes = "Field names at the cursor path, enum values in value position; saved messages."
+status = "partial"
+notes = "Plain JSON message editor with example generation from the input descriptor; proto-aware completion, tooltips and saved messages are still open."
 
+evidence = ["crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary"]
 [[feature]]
 id = "d.metadata"
 title = "Metadata key/value table; -bin base64; lowercased keys"
 area = "D"
 tier = "P0"
 milestone = "M7.2"
-status = "planned"
-notes = "Auth results join the metadata, never saved."
+status = "partial"
+notes = "Enabled metadata rows are lowercased by tonic and sent on unary calls; the UI table, -bin base64 and auth-joined metadata are still open."
 
+evidence = ["crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary"]
 [[feature]]
 id = "d.reflection"
 title = "Server reflection (v1, then v1alpha) with Try again"
 area = "D"
 tier = "P1"
 milestone = "M7.4"
-status = "planned"
-notes = "Same TLS/metadata/auth as the call; failures say what to check."
+status = "shipped"
+notes = "Reflection v1 with v1alpha fallback fetches the transitive file set for the service symbol and compiles it into the dynamic pool."
 
+evidence = ["crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary"]
 [[feature]]
 id = "d.streaming"
 title = "Server, client and bidirectional streaming with End streaming"
@@ -523,18 +529,20 @@ title = "Status code, trailers and grpc-status-details-bin decoding"
 area = "D"
 tier = "P1"
 milestone = "M7.2"
-status = "planned"
-notes = "Full status table (Appendix F) coloured by class; UNAVAILABLE hints."
+status = "partial"
+notes = "Status code and message are surfaced; trailers and grpc-status-details-bin decoding are still open."
 
+evidence = ["crates/grpc/tests/unary.rs::unary_echo_and_status_errors_work"]
 [[feature]]
 id = "d.tls-and-certs"
 title = "gRPC TLS toggle, server-name override, client certs"
 area = "D"
 tier = "P0"
 milestone = "M7.2"
-status = "planned"
-notes = "Explicit toggle only; grpcs:// sets it on."
+status = "partial"
+notes = "TLS toggle, workspace CA bundle and PEM client identity are wired through tonic. Server-name override is still open."
 
+evidence = ["crates/grpc/tests/unary.rs::unary_echo_and_status_errors_work"]
 [[feature]]
 id = "d.grpcurl-snippet"
 title = "grpcurl code snippet"

@@ -10,12 +10,14 @@ pub mod console;
 pub mod edit;
 pub mod error;
 pub mod exports;
+pub mod grpc;
 pub mod import;
 pub mod oauth2;
 pub mod pipeline;
 pub mod runtime;
 pub mod workspace_zip;
 pub mod ws_session;
+pub use postguy_grpc::UnaryResult;
 
 use std::collections::{HashMap, VecDeque};
 use std::panic::AssertUnwindSafe;

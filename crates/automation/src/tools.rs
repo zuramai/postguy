@@ -303,6 +303,34 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
             destructive: false,
         },
         ToolDef {
+            name: "grpc_describe",
+            title: "Describe a gRPC service definition",
+            description: "Compiles the request's proto set/inline files and lists services, methods, input/output types and streaming flags. Reflection is not implemented yet.",
+            input_schema: schema! { "collection": req("collection id"), "request": req("request id") },
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "grpc_example_message",
+            title: "Example gRPC request message",
+            description: "A default JSON object for the request method's input type.",
+            input_schema: schema! { "collection": req("collection id"), "request": req("request id") },
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "grpc_invoke",
+            title: "Invoke a unary gRPC method",
+            description: "Calls one unary method with JSON input (defaults to the request's stored message); returns the response JSON and metadata. Streaming arrives later.",
+            input_schema: schema! {
+                "collection": req("collection id"),
+                "request": req("request id"),
+                "message": (json!({"type": "object", "description": "request message JSON (defaults to the stored message)"}), false)
+            },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
             name: "ws_connect",
             title: "Open a WebSocket",
             description: "Connects a saved WebSocket request (variables resolved at connect), returns a session id. Events are read with ws_messages.",
@@ -838,6 +866,55 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
                 Some(Item::Folder(_)) => Err(AutomationError::Failed { message: format!("`{request_id}` is a folder, not a request") }),
                 None => Err(AutomationError::NotFound { kind: "request".into(), id: request_id }),
             }
+        }
+        "grpc_describe" => {
+            let collection = session.load_collection(&string_arg(args, tool, "collection")?)?;
+            let request_id = string_arg(args, tool, "request")?;
+            let item =
+                find_item(&collection, &request_id).ok_or_else(|| AutomationError::NotFound { kind: "request".into(), id: request_id.clone() })?;
+            let postguy_model::Item::Request(request) = item else {
+                return Err(AutomationError::Failed { message: format!("`{request_id}` is a folder, not a request") });
+            };
+            let postguy_model::RequestKind::Grpc(grpc) = &request.kind else {
+                return Err(AutomationError::Failed { message: "grpc_describe expects a gRPC request".into() });
+            };
+            Ok(json!({"services": session.engine()?.grpc_describe(grpc)?}))
+        }
+        "grpc_example_message" => {
+            let collection = session.load_collection(&string_arg(args, tool, "collection")?)?;
+            let request_id = string_arg(args, tool, "request")?;
+            let item =
+                find_item(&collection, &request_id).ok_or_else(|| AutomationError::NotFound { kind: "request".into(), id: request_id.clone() })?;
+            let postguy_model::Item::Request(request) = item else {
+                return Err(AutomationError::Failed { message: format!("`{request_id}` is a folder, not a request") });
+            };
+            let postguy_model::RequestKind::Grpc(grpc) = &request.kind else {
+                return Err(AutomationError::Failed { message: "grpc_example_message expects a gRPC request".into() });
+            };
+            Ok(json!({"message": session.engine()?.grpc_example(grpc)?}))
+        }
+        "grpc_invoke" => {
+            let collection = session.load_collection(&string_arg(args, tool, "collection")?)?;
+            let request_id = string_arg(args, tool, "request")?;
+            let item =
+                find_item(&collection, &request_id).ok_or_else(|| AutomationError::NotFound { kind: "request".into(), id: request_id.clone() })?;
+            let postguy_model::Item::Request(request) = item else {
+                return Err(AutomationError::Failed { message: format!("`{request_id}` is a folder, not a request") });
+            };
+            let postguy_model::RequestKind::Grpc(grpc) = &request.kind else {
+                return Err(AutomationError::Failed { message: "grpc_invoke expects a gRPC request".into() });
+            };
+            let message = match args.get("message") {
+                Some(Value::Object(_)) => args.get("message").cloned().unwrap_or_default(),
+                _ => serde_json::from_str(&grpc.message).map_err(|err| AutomationError::BadArgument {
+                    tool: tool.to_string(),
+                    argument: "message".into(),
+                    expected: "a JSON object".into(),
+                    got: err.to_string(),
+                })?,
+            };
+            let result = session.engine()?.grpc_invoke_unary(grpc, message)?;
+            Ok(json!({"message": result.json, "metadata": result.metadata, "status": result.status}))
         }
         "ws_connect" => {
             let collection_id = string_arg(args, tool, "collection")?;

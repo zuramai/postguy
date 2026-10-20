@@ -20,12 +20,14 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod body;
+pub mod grpc;
 pub mod proxy;
 pub mod routes;
 pub mod server;
 pub mod tls;
 pub mod ws;
 
+pub use grpc::GrpcEchoServer;
 pub use proxy::{ProxySeen, ProxyServer, Socks5Server, SocksSeen};
 pub use server::Server;
 pub use ws::WsEchoServer;

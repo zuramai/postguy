@@ -41,7 +41,7 @@ pub const UI_CRATES: &[&str] = &["egui", "eframe", "winit", "glow", "glutin", "w
 
 /// Allowed same-layer edges (peer dependencies). Everything same-layer not listed here is a
 /// violation, so the layer graph stays a tree deep-down and editors can see what couples.
-pub const SIDEWAYS: &[(&str, &str)] = &[("model", "util"), ("ws", "http")];
+pub const SIDEWAYS: &[(&str, &str)] = &[("model", "util"), ("ws", "http"), ("testkit", "grpc"), ("grpc", "http")];
 
 pub fn short_name(pkg: &str) -> &str {
     pkg.strip_prefix("postguy-").unwrap_or(pkg)

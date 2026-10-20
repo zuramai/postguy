@@ -161,12 +161,12 @@ Planned observation requests:
 
 #### M7 gRPC
 
-- [ ] M7.1 `grpc`: protox compile with import paths, descriptor pool, per-request service definitions in `protos/`.
-- [ ] M7.2 Dynamic codec and unary invoke over tonic; TLS toggle, client certs, metadata, status and trailers; testkit tonic server from our own `echo.proto`.
+- [ ] M7.1 `grpc`: protox compile with import paths, descriptor pool, per-request service definitions in `protos/`. *(partial: sets + inline paths compile; import-into-workspace and per-file reports open)*
+- [ ] M7.2 Dynamic codec and unary invoke over tonic; TLS toggle, client certs, metadata, status and trailers; testkit tonic server from our own `echo.proto`. *(partial: unary/TLS/certs/metadata/status done; trailers open)*
 - [ ] M7.3 Server, client and bidirectional streaming with Send, End streaming, Cancel; message caps.
-- [ ] M7.4 Reflection (v1 then v1alpha), example generator, proto-aware completion data, `grpc-status-details-bin` decoding.
-- [ ] M7.5 Tools `grpc_*` and end-to-end tests for every streaming mode.
-- [ ] M7.6 UI: request bar, method selector, tabs, service definition tab, message editor with autocomplete and type tooltips, timeline, settings, saved messages, examples, grpcurl snippet. Observation request 4 (gRPC part).
+- [ ] M7.4 Reflection (v1 then v1alpha), example generator, proto-aware completion data, `grpc-status-details-bin` decoding. *(partial: reflection + example done; completion data and details-bin open)*
+- [ ] M7.5 Tools `grpc_*` and end-to-end tests for every streaming mode. *(partial: describe/example/unary invoke tools tested; streaming tools open)*
+- [ ] M7.6 UI: request bar, method selector, tabs, service definition tab, message editor with autocomplete and type tooltips, timeline, settings, saved messages, examples, grpcurl snippet. Observation request 4 (gRPC part). *(partial: minimal composer with URL/TLS/method/JSON, Invoke/Save, response pane)*
 
 **Exit: tag v0.2. REVIEW STOP 4 (owner).**
 

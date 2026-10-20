@@ -162,6 +162,72 @@ fn oauth2_client_credentials_tool_updates_the_request_and_secret_store() {
 }
 
 #[test]
+fn grpc_tools_describe_example_and_invoke_unary() {
+    let server = postguy_testkit::GrpcEchoServer::start().expect("grpc server");
+    let dir = tempfile::tempdir().expect("tempdir");
+    let automation = automation_in(dir.path());
+    call(&automation, "workspace_open", json!({"path": "work"}));
+    let proto_dir = dir.path().join("work/protos/echo");
+    std::fs::create_dir_all(&proto_dir).expect("proto dir");
+    std::fs::write(
+        proto_dir.join("echo.proto"),
+        r#"syntax = "proto3";
+package echo;
+service Echo { rpc Say (EchoMessage) returns (EchoMessage); }
+message EchoMessage { string text = 1; int32 number = 2; }
+"#,
+    )
+    .expect("proto");
+    let collection = call(&automation, "collection_create", json!({"name": "gRPC"}))["collection"].as_str().unwrap().to_string();
+    let request = call(&automation, "request_create", json!({"collection": collection, "kind": "grpc", "name": "Say"}))["request"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    call(
+        &automation,
+        "request_update",
+        json!({
+            "collection": collection,
+            "request": request,
+            "definition": {
+                "type": "grpc",
+                "url": server.url(),
+                "serviceDefinition": {"source": "protoSet", "name": "echo"},
+                "methodPath": "echo.Echo/Say",
+                "message": "{\"text\":\"hello\",\"number\":5}"
+            }
+        }),
+    );
+    let described = call(&automation, "grpc_describe", json!({"collection": collection, "request": request}));
+    assert_eq!(described["services"][0]["methods"][0]["path"], "echo.Echo/Say");
+    let example = call(&automation, "grpc_example_message", json!({"collection": collection, "request": request}));
+    assert!(example["message"].is_object());
+    let invoked = call(&automation, "grpc_invoke", json!({"collection": collection, "request": request}));
+    assert_eq!(invoked["message"]["text"], "hello");
+    assert_eq!(invoked["message"]["number"], 5);
+    let failure = automation.call("grpc_invoke", &json!({"collection": collection, "request": request, "message": {"text": "fail"}}));
+    assert!(failure.is_err(), "a status failure is reported: {failure:?}");
+    // Reflection uses the same dynamic codec once the descriptor arrives from the server.
+    call(
+        &automation,
+        "request_update",
+        json!({
+            "collection": collection,
+            "request": request,
+            "definition": {
+                "type": "grpc",
+                "url": server.url(),
+                "serviceDefinition": {"source": "reflection"},
+                "methodPath": "echo.Echo/Say",
+                "message": "{\"text\":\"reflected\"}"
+            }
+        }),
+    );
+    let reflected = call(&automation, "grpc_invoke", json!({"collection": collection, "request": request}));
+    assert_eq!(reflected["message"]["text"], "reflected");
+}
+
+#[test]
 fn websocket_tools_connect_echo_and_close() {
     let server = postguy_testkit::WsEchoServer::start().expect("ws server");
     let dir = tempfile::tempdir().expect("tempdir");

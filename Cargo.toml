@@ -28,6 +28,14 @@ postguy-http = { path = "crates/http", version = "0.1.0" }
 postguy-engine = { path = "crates/engine", version = "0.1.0" }
 postguy-snippets = { path = "crates/snippets", version = "0.1.0" }
 postguy-ws = { path = "crates/ws", version = "0.1.0" }
+postguy-grpc = { path = "crates/grpc", version = "0.1.0" }
+tonic = { version = "0.14", default-features = false, features = ["channel", "tls-native-roots"] }
+prost = { version = "0.14", default-features = false, features = ["std"] }
+prost-reflect = { version = "0.16", default-features = false, features = ["serde"] }
+prost-types = { version = "0.14", default-features = false }
+tonic-reflection = { version = "0.14", default-features = false }
+protox = { version = "0.10", default-features = false }
+tower = { version = "0.5", default-features = false, features = ["util"] }
 postguy-platform = { path = "crates/platform", version = "0.1.0" }
 postguy-testkit = { path = "crates/testkit", version = "0.1.0" }
 serde = { version = "1", default-features = false, features = ["std", "derive"] }
