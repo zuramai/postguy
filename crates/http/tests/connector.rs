@@ -132,3 +132,42 @@ fn http1_preference_forces_http1_on_a_dual_server() {
     let response = runtime.block_on(client.send(RequestSpec::get(format!("{}/echo", server.base_url())), &Cancel::new())).expect("send");
     assert_eq!(response.version, hyper::Version::HTTP_11);
 }
+
+#[test]
+fn a_built_request_arrives_in_order_with_multipart_bytes_intact() {
+    use postguy_http::build::{BuildInput, build};
+    use postguy_model::{Body, KeyValue, KeyValueKind};
+
+    let server = Server::start();
+    let runtime = runtime();
+    let user_headers = vec![KeyValue { key: "X-Probe".into(), value: "alpha".into(), enabled: true, ..Default::default() }];
+    let body =
+        Body::FormData(vec![KeyValue { key: "field".into(), value: "value".into(), enabled: true, kind: KeyValueKind::Text, ..Default::default() }]);
+    let built = build(BuildInput {
+        method: "POST",
+        url: &format!("{}/echo", server.base_url()),
+        headers: &user_headers,
+        body: &body,
+        load_file: None,
+        send_no_cache: true,
+    })
+    .expect("build");
+    let client = Client::new(ClientConfig::default()).expect("client");
+    let response = runtime.block_on(client.send(built.clone().into_spec(0, 1 << 20), &Cancel::new())).expect("send");
+    assert_eq!(response.status, 200);
+    let parsed: serde_json::Value = serde_json::from_slice(&response.body).expect("json");
+    // Wire order: the user header first, then the automatic set in builder order.
+    let names: Vec<&str> = parsed["headers"]
+        .as_array()
+        .expect("headers")
+        .iter()
+        .filter_map(|header| header["name"].as_str())
+        .filter(|name| !name.starts_with("content-") && *name != "host" && *name != "content-length")
+        .collect();
+    assert_eq!(&names[..2], &["x-probe", "user-agent"], "{names:?}");
+    // Names go lowercase on HTTP/1 (documented limit); multipart bytes arrive whole.
+    let sent_body: String = parsed["body"]["utf8"].as_str().expect("utf8 body").to_string();
+    assert!(sent_body.starts_with("--postguy-boundary-"), "{sent_body}");
+    assert!(sent_body.contains("name=\"field\""));
+    assert!(sent_body.trim_end().ends_with("--"));
+}
