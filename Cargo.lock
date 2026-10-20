@@ -2733,11 +2733,13 @@ name = "postguy-http"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "fastrand",
  "http-body-util",
  "hyper",
  "hyper-util",
  "postguy-model",
  "postguy-testkit",
+ "postguy-urlkit",
  "postguy-util",
  "rustls",
  "rustls-native-certs",

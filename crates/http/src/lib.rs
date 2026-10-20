@@ -5,11 +5,13 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod build;
 pub mod client;
 pub mod connector;
 pub mod error;
 pub mod tls;
 
+pub use build::{BuildInput, BuiltRequest, LoadFile, build};
 pub use client::{Cancel, Client, ClientConfig, HttpVersionPreference, RequestSpec, ResponseData, ResponseTimings};
 pub use connector::ConnectTimings;
 pub use error::{HttpError, Result};

@@ -21,6 +21,14 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-20 (M2.3):** Request building: every body mode (form-data multipart with a
+  collision-resistant boundary, urlencoded, raw with language content types, binary via the
+  caller's file loader, GraphQL JSON with invalid-variables warning), the documented automatic
+  header order (Host, User-Agent Postguy/version, Accept, Accept-Encoding gzip/deflate/br,
+  Connection, calculated Content-Type/Content-Length, no-cache setting), user headers first and
+  always winning (case-insensitive), CRLF/header-name injection refused, and no request-token
+  header by design. 9 unit tests + a wire-order/multipart end-to-end send against the testkit.
+  Known limit restated: HTTP/1 names go lowercase on the wire (http::HeaderName).
 - **2026-10-20 (M2.2):** HTTP connector over hyper-direct (ADR 0003): custom timed connector
   (DNS→TCP→TLS phases recorded) with rustls native roots + optional user CA PEM, explicit
   insecure toggle, ALPN h1/h2, connect/whole-request timeouts, cancellation that aborts
