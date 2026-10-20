@@ -254,13 +254,14 @@ fn auth_digest(request: &Incoming) -> Reply {
     let uri = get("uri").unwrap_or_default();
     let qop = get("qop").unwrap_or_default();
     let nc = get("nc").unwrap_or_default();
+    let cnonce = get("cnonce").unwrap_or_default();
     let algorithm = get("algorithm").unwrap_or("MD5");
     if !algorithm.eq_ignore_ascii_case("MD5") || !qop.eq_ignore_ascii_case("auth") || get("nonce").unwrap_or_default() != NONCE {
         return digest_challenge(REALM, NONCE, "auth");
     }
     let ha1 = hex_md5(format!("{USERNAME}:{REALM}:{PASSWORD}").as_bytes());
     let ha2 = hex_md5(format!("{}:{uri}", request.method.as_str()).as_bytes());
-    let expected = hex_md5(format!("{ha1}:{NONCE}:{nc}:{qop}:{ha2}").as_bytes());
+    let expected = hex_md5(format!("{ha1}:{NONCE}:{nc}:{cnonce}:{qop}:{ha2}").as_bytes());
     if response.eq_ignore_ascii_case(&expected) {
         Reply::with_json(&json!({"authenticated": "digest"}))
     } else {

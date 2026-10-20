@@ -17,6 +17,7 @@ const SETS: &[(&str, &str)] = &[
     ("import", "import-dialog-dark.png"),
     ("export", "export-dialog-dark.png"),
     ("snippet", "snippet-rust-dark.png"),
+    ("auth", "auth-jwt-dark.png"),
 ];
 
 pub fn run(args: &[String]) -> Result<()> {

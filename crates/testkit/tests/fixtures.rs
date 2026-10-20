@@ -139,9 +139,10 @@ fn auth_fixtures_challenge_and_verify() {
         let hex = |bytes: &[u8]| md5::Md5::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect::<String>();
         let ha1 = hex(b"postguy:postguy:postguy");
         let ha2 = hex(b"GET:/auth/digest");
-        let response_hash = hex(format!("{ha1}:{nonce}:00000001:auth:{ha2}").as_bytes());
+        let cnonce = "fixture-cnonce";
+        let response_hash = hex(format!("{ha1}:{nonce}:00000001:{cnonce}:auth:{ha2}").as_bytes());
         let authorization = format!(
-            r#"Digest username="postguy", realm="postguy", nonce="{nonce}", uri="/auth/digest", qop=auth, nc=00000001, response="{response_hash}""#
+            r#"Digest username="postguy", realm="postguy", nonce="{nonce}", uri="/auth/digest", qop=auth, nc=00000001, cnonce="{cnonce}", response="{response_hash}""#
         );
         let request = Request::builder()
             .uri(format!("{}/auth/digest", server.base_url()))

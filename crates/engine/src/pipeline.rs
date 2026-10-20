@@ -122,21 +122,13 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
 
     // 4. URL: resolve, path vars, enabled query params, encoding.
     let mut request = located.http.clone();
-    let mut url = build_url(&request, &resolver, request.settings.encode_url_automatically)?;
+    let url = build_url(&request, &resolver, request.settings.encode_url_automatically)?;
 
-    // 5. Auth application (may add a header or rewrite the query).
+    // 5. Auth needs the final body bytes (OAuth 1.0 form parameters, AWS/Hawk payload hashes),
+    // so it is applied after the body is built below.
     request.headers = resolve_rows(&request.headers, &resolver);
     let mut auth_placement = None;
-    if let Some(auth) = &auth {
-        let mut probe = RequestSpec::get(url.clone());
-        auth_placement = Some(postguy_http::apply_auth(auth, &mut probe)?);
-        url = probe.url;
-        for (name, value) in probe.headers {
-            if !request.headers.iter().any(|row| row.key.eq_ignore_ascii_case(&name)) {
-                request.headers.push(KeyValue { key: name, value, ..KeyValue::default() });
-            }
-        }
-    }
+    let digest_pending = matches!(&auth, Some(AuthConfig::Digest(digest)) if digest.nonce.trim().is_empty());
 
     // 6. Body and automatic headers.
     request.body = resolve_body(&request.body, &resolver);
@@ -155,7 +147,8 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
 
     // 8. Send: proxy aware, manual redirects, cookies on every hop.
     let client = engine.client_for(&request.settings, &global)?;
-    let spec = RequestSpec {
+    let mut built = built;
+    let mut spec = RequestSpec {
         method: hyper::Method::from_bytes(built.method.as_bytes()).unwrap_or(hyper::Method::GET),
         url: built.url.clone(),
         headers: built.headers.clone(),
@@ -164,6 +157,13 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
         max_body_bytes: max_body_bytes(request.settings.max_response_mb),
         decode_compression: true,
     };
+    if let Some(auth) = &auth
+        && !digest_pending
+    {
+        auth_placement = Some(postguy_http::apply_auth(auth, &mut spec)?);
+        built.url = spec.url.clone();
+        built.headers = spec.headers.clone();
+    }
     let policy = RedirectPolicy {
         follow: request.settings.follow_redirects,
         follow_original_method: request.settings.follow_original_method,
@@ -174,10 +174,31 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
     let prepare_ms = millis(started.elapsed());
     let send_started = std::time::Instant::now();
     let cancel = options.cancel.clone().unwrap_or_default();
-    let outcome = {
+    let mut outcome = {
         let jar = engine.jar();
-        client.send_with_cookies(spec, policy, jar, request.settings.cookie_jar_disabled, &cancel).await?
+        client.send_with_cookies(spec.clone(), policy, jar, request.settings.cookie_jar_disabled, &cancel).await?
     };
+    if outcome.response.status == hyper::StatusCode::UNAUTHORIZED
+        && let Some(AuthConfig::Digest(digest)) = &auth
+        && !digest.disable_retry_request
+        && let Some(challenge_header) =
+            outcome.response.headers.iter().find(|(name, _)| name.eq_ignore_ascii_case("www-authenticate")).map(|(_, value)| value.clone())
+    {
+        let challenge =
+            postguy_auth::digest::parse_challenge(&challenge_header).map_err(|err| EngineError::BadRequest { reason: err.to_string() })?;
+        let uri = digest_uri(&built.url);
+        let cnonce = if digest.client_nonce.is_empty() { postguy_auth::random_nonce() } else { digest.client_nonce.clone() };
+        let count = digest_nonce_count(&digest.nonce_count);
+        let answer = postguy_auth::digest::answer(digest, &challenge, built.method.as_str(), &uri, &built.body, &cnonce, count)
+            .map_err(|err| EngineError::BadRequest { reason: err.to_string() })?;
+        let mut retry = spec.clone();
+        retry.headers.retain(|(name, _)| !name.eq_ignore_ascii_case("authorization"));
+        retry.headers.push(("Authorization".into(), answer.authorization));
+        warnings.push("Digest challenge accepted; request retried once".into());
+        let jar = engine.jar();
+        outcome = client.send_with_cookies(retry, policy, jar, request.settings.cookie_jar_disabled, &cancel).await?;
+        auth_placement = Some(postguy_http::AuthPlacement::Header);
+    }
 
     let network_ms = millis(send_started.elapsed());
     let record_started = std::time::Instant::now();
@@ -276,6 +297,22 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
         warnings,
         timings: PipelineTimings { prepare_ms, network_ms, record_ms, total_ms: millis(started.elapsed()) },
     })
+}
+
+fn digest_uri(url: &str) -> String {
+    let parsed = postguy_urlkit::Url::parse(url);
+    match parsed.query.as_ref() {
+        Some(query) if !query.0.is_empty() => format!("{}?{}", parsed.path, query.0),
+        _ => parsed.path,
+    }
+}
+
+fn digest_nonce_count(value: &str) -> u32 {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return 1;
+    }
+    u32::from_str_radix(trimmed, 16).or_else(|_| trimmed.parse()).unwrap_or(1)
 }
 
 fn millis(duration: std::time::Duration) -> u64 {
@@ -418,6 +455,57 @@ fn resolve_auth(auth: &Option<AuthConfig>, resolver: &Resolver) -> Result<Option
             api_key.key = resolver.resolve_text(&api_key.key).text;
             api_key.value = resolver.resolve_text(&api_key.value).text;
             AuthConfig::ApiKey(api_key)
+        }
+        AuthConfig::Digest(mut digest) => {
+            digest.username = resolver.resolve_text(&digest.username).text;
+            digest.password = resolver.resolve_text(&digest.password).text;
+            digest.realm = resolver.resolve_text(&digest.realm).text;
+            digest.nonce = resolver.resolve_text(&digest.nonce).text;
+            digest.nonce_count = resolver.resolve_text(&digest.nonce_count).text;
+            digest.opaque = resolver.resolve_text(&digest.opaque).text;
+            digest.client_nonce = resolver.resolve_text(&digest.client_nonce).text;
+            digest.qop = resolver.resolve_text(&digest.qop).text;
+            AuthConfig::Digest(digest)
+        }
+        AuthConfig::Jwt(mut jwt) => {
+            jwt.secret = resolver.resolve_text(&jwt.secret).text;
+            jwt.private_key = resolver.resolve_text(&jwt.private_key).text;
+            jwt.payload = resolver.resolve_text(&jwt.payload).text;
+            for header in &mut jwt.headers {
+                header.value = resolver.resolve_text(&header.value).text;
+            }
+            AuthConfig::Jwt(jwt)
+        }
+        AuthConfig::OAuth1(mut oauth) => {
+            oauth.consumer_key = resolver.resolve_text(&oauth.consumer_key).text;
+            oauth.consumer_secret = resolver.resolve_text(&oauth.consumer_secret).text;
+            oauth.token = resolver.resolve_text(&oauth.token).text;
+            oauth.token_secret = resolver.resolve_text(&oauth.token_secret).text;
+            oauth.callback_url = resolver.resolve_text(&oauth.callback_url).text;
+            oauth.verifier = resolver.resolve_text(&oauth.verifier).text;
+            oauth.nonce = resolver.resolve_text(&oauth.nonce).text;
+            oauth.timestamp = resolver.resolve_text(&oauth.timestamp).text;
+            oauth.version = resolver.resolve_text(&oauth.version).text;
+            oauth.realm = resolver.resolve_text(&oauth.realm).text;
+            AuthConfig::OAuth1(oauth)
+        }
+        AuthConfig::AwsV4(mut aws) => {
+            aws.access_key = resolver.resolve_text(&aws.access_key).text;
+            aws.secret_key = resolver.resolve_text(&aws.secret_key).text;
+            aws.region = resolver.resolve_text(&aws.region).text;
+            aws.service = resolver.resolve_text(&aws.service).text;
+            aws.session_token = resolver.resolve_text(&aws.session_token).text;
+            AuthConfig::AwsV4(aws)
+        }
+        AuthConfig::Hawk(mut hawk) => {
+            hawk.auth_id = resolver.resolve_text(&hawk.auth_id).text;
+            hawk.auth_key = resolver.resolve_text(&hawk.auth_key).text;
+            hawk.ext = resolver.resolve_text(&hawk.ext).text;
+            hawk.app_id = resolver.resolve_text(&hawk.app_id).text;
+            hawk.dlg = resolver.resolve_text(&hawk.dlg).text;
+            hawk.nonce = resolver.resolve_text(&hawk.nonce).text;
+            hawk.timestamp = resolver.resolve_text(&hawk.timestamp).text;
+            AuthConfig::Hawk(hawk)
         }
         other => other,
     };

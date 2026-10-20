@@ -10,9 +10,9 @@ bind every contributor. [PLAN.md](PLAN.md) is the execution order.
 
 ## Status
 
-**v0.1 review pending (M4.4):** desktop HTTP client with collections, environments, variables,
+**v0.1 in progress (M5.1):** desktop HTTP client with collections, environments, variables,
 request builder, response viewer, imports (Postman/cURL/zip documents), snippets and export
-dialogs. WebSocket, gRPC, scripts and the runner are later milestones. The roadmap lives in
+dialogs and the M5.1 auth types. WebSocket, gRPC, OAuth 2.0, scripts and the runner are later milestones. The roadmap lives in
 [ROADMAP.md](ROADMAP.md), the milestone table in [docs/roadmap.md](docs/roadmap.md).
 
 ## Building

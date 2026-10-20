@@ -145,11 +145,13 @@ Planned observation requests:
 
 #### M5 Remaining HTTP auth, certificates, GraphQL
 
-- [ ] M5.1 `auth`: Digest (challenge retry once), JWT (HS/RS/ES/PS), OAuth 1.0, AWS Signature v4, Hawk. Known-answer tests from the specs; `curl` or external tools only as test oracles.
+- [x] M5.1 `auth`: Digest (challenge retry once), JWT (HS/RS/ES/PS), OAuth 1.0, AWS Signature v4, Hawk. Known-answer tests from the specs; `curl` or external tools only as test oracles.
 - [ ] M5.2 OAuth 2.0 in `http`: all grants, PKCE, loopback redirect listener opened only on demand and closed after, token store (secrets file), Manage tokens, auto-refresh.
 - [ ] M5.3 Client certificates (PEM and PFX), CA bundle UI, request Settings tab complete.
 - [ ] M5.4 GraphQL body mode and basic introspection with a Refresh button.
-- [ ] M5.5 UI for all auth forms (Appendix E) and tools. NTLM, EdgeGrid, ASAP only if time allows (P2).
+- [~] M5.5 UI for all auth forms (Appendix E) and tools. Digest/JWT/OAuth1/AWS/Hawk forms land with M5.1; OAuth 2.0 forms wait for M5.2. NTLM, EdgeGrid, ASAP only if time allows (P2).
+
+**M5.1 budget (2026-10-20):** release app 8.99 MiB (budget 18), CLI 4.11 MiB; 548 packages licence-checked; `xtask ci` green.
 
 #### M6 WebSocket
 

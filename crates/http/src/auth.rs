@@ -6,7 +6,7 @@
 //! kind outside the v1 set is an actionable error rather than a silently unauthenticated send.
 
 use postguy_model::AuthConfig;
-use postguy_model::auth::AuthLocation;
+use postguy_model::auth::{AuthLocation, DigestAlgorithm};
 use postguy_urlkit::{Param, Url, params_of_query, query_of_params};
 
 use crate::client::RequestSpec;
@@ -64,10 +64,146 @@ pub fn apply_auth(config: &AuthConfig, spec: &mut RequestSpec) -> Result<AuthPla
                 }
             }
         }
-        other => {
-            Err(HttpError::Auth { kind: other.kind(), reason: "this auth type is not supported yet (v1 sends Basic, Bearer and API key)".into() })
+        AuthConfig::Digest(auth) => {
+            if auth.nonce.trim().is_empty() {
+                return Err(HttpError::Auth { kind: "digest".into(), reason: "waiting for the server's Digest challenge".into() });
+            }
+            let uri = digest_uri(&spec.url);
+            let cnonce = if auth.client_nonce.is_empty() { postguy_auth::random_nonce() } else { auth.client_nonce.clone() };
+            let count = parse_nonce_count(&auth.nonce_count);
+            let challenge = postguy_auth::digest::Challenge {
+                realm: auth.realm.clone(),
+                nonce: auth.nonce.clone(),
+                opaque: auth.opaque.clone(),
+                algorithm: digest_algorithm_name(auth.algorithm).into(),
+                qop: auth.qop.split(',').map(|value| value.trim().to_ascii_lowercase()).filter(|value| !value.is_empty()).collect(),
+                userhash: false,
+                charset: String::new(),
+                stale: false,
+            };
+            let answer =
+                postguy_auth::digest::answer(auth, &challenge, spec.method.as_str(), &uri, &spec.body, &cnonce, count).map_err(auth_error)?;
+            set_header(spec, "Authorization", answer.authorization);
+            Ok(AuthPlacement::Header)
         }
+        AuthConfig::Jwt(auth) => {
+            let token = postguy_auth::jwt::encode(auth, postguy_auth::now_secs()).map_err(auth_error)?;
+            match auth.location {
+                AuthLocation::Header => {
+                    let prefix = auth.prefix.as_deref().unwrap_or("Bearer");
+                    let value = if prefix.trim().is_empty() { token } else { format!("{prefix} {token}") };
+                    set_header(spec, "Authorization", value);
+                    Ok(AuthPlacement::Header)
+                }
+                AuthLocation::Query => {
+                    append_query(spec, "token", &token);
+                    Ok(AuthPlacement::Query)
+                }
+            }
+        }
+        AuthConfig::OAuth1(auth) => {
+            let nonce = if auth.nonce.trim().is_empty() { postguy_auth::random_nonce() } else { auth.nonce.clone() };
+            let output = postguy_auth::oauth1::sign(auth, spec.method.as_str(), &spec.url, &spec.body, postguy_auth::now_secs(), &nonce)
+                .map_err(auth_error)?;
+            if let Some(header) = output.header {
+                set_header(spec, "Authorization", header);
+                Ok(AuthPlacement::Header)
+            } else {
+                for (key, value) in output.query {
+                    append_encoded_query(spec, &key, &value);
+                }
+                Ok(AuthPlacement::Query)
+            }
+        }
+        AuthConfig::AwsV4(auth) => {
+            let output = postguy_auth::aws::sign(auth, spec.method.as_str(), &spec.url, &spec.headers, &spec.body, postguy_auth::now_secs())
+                .map_err(auth_error)?;
+            for (name, value) in output.headers {
+                set_header(spec, &name, value);
+            }
+            if let Some(header) = output.header {
+                set_header(spec, "Authorization", header);
+                Ok(AuthPlacement::Header)
+            } else {
+                replace_encoded_query(spec, &output.query);
+                Ok(AuthPlacement::Query)
+            }
+        }
+        AuthConfig::Hawk(auth) => {
+            let value =
+                postguy_auth::hawk::authorization(auth, spec.method.as_str(), &spec.url, &spec.body, postguy_auth::now_secs()).map_err(auth_error)?;
+            set_header(spec, "Authorization", value);
+            Ok(AuthPlacement::Header)
+        }
+        other => Err(HttpError::Auth {
+            kind: other.kind(),
+            reason: "this auth type is not supported yet (v1 sends Basic, Bearer, API key, Digest, JWT, OAuth 1.0, AWS v4 and Hawk)".into(),
+        }),
     }
+}
+
+fn auth_error(err: postguy_auth::AuthError) -> HttpError {
+    HttpError::Auth { kind: "auth".into(), reason: err.to_string() }
+}
+
+fn digest_uri(url: &str) -> String {
+    let parsed = Url::parse(url);
+    match parsed.query.as_ref() {
+        Some(query) if !query.0.is_empty() => format!("{}?{}", parsed.path, query.0),
+        _ => parsed.path,
+    }
+}
+
+fn digest_algorithm_name(algorithm: DigestAlgorithm) -> &'static str {
+    match algorithm {
+        DigestAlgorithm::Md5 => "MD5",
+        DigestAlgorithm::Md5Sess => "MD5-sess",
+        DigestAlgorithm::Sha256 => "SHA-256",
+        DigestAlgorithm::Sha256Sess => "SHA-256-sess",
+        DigestAlgorithm::Sha512256 => "SHA-512-256",
+    }
+}
+
+fn parse_nonce_count(value: &str) -> u32 {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return 1;
+    }
+    u32::from_str_radix(trimmed, 16).or_else(|_| trimmed.parse()).unwrap_or(1)
+}
+
+fn append_encoded_query(spec: &mut RequestSpec, key: &str, value: &str) {
+    if key.is_empty() {
+        return;
+    }
+    if spec.url.contains('?') {
+        if !spec.url.ends_with('?') && !spec.url.ends_with('&') {
+            spec.url.push('&');
+        }
+    } else {
+        spec.url.push('?');
+    }
+    spec.url.push_str(key);
+    spec.url.push('=');
+    spec.url.push_str(value);
+}
+
+fn replace_encoded_query(spec: &mut RequestSpec, pairs: &[(String, String)]) {
+    let base = spec.url.split(['?', '#']).next().unwrap_or_default().to_string();
+    let query = pairs.iter().map(|(key, value)| format!("{key}={value}")).collect::<Vec<_>>().join("&");
+    spec.url = if query.is_empty() { base } else { format!("{base}?{query}") };
+}
+
+fn append_query(spec: &mut RequestSpec, key: &str, value: &str) {
+    let mut url = Url::parse(&spec.url);
+    let mut params = url.query.as_ref().map(|query| params_of_query(&query.0)).unwrap_or_default();
+    if let Some(existing) = params.iter_mut().find(|param| param.key == key) {
+        existing.value = postguy_urlkit::decode_percent(value);
+    } else {
+        params.push(Param { key: key.to_string(), value: postguy_urlkit::decode_percent(value) });
+    }
+    url.query = query_of_params(&params);
+    spec.url = url.build();
 }
 
 fn set_header(spec: &mut RequestSpec, name: &str, value: String) {
@@ -158,11 +294,68 @@ mod tests {
     }
 
     #[test]
+    fn jwt_oauth1_aws_and_hawk_place_their_headers() {
+        let mut spec = spec_with("http://example.com/");
+        apply_auth(
+            &AuthConfig::Jwt(Box::new(postguy_model::auth::JwtAuth {
+                secret: "secret".into(),
+                payload: r#"{"sub":"ada"}"#.into(),
+                ..postguy_model::auth::JwtAuth::default()
+            })),
+            &mut spec,
+        )
+        .expect("jwt");
+        let header = spec.headers.iter().find(|(name, _)| name == "Authorization").map(|(_, value)| value.as_str()).unwrap_or_default();
+        assert!(header.starts_with("Bearer "), "{header}");
+
+        let mut spec = spec_with("http://example.com/");
+        apply_auth(
+            &AuthConfig::OAuth1(Box::new(postguy_model::auth::OAuth1Auth {
+                add_params_to_header: true,
+                consumer_key: "ck".into(),
+                consumer_secret: "cs".into(),
+                ..postguy_model::auth::OAuth1Auth::default()
+            })),
+            &mut spec,
+        )
+        .expect("oauth1");
+        assert!(spec.headers.iter().any(|(name, value)| name == "Authorization" && value.starts_with("OAuth ")));
+        assert!(spec.headers.iter().any(|(name, _)| name == "Authorization"));
+
+        let mut spec = spec_with("https://example.amazonaws.com/");
+        apply_auth(
+            &AuthConfig::AwsV4(Box::new(postguy_model::auth::AwsV4Auth {
+                access_key: "AKIDEXAMPLE".into(),
+                secret_key: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".into(),
+                region: "us-east-1".into(),
+                service: "service".into(),
+                ..postguy_model::auth::AwsV4Auth::default()
+            })),
+            &mut spec,
+        )
+        .expect("aws");
+        assert!(spec.headers.iter().any(|(name, _)| name == "x-amz-date"));
+        assert!(spec.headers.iter().any(|(name, value)| name == "Authorization" && value.starts_with("AWS4-HMAC-SHA256 ")));
+
+        let mut spec = spec_with("http://example.com/");
+        apply_auth(
+            &AuthConfig::Hawk(Box::new(postguy_model::auth::HawkAuth {
+                auth_id: "id".into(),
+                auth_key: "key".into(),
+                ..postguy_model::auth::HawkAuth::default()
+            })),
+            &mut spec,
+        )
+        .expect("hawk");
+        assert!(spec.headers.iter().any(|(name, value)| name == "Authorization" && value.starts_with("Hawk ")));
+    }
+
+    #[test]
     fn empty_credentials_and_unsupported_types_are_actionable_errors() {
         let mut spec = spec_with("http://example.com/");
         let digest = AuthConfig::Digest(Box::default());
         let error = apply_auth(&digest, &mut spec).expect_err("no error");
-        assert!(error.to_string().contains("not supported"), "digest is not in the v1 set: {error}");
+        assert!(error.to_string().contains("Digest challenge"), "digest without a challenge is deferred: {error}");
         let error = apply_auth(&AuthConfig::Bearer(Box::default()), &mut spec).expect_err("no error");
         assert!(error.to_string().contains("token is empty"), "{error}");
         let error = apply_auth(&AuthConfig::ApiKey(Box::default()), &mut spec).expect_err("no error");

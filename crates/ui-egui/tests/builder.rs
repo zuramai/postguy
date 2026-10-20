@@ -94,6 +94,32 @@ fn authorization_switches_to_basic_and_shows_fields() {
 }
 
 #[test]
+fn advanced_auth_types_switch_and_show_their_fields() {
+    let mut jwt_harness = harness();
+    jwt_harness.run();
+    jwt_harness.get_by_label("Authorization").click();
+    jwt_harness.run();
+    jwt_harness.get_by_label_contains("Inherit").click();
+    jwt_harness.run();
+    jwt_harness.get_by_label_contains("JWT Bearer").click();
+    jwt_harness.run();
+    assert!(matches!(jwt_harness.state().draft.auth, AuthConfig::Jwt(_)));
+    assert!(jwt_harness.query_by_label("Payload (JSON claims)").is_some());
+    assert!(jwt_harness.query_by_label("Algorithm").is_some());
+    let mut aws_harness = harness();
+    aws_harness.run();
+    aws_harness.get_by_label("Authorization").click();
+    aws_harness.run();
+    aws_harness.get_by_label_contains("Inherit").click();
+    aws_harness.run();
+    aws_harness.get_by_label_contains("AWS Signature v4").click();
+    aws_harness.run();
+    assert!(matches!(aws_harness.state().draft.auth, AuthConfig::AwsV4(_)));
+    assert!(aws_harness.query_by_label("Access key").is_some());
+    assert!(aws_harness.query_by_label("Region").is_some());
+}
+
+#[test]
 fn body_mode_switches_and_keeps_the_raw_text_available() {
     let mut harness = harness();
     harness.state_mut().draft.body = Body::Raw { language: RawLanguage::Json, text: "{\"a\":1}".into(), extras: Default::default() };

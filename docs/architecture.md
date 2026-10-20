@@ -1,6 +1,6 @@
 # Architecture
 
-**Status:** M4.4. Revised 2026-10-20: imports (Postman/cURL/zip documents), snippets, export dialogs and all-data zip are in; v0.1 review pending.
+**Status:** M5.1. Revised 2026-10-20: imports/snippets/exports plus Digest, JWT, OAuth 1.0, AWS SigV4 and Hawk auth are in; OAuth 2.0 is next.
 
 ## Layer table (enforced by `cargo xtask layers`; PROMPT.md 4.1)
 

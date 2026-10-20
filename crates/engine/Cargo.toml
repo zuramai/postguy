@@ -15,6 +15,7 @@ postguy-http.workspace = true
 postguy-vars.workspace = true
 postguy-urlkit.workspace = true
 postguy-interop.workspace = true
+postguy-auth.workspace = true
 zip.workspace = true
 postguy-util.workspace = true
 serde.workspace = true

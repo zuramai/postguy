@@ -168,6 +168,24 @@ fn inherited_basic_auth_is_applied_and_secret_values_are_masked() {
 }
 
 #[test]
+fn digest_auth_retries_once_with_the_challenge_answer() {
+    let server = Server::start();
+    let fixture = Fixture::new();
+    let engine = fixture.engine();
+    let mut http = HttpRequest { method: HttpMethod::Get, url: format!("{}/auth/digest", server.base_url()), ..HttpRequest::default() };
+    http.auth = AuthConfig::Digest(Box::new(postguy_model::auth::DigestAuth {
+        username: "postguy".into(),
+        password: "postguy".into(),
+        ..postguy_model::auth::DigestAuth::default()
+    }));
+    let outcome = engine.send(inline(http), SendOptions::default()).expect("digest send");
+    assert_eq!(outcome.response.status, 200, "{}", String::from_utf8_lossy(&outcome.response.body));
+    assert!(String::from_utf8_lossy(&outcome.response.body).contains("digest"));
+    assert!(outcome.warnings.iter().any(|warning| warning.contains("retried once")), "{:?}", outcome.warnings);
+    assert_eq!(outcome.request.auth, Some(postguy_http::AuthPlacement::Header));
+}
+
+#[test]
 fn cookies_survive_a_restart_through_the_persisted_jar() {
     let server = Server::start();
     let fixture = Fixture::new();

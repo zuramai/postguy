@@ -3,7 +3,8 @@
 //! it renders the SAME `PostguyShell` through egui's wgpu test renderer, not a mock-up.
 
 use egui_kittest::Harness;
-use postguy_model::{Collection, Environment, HistoryEntry, HttpMethod, HttpRequest, Id, Item, KeyValue, Request, RequestKind, Variable};
+use postguy_model::auth::{JwtAlgorithm, JwtAuth};
+use postguy_model::{AuthConfig, Collection, Environment, HistoryEntry, HttpMethod, HttpRequest, Id, Item, KeyValue, Request, RequestKind, Variable};
 use postguy_snippets::Language;
 use postguy_ui_egui::PostguyShell;
 use postguy_ui_egui::builder::{BodyDrafts, BuilderTab, RequestBuilder};
@@ -263,6 +264,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut demo = DemoState::new(shell);
             if mode == "export" {
                 export::open(&mut demo.export, ExportTarget::Collection { id: "demo-collection".into(), name: "Payments API".into() });
+            }
+            if mode == "auth" {
+                demo.tab = BuilderTab::Authorization;
+                demo.draft.auth = AuthConfig::Jwt(Box::new(JwtAuth {
+                    algorithm: JwtAlgorithm::Hs256,
+                    secret: "{{jwtSecret}}".into(),
+                    payload: r#"{"sub":"ada","role":"admin"}"#.into(),
+                    ..JwtAuth::default()
+                }));
             }
             if mode == "snippet" {
                 demo.shell.state.right_panel_open = true;

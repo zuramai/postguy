@@ -1,6 +1,6 @@
 # Development
 
-**Status:** M4.4 (v0.1 feature set), headed for REVIEW STOP 3. Every session follows AGENTS.md 5.
+**Status:** M5.1 (Digest/JWT/OAuth1/AWSv4/Hawk + auth forms); OAuth 2.0 is next. Every session follows AGENTS.md 5.
 
 ## Toolchain
 

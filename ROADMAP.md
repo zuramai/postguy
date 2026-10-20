@@ -1,6 +1,6 @@
 # Postguy roadmap
 
-**Stage: M4.4 complete · REVIEW STOP 3 (v0.1) pending** · imports, snippets and export dialogs in; remaining gaps in `docs/gaps.md`
+**Stage: M5.1 complete (auth algorithms and forms) · M5.2 OAuth 2.0 next** · REVIEW STOP 3 remains pending
 
 Postguy is a clean-room, offline, native API client (HTTP, WebSocket, gRPC) in Rust + egui.
 The full picture: `PROMPT.md` (product brief), `PLAN.md` (order of work, exit criteria),
@@ -20,6 +20,18 @@ The full picture: `PROMPT.md` (product brief), `PLAN.md` (order of work, exit cr
 The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
+
+- **2026-10-20 (M5.1 + auth forms):** `postguy-auth` now implements Digest (MD5/MD5-sess/SHA-256/
+  SHA-256-sess/SHA-512-256, qop auth/auth-int, challenge parsing), JWT HS/RS/ES/PS (PKCS#8/
+  PKCS#1 PEM, iat insertion, custom headers), OAuth 1.0 (HMAC/RSA/PLAINTEXT, body hash, header
+  or query placement), AWS SigV4 (header + presigned query, UTC dates) and Hawk (SHA-256/SHA-1,
+  payload hash). RFC known-answer vectors: RFC 7616 Digest, RFC 5849 with verified erratum,
+  RFC 7515 HS256, AWS get-vanilla, Hawk README. HTTP applies all types; Digest sends
+  unauthenticated, accepts the 401 challenge and retries once. Auth is applied after body
+  construction so form signatures and payload hashes see the final bytes. Builder auth dropdown
+  exposes every new type with its fields. Tests: 14 auth unit, Digest pipeline end-to-end, HTTP
+  placement, auth-editor UI. OAuth 2.0 remains M5.2; NTLM/EdgeGrid/ASAP stay P2. Release
+  app 8.99 MiB, CLI 4.11 MiB; 548 packages licence-checked; auth screenshot rendered.
 
 - **2026-10-20 (fix, Add Request):** the sidebar's collection Add buttons and the toolbar New
   menu passed the collection id as a folder parent, so request creation failed; collection-level

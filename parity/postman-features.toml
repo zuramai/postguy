@@ -289,7 +289,7 @@ area = "C"
 tier = "P0"
 milestone = "M2.3"
 status = "shipped"
-notes = "Basic, Bearer and API key applied on send; inherited through folders/collection; generated headers are shown, never saved."
+notes = "Basic, Bearer and API key applied on send; inherited through folders/collection; generated headers are shown, never saved. The builder exposes Digest/JWT/OAuth 1.0/AWS/Hawk alongside these."
 evidence = ["crates/engine/tests/pipeline.rs::inherited_basic_auth_is_applied_and_secret_values_are_masked", "crates/http/src/auth.rs::api_key_goes_to_a_header_or_the_query_with_replacement"]
 [[feature]]
 id = "c.auth-m5"
@@ -297,9 +297,10 @@ title = "Auth: Digest, JWT, OAuth 1.0, OAuth 2.0, AWS Sig v4, Hawk"
 area = "C"
 tier = "P1"
 milestone = "M5"
-status = "planned"
-notes = "Digest retries once on challenge; OAuth 2.0 loopback listener opened only on demand. NTLM/EdgeGrid/ASAP are P2."
+status = "partial"
+notes = "Digest/JWT/OAuth 1.0/AWS SigV4/Hawk are implemented and applied; Digest retries once on the 401 challenge. OAuth 2.0 flows/token store are M5.2. NTLM/EdgeGrid/ASAP remain P2."
 
+evidence = ["crates/auth/src/digest.rs::rfc_7616_md5_example_matches", "crates/auth/src/jwt.rs::rfc_7515_hs256_mac_matches_the_appendix", "crates/auth/src/jwt.rs::rsa_and_ecdsa_tokens_verify_with_their_public_keys", "crates/auth/src/oauth1.rs::rfc_5849_hmac_sha1_example_matches", "crates/auth/src/aws.rs::aws_get_vanilla_vector_matches", "crates/auth/src/hawk.rs::hawk_readme_vector_matches", "crates/engine/tests/pipeline.rs::digest_auth_retries_once_with_the_challenge_answer"]
 [[feature]]
 id = "c.redirects"
 title = "Manual redirects: per-hop record, method rules, credential drop"
