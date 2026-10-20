@@ -839,27 +839,27 @@ title = "Window shell: header, min size, remembered geometry"
 area = "H"
 tier = "P0"
 milestone = "M3.1"
-status = "planned"
-notes = "32 px header with back/forward, workspace name, palette search, settings gear."
-
+status = "partial"
+notes = "32 px header with back/forward, workspace name, search field and settings gear; min 900x560, default 1280x800. Missing here: remembered geometry and the real command palette (M3.3/M3.8)."
+evidence = ["crates/ui-egui/tests/widgets.rs::the_shell_draws_its_regions_and_opens_settings"]
 [[feature]]
 id = "h.widgets"
 title = "Widget set: checkbox, radio, switch, select, split button, dialogs, tables"
 area = "H"
 tier = "P0"
 milestone = "M3.1"
-status = "planned"
-notes = "kittest tests each; egui's default checkbox/radio disallowed via clippy.toml."
-
+status = "shipped"
+notes = "Custom square checkbox, outlined radio, switch, grouped/searchable select, split button, context menu with icons and shortcut hints, modal, typed confirm, inline rename; every control reports AccessKit state and has a kittest test. egui's stock checkbox/radio are avoided by convention, not yet a clippy deny."
+evidence = ["crates/ui-egui/tests/widgets.rs::checkbox_toggles_from_the_keyboard_and_the_mouse", "crates/ui-egui/tests/widgets.rs::select_shows_groups_checks_and_changes_the_value", "crates/ui-egui/tests/widgets.rs::split_button_runs_both_actions", "crates/ui-egui/tests/widgets.rs::typed_confirmation_needs_the_exact_word", "crates/ui-egui/tests/widgets.rs::inline_rename_commits_from_the_editor"]
 [[feature]]
 id = "h.widgets-heavy"
 title = "KeyValueTable, CodeEditor, LargeTextView, Timeline, Tree components"
 area = "H"
 tier = "P0"
 milestone = "M3.1"
-status = "planned"
-notes = "Built once, reused by WS/gRPC/scripts; virtualised; chunk-edit caches."
-
+status = "partial"
+notes = "KeyValueTable (virtualised, variants), CodeEditor (line numbers, JSON colour, soft highlight cap), LargeTextView (precomputed line starts, virtualised) and Timeline (virtualised, reversible) exist. Tree arrives with M3.2; code-editor highlight caching by revision and find/autocomplete are M3.4/M3.5."
+evidence = ["crates/ui-egui/tests/widgets.rs::key_value_table_adds_and_deletes_rows", "crates/ui-egui/tests/widgets.rs::code_editor_has_a_gutter_and_accepts_edits", "crates/ui-egui/tests/widgets.rs::large_text_view_virtualises_many_lines", "crates/ui-egui/tests/widgets.rs::timeline_shows_newest_first_and_expands_a_row"]
 [[feature]]
 id = "h.sidebar"
 title = "Sidebar sections COLLECTIONS / ENVIRONMENTS / HISTORY"
@@ -947,9 +947,9 @@ title = "Theme tokens: light, dark, system (live on macOS/Windows)"
 area = "H"
 tier = "P0"
 milestone = "M3.1"
-status = "planned"
-notes = "Semantic tokens from PROMPT.md 6.6; contrast >= 4.5:1."
-
+status = "shipped"
+notes = "Semantic light/dark tokens from PROMPT.md 6.7 with every text token at >= 4.5:1 (tested); System/Light/Dark preference through egui's OS theme signal; type scale 13/12.5 px. Live OS theme switching is egui's macOS/Windows signal; Linux falls back to light per the brief."
+evidence = ["crates/ui-egui/src/theme.rs::every_text_token_meets_wcag_aa_on_its_surface", "crates/ui-egui/tests/widgets.rs::the_shell_draws_its_regions_and_opens_settings"]
 [[feature]]
 id = "h.two-pane"
 title = "Two-pane layout and resizable response splitter"

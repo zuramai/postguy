@@ -5,6 +5,7 @@
 /// source `<path>`/primitive: relative moves inside a string anchor at that element's own
 /// start, so strings must never be concatenated (that would rebase their moves).
 pub const ICONS: &[(&str, &[&str])] = &[
+    ("arrow-left", &["m12 19-7-7 7-7", "M19 12H5"]),
     ("arrow-right", &["M5 12h14", "m12 5 7 7-7 7"]),
     ("circle-check", &["M2 12 a10 10 0 1 0 20 0 a10 10 0 1 0 -20 0", "m16 9-5.5 5.5L8 12"]),
     ("plus", &["M5 12h14", "M12 5v14"]),

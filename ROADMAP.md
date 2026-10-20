@@ -21,6 +21,14 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-20 (M3.1):** Desktop shell and widget kit: eframe/glow app (min 900x560, default
+  1280x800), semantic light/dark tokens with every text colour at >= 4.5:1 (tested) and
+  System/Light/Dark via egui's OS signal, a from-scratch SVG path-data renderer for the
+  generated Lucide icons (no SVG crate or icon font), custom square checkbox/radio/switch,
+  grouped+searchable select, split button, context menu rows, modal, typed confirmation, inline
+  rename, virtualised KeyValueTable, `{{var}}` field, CodeEditor, LargeTextView and Timeline.
+  16 kittest widget tests plus 9 unit tests; headless `shot` example renders the real shell in
+  both themes for review.
 - **2026-10-20 (M2.9):** Automation tools over the engine: `request_send`/`request_cancel`
   (send outside the session lock so cancellation reaches in-flight work), response cache by
   history id with `response_get`/`save`/`render_body` (1 MiB echo cap), `cookies_*`,

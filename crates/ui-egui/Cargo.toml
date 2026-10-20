@@ -9,4 +9,10 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
-egui.workspace = true
+egui = { workspace = true, features = ["default_fonts"] }
+postguy-model.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+egui_kittest = { version = "0.36", features = ["wgpu"] }
+image = { version = "0.25", default-features = false, features = ["png"] }

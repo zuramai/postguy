@@ -8,6 +8,17 @@
 # ==========================================================================================
 
 [[asset]]
+path = "assets/icons/arrow-left.svg"
+title = "Lucide icon: arrow-left"
+author = "Lucide contributors"
+source = "github.com/lucide-icons/lucide at tag 1.59.0 (icons/arrow-left.svg)"
+licence = "ISC"
+licence_file = "assets/icons/LICENSE-lucide.txt"
+kind = "icon"
+usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.rs)"
+sha256 = "c5f4b88076108eb1a0d95336e1aa7e7bb1419a3a92af96f6247d88cd3456f933"
+
+[[asset]]
 path = "assets/icons/arrow-right.svg"
 title = "Lucide icon: arrow-right"
 author = "Lucide contributors"

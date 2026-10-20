@@ -117,7 +117,7 @@ Planned observation requests:
 
 #### M3 Desktop shell and HTTP UI (ten sub-steps; commit per sub-step)
 
-- [ ] M3.1 App shell (eframe, glow), theme tokens (light/dark/system), icon pipeline, widgets: square checkbox, outlined radio, switch, select with groups and checks, split button, popup list, context menu, modal and typed-confirm dialogs, inline rename, key-value table, field with `{{var}}` chips, code editor, large-text view, timeline skeleton. kittest tests for each.
+- [x] M3.1 App shell (eframe, glow), theme tokens (light/dark/system), icon pipeline, widgets: square checkbox, outlined radio, switch, select with groups and checks, split button, popup list, context menu, modal and typed-confirm dialogs, inline rename, key-value table, field with `{{var}}` chips, code editor, large-text view, timeline skeleton. kittest tests for each.
 - [ ] M3.2 Sidebar: collections tree (carets, preview-open, keyboard, multi-select, drag and drop, context menus exactly as PROMPT.md 5.1), environments, history, filter.
 - [ ] M3.3 Tab strip: preview tabs, dirty dot, drag reorder, middle-click, overflow search, context menu, closed-tab reopen, session and draft restore, crash recovery.
 - [ ] M3.4 Request builder: breadcrumb, URL field (chips, autocomplete, cURL paste), Params and path variables, Headers (auto-generated rows, presets, bulk edit), Body (all modes, Beautify), Authorization (No Auth, Inherit, Basic, Bearer, API Key), Settings, Docs, Save flows, send/cancel states.
