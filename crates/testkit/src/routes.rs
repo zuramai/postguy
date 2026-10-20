@@ -81,6 +81,7 @@ pub fn route(request: Incoming) -> Reply {
         "/compressed" => compressed(&request.query),
         "/huge" => huge(&request.query),
         "/token" => token(&request),
+        "/json" => json_body(&request.query),
         "/no-content" => Reply { status: StatusCode::NO_CONTENT, headers: Vec::new(), body: Vec::new(), chunks: Vec::new(), delay_ms: 0 },
         _ => {
             if let Some(code) = path.strip_prefix("/status/").and_then(|code| code.parse::<u16>().ok())
@@ -332,6 +333,17 @@ fn compressed(query: &str) -> Reply {
         reply = reply.with_header(hyper::header::CONTENT_LENGTH.as_str(), "999999999");
     }
     reply
+}
+
+/// A pure JSON response of about `kb` KiB (the send-overhead and Pretty-view benchmarks read
+/// it): `{"payload":"aaaa…"}`.
+fn json_body(query: &str) -> Reply {
+    let pairs = query_pairs(query);
+    let kb = query_usize(&pairs, "kb", 100).min(10_000);
+    let target = kb.saturating_mul(1024);
+    let overhead = 15usize; // {"payload":""}
+    let payload = "a".repeat(target.saturating_sub(overhead));
+    Reply::with_json(&json!({ "payload": payload }))
 }
 
 fn huge(query: &str) -> Reply {

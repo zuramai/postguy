@@ -24,6 +24,7 @@ postguy-interop = { path = "crates/interop", version = "0.1.0" }
 postguy-store = { path = "crates/store", version = "0.1.0" }
 postguy-automation = { path = "crates/automation", version = "0.1.0" }
 postguy-http = { path = "crates/http", version = "0.1.0" }
+postguy-engine = { path = "crates/engine", version = "0.1.0" }
 postguy-testkit = { path = "crates/testkit", version = "0.1.0" }
 serde = { version = "1", default-features = false, features = ["std", "derive"] }
 serde_json = { version = "1", features = ["preserve_order", "unbounded_depth"] }

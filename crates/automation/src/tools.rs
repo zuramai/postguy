@@ -2,8 +2,11 @@
 //! an input schema, unknown arguments rejected, and errors that name what is allowed. Tool
 //! names are `snake_case`; ids are UUID text from the workspace.
 
-use std::sync::Mutex;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
+use base64::Engine as _;
+use postguy_engine::{Cancel, SendOptions, SendTarget};
 use postguy_model::{Environment, Id, Item, Variable};
 use postguy_util::json::{Caps, parse_json_str};
 use serde_json::{Value, json};
@@ -29,12 +32,15 @@ pub struct ToolDef {
 /// The automation façade: a session plus the dispatch table.
 pub struct Automation {
     session: Mutex<Session>,
+    /// In-flight sends by request id (and `last`), so `request_cancel` can reach them while
+    /// `request_send` blocks in another call.
+    cancels: Arc<Mutex<HashMap<String, Cancel>>>,
 }
 
 impl Automation {
     /// A fresh automation; `root` confines every path argument when set.
     pub fn new(root: Option<Root>) -> Automation {
-        Automation { session: Mutex::new(Session::new(root)) }
+        Automation { session: Mutex::new(Session::new(root)), cancels: Arc::new(Mutex::new(HashMap::new())) }
     }
 
     /// Resolve a path the CALLER supplies outside the tools (a `--script` file): the same
@@ -61,8 +67,71 @@ impl Automation {
             }
         };
         validate_args(def, &args)?;
+        // `request_send` blocks for the whole exchange; it must not hold the session lock, or
+        // `request_cancel` from another thread could never reach the in-flight handle.
+        if tool_name == "request_send" {
+            return self.send_request(tool_name, &args);
+        }
+        if tool_name == "request_cancel" {
+            return self.cancel_request(tool_name, &args);
+        }
         let mut session = self.session.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         dispatch(tool_name, &args, &mut session)
+    }
+}
+
+impl Automation {
+    /// `request_send`: resolve the stored request, register a cancellation handle, run the
+    /// engine pipeline and return the outcome (the full body is available through
+    /// `response_get`/`response_save`; this summary caps it at 1 MiB).
+    fn send_request(&self, tool: &str, args: &serde_json::Map<String, Value>) -> Result<Value> {
+        let (engine, collection, request, environment) = {
+            let session = self.session.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let engine = session.engine()?.clone();
+            let collection = string_arg(args, tool, "collection")?;
+            let request = string_arg(args, tool, "request")?;
+            let environment = optional_string(args, tool, "environment")?.map(Id);
+            (engine, Id(collection), Id(request), environment)
+        };
+        let cancel = Cancel::new();
+        if let Ok(mut cancels) = self.cancels.lock() {
+            cancels.insert(request.0.clone(), cancel.clone());
+            cancels.insert("last".to_string(), cancel.clone());
+        }
+        let options = SendOptions { environment, cancel: Some(cancel), run_scripts: true };
+        let outcome = engine.send(SendTarget::Stored { collection, request: request.clone() }, options);
+        if let Ok(mut cancels) = self.cancels.lock() {
+            cancels.remove(&request.0);
+            cancels.remove("last");
+        }
+        let outcome = outcome?;
+        let mut value = cached_json(&postguy_engine::CachedResponse {
+            history_id: outcome.history.id.0.clone(),
+            request: outcome.request.clone(),
+            response: outcome.response.clone(),
+            warnings: outcome.warnings.clone(),
+        });
+        if let Some(object) = value.as_object_mut() {
+            object.insert("warnings".into(), serde_json::to_value(&outcome.warnings).map_err(json_error)?);
+        }
+        Ok(value)
+    }
+
+    /// `request_cancel`: cancel the in-flight send for a request id (or `last`).
+    fn cancel_request(&self, tool: &str, args: &serde_json::Map<String, Value>) -> Result<Value> {
+        let key = string_arg(args, tool, "sendId")?;
+        let cancels = self.cancels.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        match cancels.get(&key) {
+            Some(cancel) => {
+                cancel.cancel();
+                Ok(json!({"cancelled": true, "sendId": key}))
+            }
+            None => Err(AutomationError::Failed {
+                message: format!(
+                    "no in-flight send `{key}`; use the request id passed to request_send (or `last`), and call request_cancel while the send is running"
+                ),
+            }),
+        }
     }
 }
 
@@ -427,6 +496,141 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
             read_only: false,
             destructive: false,
         },
+        ToolDef {
+            name: "request_send",
+            title: "Send a saved request",
+            description: "Runs the full send pipeline (variables, inherited auth, cookies, proxy, redirects, decompression) and records History, Console and the response cache.",
+            input_schema: schema! {
+                "collection": req("collection id"),
+                "request": req("request id"),
+                "environment": opt("environment id (default: the workspace's active environment)")
+            },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "request_cancel",
+            title: "Cancel an in-flight send",
+            description: "Cancels the send started by request_send for that request id, or the most recent send (`last`).",
+            input_schema: schema! { "sendId": req("request id passed to request_send, or `last`") },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "response_get",
+            title: "Get a finished response",
+            description: "The newest (or `id`) cached response: status, headers, body (base64 plus text when UTF-8, capped at 1 MiB), size and timings.",
+            input_schema: schema! { "id": opt("history id (omit for the newest response)") },
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "response_save",
+            title: "Save a response body",
+            description: "Writes the DECODED body atomically to `path` inside --root.",
+            input_schema: schema! { "id": opt("history id (omit for the newest response)"), "path": req("file path") },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "response_render_body",
+            title: "Render a response body",
+            description: "Returns the body as UTF-8 text (with replacement markers when invalid) or base64, capped at 1 MiB.",
+            input_schema: schema! {
+                "id": opt("history id (omit for the newest response)"),
+                "format": opt("\"text\" (default) or \"base64\"")
+            },
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "cookies_list",
+            title: "List cookies",
+            description: "Every jar cookie with domain, path, flags and expiry, plus the script allowlist.",
+            input_schema: schema! {},
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "cookies_set",
+            title: "Set a cookie",
+            description: "Stores one raw Set-Cookie value for a URL (domain/path/secure/expiry rules apply) and persists the jar.",
+            input_schema: schema! { "url": req("the URL the cookie belongs to"), "setCookie": req("one Set-Cookie header value") },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "cookies_delete",
+            title: "Delete a cookie",
+            description: "Deletes by (domain, path, name) and persists the jar.",
+            input_schema: schema! { "domain": req("cookie domain"), "path": req("cookie path"), "name": req("cookie name") },
+            read_only: false,
+            destructive: true,
+        },
+        ToolDef {
+            name: "cookies_clear",
+            title: "Clear cookies",
+            description: "Deletes every cookie and persists the empty jar.",
+            input_schema: schema! {},
+            read_only: false,
+            destructive: true,
+        },
+        ToolDef {
+            name: "history_list",
+            title: "List history",
+            description: "The newest sends, newest last (default 50).",
+            input_schema: schema! { "limit": (json!({"type": "integer", "minimum": 1}), false) },
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "history_open",
+            title: "Open a history entry",
+            description: "One entry by id, including the as-sent request snapshot.",
+            input_schema: schema! { "id": req("history id") },
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "history_clear",
+            title: "Clear history",
+            description: "Empties history.jsonl atomically.",
+            input_schema: schema! {},
+            read_only: false,
+            destructive: true,
+        },
+        ToolDef {
+            name: "console_get",
+            title: "Read the console",
+            description: "Newest-last console entries, optionally filtered by level or kind (default 100).",
+            input_schema: schema! {
+                "limit": (json!({"type": "integer", "minimum": 1}), false),
+                "level": opt("\"info\" | \"warning\" | \"error\""),
+                "kind": opt("\"request\" | \"log\" | \"warning\" | \"error\"")
+            },
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "console_clear",
+            title: "Clear the console",
+            description: "Drops every retained console entry (the history file is untouched).",
+            input_schema: schema! {},
+            read_only: false,
+            destructive: true,
+        },
+        ToolDef {
+            name: "variables_resolve",
+            title: "Resolve variables",
+            description: "Resolves {{variables}} and reports each hit's source scope, secret flag and unresolved state.",
+            input_schema: schema! {
+                "text": req("template text"),
+                "collection": opt("collection id for collection variables"),
+                "environment": opt("environment id (default: active)")
+            },
+            read_only: true,
+            destructive: false,
+        },
     ]
 });
 
@@ -775,7 +979,197 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
             let value = postguy_interop::export_environment(&globals, "globals");
             finish_export(session, args, value)
         }
+        "response_get" => {
+            let engine = session.engine()?;
+            let id = optional_string(args, tool, "id")?;
+            engine
+                .response(id.as_deref())
+                .map(|cached| cached_json(&cached))
+                .ok_or_else(|| AutomationError::NotFound { kind: "response".into(), id: id.unwrap_or_else(|| "<latest>".into()) })
+        }
+        "response_save" => {
+            let path = string_arg(args, tool, "path")?;
+            let cached = {
+                let engine = session.engine()?;
+                let id = optional_string(args, tool, "id")?;
+                engine
+                    .response(id.as_deref())
+                    .ok_or_else(|| AutomationError::NotFound { kind: "response".into(), id: id.unwrap_or_else(|| "<latest>".into()) })?
+            };
+            let written = write_output(session, &path, &cached.response.body)?;
+            Ok(json!({"written": written, "bytes": cached.response.body.len()}))
+        }
+        "response_render_body" => {
+            let engine = session.engine()?;
+            let id = optional_string(args, tool, "id")?;
+            let cached = engine
+                .response(id.as_deref())
+                .ok_or_else(|| AutomationError::NotFound { kind: "response".into(), id: id.unwrap_or_else(|| "<latest>".into()) })?;
+            let format = optional_string(args, tool, "format")?.unwrap_or_else(|| "text".to_string());
+            let body = &cached.response.body;
+            let shown = body.get(..body.len().min(TOOL_BODY_CAP)).unwrap_or(body);
+            match format.as_str() {
+                "text" => Ok(json!({
+                    "format": "text",
+                    "body": String::from_utf8_lossy(shown),
+                    "bodyLength": body.len(),
+                    "truncated": body.len() > shown.len(),
+                })),
+                "base64" => Ok(json!({
+                    "format": "base64",
+                    "bodyBase64": base64::engine::general_purpose::STANDARD.encode(shown),
+                    "bodyLength": body.len(),
+                    "truncated": body.len() > shown.len(),
+                })),
+                other => Err(AutomationError::BadArgument {
+                    tool: tool.to_string(),
+                    argument: "format".to_string(),
+                    expected: "\"text\" or \"base64\"".to_string(),
+                    got: other.to_string(),
+                }),
+            }
+        }
+        "cookies_list" => {
+            let engine = session.engine()?;
+            Ok(json!({
+                "cookies": engine.cookies(),
+                "allowlist": engine.cookie_domains(),
+            }))
+        }
+        "cookies_set" => {
+            let url = string_arg(args, tool, "url")?;
+            let set_cookie = string_arg(args, tool, "setCookie")?;
+            session.engine()?.set_cookie(&url, &set_cookie)?;
+            Ok(json!({"saved": true}))
+        }
+        "cookies_delete" => {
+            let domain = string_arg(args, tool, "domain")?;
+            let path = string_arg(args, tool, "path")?;
+            let name = string_arg(args, tool, "name")?;
+            session.engine()?.remove_cookie(&domain, &path, &name)?;
+            Ok(json!({"deleted": true}))
+        }
+        "cookies_clear" => {
+            session.engine()?.clear_cookies()?;
+            Ok(json!({"cleared": true}))
+        }
+        "history_list" => {
+            let engine = session.engine()?;
+            let limit = optional_integer(args, tool, "limit")?.unwrap_or(50).max(1);
+            Ok(json!({"entries": engine.history(limit)?}))
+        }
+        "history_open" => {
+            let engine = session.engine()?;
+            let id = string_arg(args, tool, "id")?;
+            let entries = engine.history(usize::MAX)?;
+            entries
+                .into_iter()
+                .find(|entry| entry.id.0 == id)
+                .map(|entry| json!({"entry": entry}))
+                .ok_or(AutomationError::NotFound { kind: "history entry".into(), id })
+        }
+        "history_clear" => {
+            session.engine()?.clear_history()?;
+            Ok(json!({"cleared": true}))
+        }
+        "console_get" => {
+            let engine = session.engine()?;
+            let limit = optional_integer(args, tool, "limit")?.unwrap_or(100).max(1);
+            let level = optional_string(args, tool, "level")?;
+            let kind = optional_string(args, tool, "kind")?;
+            let entries: Vec<Value> = engine
+                .console_entries(limit)
+                .into_iter()
+                .filter_map(|entry| serde_json::to_value(entry).ok())
+                .filter(|value| {
+                    level.as_ref().is_none_or(|wanted| value["level"] == Value::String(wanted.clone()))
+                        && kind.as_ref().is_none_or(|wanted| value["kind"] == Value::String(wanted.clone()))
+                })
+                .collect();
+            Ok(json!({"entries": entries}))
+        }
+        "console_clear" => {
+            session.engine()?.clear_console();
+            Ok(json!({"cleared": true}))
+        }
+        "variables_resolve" => {
+            let text = string_arg(args, tool, "text")?;
+            let collection = optional_string(args, tool, "collection")?.map(Id);
+            let environment = optional_string(args, tool, "environment")?.map(Id);
+            let resolution = session.engine()?.resolve_variables_with(&text, collection.as_ref(), environment.as_ref())?;
+            let hits: Vec<Value> = resolution
+                .hits
+                .iter()
+                .map(|hit| {
+                    json!({
+                        "name": hit.name,
+                        "source": match hit.source {
+                            postguy_vars::VarSource::Dynamic => "dynamic".to_string(),
+                            postguy_vars::VarSource::Scope(kind) => match kind {
+                                postguy_vars::ScopeKind::Globals => "globals",
+                                postguy_vars::ScopeKind::Collection => "collection",
+                                postguy_vars::ScopeKind::Folder => "folder",
+                                postguy_vars::ScopeKind::Environment => "environment",
+                                postguy_vars::ScopeKind::Data => "data",
+                                postguy_vars::ScopeKind::Local => "local",
+                            }
+                            .to_string(),
+                        },
+                        "secret": hit.is_secret,
+                        "unresolved": hit.unresolved,
+                    })
+                })
+                .collect();
+            Ok(json!({"text": resolution.text, "hits": hits}))
+        }
         other => Err(AutomationError::UnknownTool { tool: other.to_string() }),
+    }
+}
+
+/// Tools cap the body they echo (the full body is on disk through `response_save`).
+const TOOL_BODY_CAP: usize = 1 << 20;
+
+/// The JSON shape `request_send` and `response_get` share.
+fn cached_json(cached: &postguy_engine::CachedResponse) -> Value {
+    let body = &cached.response.body;
+    let shown = body.get(..body.len().min(TOOL_BODY_CAP)).unwrap_or(body);
+    let headers: Vec<Value> = cached.response.headers.iter().map(|(name, value)| json!({"name": name, "value": value})).collect();
+    json!({
+        "historyId": cached.history_id,
+        "request": cached.request,
+        "response": {
+            "status": cached.response.status,
+            "statusText": cached.response.status_text,
+            "httpVersion": cached.response.http_version,
+            "headers": headers,
+            "bodyBase64": base64::engine::general_purpose::STANDARD.encode(shown),
+            "bodyText": String::from_utf8(shown.to_vec()).ok(),
+            "bodyLength": body.len(),
+            "truncated": body.len() > shown.len(),
+            "size": cached.response.size,
+            "timings": cached.response.timings,
+        },
+        "warnings": cached.warnings,
+    })
+}
+
+fn optional_integer(args: &serde_json::Map<String, Value>, tool: &str, key: &str) -> Result<Option<usize>> {
+    match args.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Number(number)) => {
+            number.as_u64().and_then(|value| usize::try_from(value).ok()).map(Some).ok_or_else(|| AutomationError::BadArgument {
+                tool: tool.to_string(),
+                argument: key.to_string(),
+                expected: "a non-negative integer".to_string(),
+                got: number.to_string(),
+            })
+        }
+        Some(other) => Err(AutomationError::BadArgument {
+            tool: tool.to_string(),
+            argument: key.to_string(),
+            expected: "a non-negative integer".to_string(),
+            got: crate::session::json_kind(other).to_string(),
+        }),
     }
 }
 

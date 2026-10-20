@@ -1,9 +1,11 @@
-//! The session behind the tool table: the open workspace, root confinement, and the shared
-//! tree and file helpers every tool calls. M2.8 replaces the internals with the engine façade;
-//! the tool surface does not change.
+//! The session behind the tool table: the open engine (which owns the workspace, runtime, jar,
+//! console and history), root confinement, and the shared tree and file helpers every tool
+//! calls. The tool surface is unchanged from the store-only skeleton; sends go through the
+//! engine pipeline (PROMPT.md 5.3.2) exactly as the UI's do.
 
 use std::path::{Path, PathBuf};
 
+use postguy_engine::Engine;
 use postguy_model::{Collection, Id, Item, Request};
 use postguy_store::secrets::SecretsStore;
 use postguy_store::{StorePaths, Workspace};
@@ -15,12 +17,12 @@ use crate::root::Root;
 /// One automation session: zero or one open workspace, inside an optional confinement root.
 pub struct Session {
     root: Option<Root>,
-    workspace: Option<Workspace>,
+    engine: Option<Engine>,
 }
 
 impl Session {
     pub fn new(root: Option<Root>) -> Session {
-        Session { root, workspace: None }
+        Session { root, engine: None }
     }
 
     pub fn root(&self) -> Option<&Root> {
@@ -65,9 +67,10 @@ impl Session {
         let config_dir = workspace_path.join(".postguy-config");
         std::fs::create_dir_all(&config_dir)
             .map_err(|err| AutomationError::Failed { message: format!("creating config dir {}: {err}", config_dir.display()) })?;
-        let workspace = Workspace::open(StorePaths::new(workspace_path.clone(), config_dir))?;
-        let info = workspace_info(&workspace)?;
-        self.workspace = Some(workspace);
+        let engine =
+            Engine::open(StorePaths::new(workspace_path.clone(), config_dir)).map_err(|err| AutomationError::Failed { message: err.to_string() })?;
+        let info = workspace_info(engine.workspace())?;
+        self.engine = Some(engine);
         Ok(info)
     }
 
@@ -75,12 +78,13 @@ impl Session {
         self.root.as_ref().ok_or_else(|| AutomationError::Failed { message: "no root configured".to_string() })
     }
 
-    pub fn workspace(&self) -> Result<&Workspace> {
-        self.workspace.as_ref().ok_or(AutomationError::NoWorkspace)
+    /// The open engine (sends, console, cookies, history live here).
+    pub fn engine(&self) -> Result<&Engine> {
+        self.engine.as_ref().ok_or(AutomationError::NoWorkspace)
     }
 
-    pub fn workspace_mut(&mut self) -> Result<&mut Workspace> {
-        self.workspace.as_mut().ok_or(AutomationError::NoWorkspace)
+    pub fn workspace(&self) -> Result<&Workspace> {
+        Ok(self.engine()?.workspace())
     }
 
     /// Load one collection by id (NotFound is actionable).

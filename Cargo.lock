@@ -2708,10 +2708,14 @@ version = "0.1.0"
 name = "postguy-automation"
 version = "0.1.0"
 dependencies = [
+ "base64",
+ "postguy-engine",
  "postguy-interop",
  "postguy-model",
  "postguy-store",
+ "postguy-testkit",
  "postguy-util",
+ "postguy-vars",
  "serde",
  "serde_json",
  "tempfile",
@@ -2723,6 +2727,7 @@ version = "0.1.0"
 dependencies = [
  "postguy-automation",
  "postguy-interop",
+ "postguy-testkit",
  "postguy-urlkit",
  "postguy-util",
  "postguy-vars",

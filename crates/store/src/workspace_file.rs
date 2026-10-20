@@ -24,6 +24,9 @@ pub struct Workspace {
     pub secrets: SecretsStore,
     /// Held while the workspace is open; `Drop` releases the on-disk lock.
     _lock: lock::LockHandle,
+    /// Entries currently in `history.jsonl`, so appending stays O(1) until the cap needs a
+    /// rotation (one startup read instead of one read per send).
+    history_count: std::sync::Mutex<usize>,
 }
 
 /// The workspace meta file (`postguy.json`): schema, order, the active environment id.
@@ -138,7 +141,8 @@ impl Workspace {
         let lock_handle = lock::acquire(&paths)?;
         let meta = load_or_create_meta(&paths)?;
         let secrets = SecretsStore::open(&paths)?;
-        Ok(Workspace { paths, meta: Mutex::new(meta), secrets, _lock: lock_handle })
+        let history_count = history::latest(&paths.history_file(), usize::MAX).map(|entries| entries.len().min(history::DEFAULT_CAP)).unwrap_or(0);
+        Ok(Workspace { paths, meta: Mutex::new(meta), secrets, _lock: lock_handle, history_count: Mutex::new(history_count) })
     }
 
     /// Save (or replace) one collection file, and point the ORDER file at it atomically.
@@ -275,11 +279,31 @@ impl Workspace {
 
     /// History: one funnel (append with rotation, read latest).
     pub fn append_history(&self, entry: &HistoryEntry) -> Result<()> {
-        history::append(&self.paths.history_file(), entry)
+        let path = self.paths.history_file();
+        let mut count = self.history_count.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if *count < history::DEFAULT_CAP {
+            history::append_line(&path, entry)?;
+            *count = count.saturating_add(1);
+            Ok(())
+        } else {
+            // At the cap: rewrite keeping the newest entries (one rotation per new send).
+            history::append(&path, entry)?;
+            *count = history::DEFAULT_CAP;
+            Ok(())
+        }
     }
 
     pub fn read_history(&self, limit: usize) -> Result<Vec<HistoryEntry>> {
         history::latest(&self.paths.history_file(), limit)
+    }
+
+    /// Empty the history file atomically (the History panel's Clear).
+    pub fn clear_history(&self) -> Result<()> {
+        history::clear(&self.paths.history_file())?;
+        if let Ok(mut count) = self.history_count.lock() {
+            *count = 0;
+        }
+        Ok(())
     }
 
     /// Load `.postguy/cookies.json`: a missing or corrupt file yields an empty object; a
@@ -508,6 +532,24 @@ fn file_name_of(path: &std::path::Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn history_append_lines_reach_the_cap_and_rotate() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let workspace = Workspace::open(StorePaths::new(dir.path(), dir.path().join("config"))).expect("open");
+        for index in 0..(history::DEFAULT_CAP + 3) {
+            let entry = HistoryEntry { id: postguy_model::Id(format!("h{index}")), ..HistoryEntry::default() };
+            workspace.append_history(&entry).expect("append");
+        }
+        let entries = workspace.read_history(usize::MAX).expect("read");
+        assert_eq!(entries.len(), history::DEFAULT_CAP);
+        assert_eq!(entries.first().map(|entry| entry.id.0.as_str()), Some(format!("h{}", 3).as_str()));
+        assert!(entries.iter().all(|entry| entry.status.is_none()));
+        workspace.clear_history().expect("clear");
+        assert!(workspace.read_history(usize::MAX).expect("read").is_empty());
+        workspace.append_history(&HistoryEntry { id: postguy_model::Id("after".into()), ..HistoryEntry::default() }).expect("append after clear");
+        assert_eq!(workspace.read_history(usize::MAX).expect("read").len(), 1);
+    }
 
     #[test]
     fn cookies_round_trip_and_a_corrupt_file_is_quarantined() {

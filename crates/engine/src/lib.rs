@@ -11,13 +11,15 @@ pub mod error;
 pub mod pipeline;
 pub mod runtime;
 
+use std::collections::VecDeque;
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};
 
 pub use error::{EngineError, Result};
 pub use pipeline::{ResponseView, SendOptions, SendOutcome, SendTarget, SentRequest};
 
-use postguy_http::{Cancel, Client, ClientConfig, CookieJar, HttpVersionPreference, ProxyRoute, StoredCookie, TlsMode};
+pub use postguy_http::Cancel;
+use postguy_http::{Client, ClientConfig, CookieJar, HttpVersionPreference, ProxyRoute, StoredCookie, TlsMode};
 use postguy_model::{HistoryEntry, Id, ProxySettings, RequestSettings, Settings};
 use postguy_store::{StorePaths, Workspace};
 use postguy_vars::Resolver;
@@ -37,7 +39,21 @@ struct Inner {
     console: ConsoleLog,
     jar: Mutex<CookieJar>,
     settings: Mutex<Settings>,
+    /// The newest finished sends, so `response_*` tools and the viewer can ask by history id.
+    responses: Mutex<VecDeque<CachedResponse>>,
 }
+
+/// One send kept in memory for the response viewer and tools (bounded; 20 is plenty).
+#[derive(Debug, Clone)]
+pub struct CachedResponse {
+    pub history_id: String,
+    pub request: SentRequest,
+    pub response: ResponseView,
+    pub warnings: Vec<String>,
+}
+
+/// How many finished sends stay addressable by history id.
+pub const RESPONSE_CACHE_CAP: usize = 20;
 
 impl std::fmt::Debug for Engine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -61,6 +77,7 @@ impl Engine {
                 console: ConsoleLog::new(),
                 jar: Mutex::new(CookieJar::from_json(&cookie_value)),
                 settings: Mutex::new(settings),
+                responses: Mutex::new(VecDeque::new()),
             }),
         })
     }
@@ -171,7 +188,7 @@ impl Engine {
     pub fn send(&self, target: SendTarget, options: SendOptions) -> Result<SendOutcome> {
         let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| self.inner.runtime.block_on(pipeline::execute(self, target, options))));
         match outcome {
-            Ok(result) => result,
+            Ok(result) => result.inspect(|outcome| self.remember(outcome)),
             Err(payload) => {
                 let message = panic_message(&payload);
                 self.inner.console.push(crate::console::ConsoleLevel::Error, crate::console::ConsoleKind::Error, format!("send panicked: {message}"));
@@ -184,7 +201,48 @@ impl Engine {
     /// returned handle from its own event loop; the send itself never touches the UI thread.
     pub fn send_async(&self, target: SendTarget, options: SendOptions) -> tokio::task::JoinHandle<Result<SendOutcome>> {
         let engine = self.clone();
-        self.inner.runtime.spawn(async move { pipeline::execute(&engine, target, options).await })
+        self.inner.runtime.spawn(async move {
+            let outcome = pipeline::execute(&engine, target, options).await?;
+            engine.remember(&outcome);
+            Ok(outcome)
+        })
+    }
+
+    fn remember(&self, outcome: &SendOutcome) {
+        if let Ok(mut responses) = self.inner.responses.lock() {
+            responses.push_back(CachedResponse {
+                history_id: outcome.history.id.0.clone(),
+                request: outcome.request.clone(),
+                response: outcome.response.clone(),
+                warnings: outcome.warnings.clone(),
+            });
+            while responses.len() > RESPONSE_CACHE_CAP {
+                responses.pop_front();
+            }
+        }
+    }
+
+    /// One finished send by history id, or the newest when `id` is None.
+    pub fn response(&self, id: Option<&str>) -> Option<CachedResponse> {
+        let responses = self.inner.responses.lock().ok()?;
+        match id {
+            Some(id) => responses.iter().find(|cached| cached.history_id == id).cloned(),
+            None => responses.back().cloned(),
+        }
+    }
+
+    /// Store one raw `Set-Cookie` header against a URL (the `cookies_set` tool) and persist.
+    pub fn set_cookie(&self, url: &str, set_cookie: &str) -> Result<()> {
+        if let Ok(mut jar) = self.jar().lock() {
+            jar.store_from_headers(url, [set_cookie]);
+        }
+        self.save_jar()
+    }
+
+    /// Empty the history file atomically.
+    pub fn clear_history(&self) -> Result<()> {
+        self.inner.workspace.clear_history()?;
+        Ok(())
     }
 
     /// The newest history entries (newest last), capped by the store's cap.
@@ -203,14 +261,28 @@ impl Engine {
     /// Resolve `{{variables}}` in a template against the current active environment and globals
     /// (the `variables_resolve` tool and the UI's preview share this).
     pub fn resolve_variables(&self, text: &str) -> Result<postguy_vars::Resolution> {
+        self.resolve_variables_with(text, None, None)
+    }
+
+    /// Resolve with optional collection and environment context (the `variables_resolve` tool
+    /// shows where each name came from). Secrets resolve but stay masked in the returned text?
+    /// No: the tool needs the real text to explain a send, and its output is local; the caller
+    /// gets `hits` with the `secret` flag so it can mask where it echoes.
+    pub fn resolve_variables_with(&self, text: &str, collection: Option<&Id>, environment: Option<&Id>) -> Result<postguy_vars::Resolution> {
         let mut resolver = Resolver::new();
         let globals = self.inner.workspace.load_globals()?.into_value();
         let secrets = self.inner.workspace.secrets.values_for("globals").unwrap_or_default();
         resolver = resolver.with_scope(scope_from(&globals.variables, &secrets));
-        if let Some(id) = self.inner.workspace.active_environment_id()? {
+        if let Some(id) = collection {
+            let collection = self.inner.workspace.load_collection(id)?.into_value();
+            let secrets = self.inner.workspace.secrets.values_for(&id.0).unwrap_or_default();
+            resolver = resolver.with_scope(collection_scope(&collection.variables, &secrets));
+        }
+        let environment_id = environment.cloned().or(self.inner.workspace.active_environment_id()?);
+        if let Some(id) = environment_id {
             let environment = self.inner.workspace.load_environment(&id)?.into_value();
             let secrets = self.inner.workspace.secrets.values_for(&id.0).unwrap_or_default();
-            resolver = resolver.with_scope(environment_scope(&environment.variables, &secrets, id));
+            resolver = resolver.with_scope(environment_scope(&environment.variables, &secrets));
         }
         Ok(resolver.resolve_text(text))
     }
@@ -236,9 +308,21 @@ fn scope_from(variables: &[postguy_model::Variable], secrets: &std::collections:
     scope
 }
 
-fn environment_scope(variables: &[postguy_model::Variable], secrets: &std::collections::BTreeMap<String, String>, _id: Id) -> postguy_vars::Scope {
+fn environment_scope(variables: &[postguy_model::Variable], secrets: &std::collections::BTreeMap<String, String>) -> postguy_vars::Scope {
     let mut scope = postguy_vars::Scope::new(
         postguy_vars::ScopeKind::Environment,
+        variables.iter().filter(|variable| variable.enabled && !variable.key.is_empty()).map(|variable| {
+            let value = if variable.secret { secrets.get(&variable.key).cloned().unwrap_or_default() } else { variable.value.clone() };
+            (variable.key.clone(), value)
+        }),
+    );
+    scope.secrets = variables.iter().filter(|variable| variable.secret).map(|variable| variable.key.clone()).collect();
+    scope
+}
+
+fn collection_scope(variables: &[postguy_model::Variable], secrets: &std::collections::BTreeMap<String, String>) -> postguy_vars::Scope {
+    let mut scope = postguy_vars::Scope::new(
+        postguy_vars::ScopeKind::Collection,
         variables.iter().filter(|variable| variable.enabled && !variable.key.is_empty()).map(|variable| {
             let value = if variable.secret { secrets.get(&variable.key).cloned().unwrap_or_default() } else { variable.value.clone() };
             (variable.key.clone(), value)
