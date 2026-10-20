@@ -8,18 +8,9 @@
 use egui::{Align, Layout, RichText};
 
 use crate::sidebar::{RowKind, Sidebar, SidebarAction, SidebarData, SidebarState};
+use crate::tabs::{self, TAB_STRIP_HEIGHT, TabAction, TabDoc, Tabs};
 use crate::theme::{Metrics, Theme, ThemeMode};
 use crate::widgets;
-
-/// The tab shown in the central panel skeleton (M3.3 replaces this with the real tab model).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ShellTab {
-    #[default]
-    Welcome,
-    Settings,
-    /// A collection/folder/request/environment detail (the real editors arrive in M3.4-M3.7).
-    Detail,
-}
 
 /// Layout state the shell keeps across frames.
 #[derive(Debug, Clone)]
@@ -29,10 +20,7 @@ pub struct ShellState {
     pub right_panel_open: bool,
     pub console_open: bool,
     pub two_pane: bool,
-    pub tab: ShellTab,
     pub status: String,
-    /// (name, kind) of the item shown in the detail tab.
-    pub detail: Option<(String, RowKind)>,
 }
 
 impl Default for ShellState {
@@ -43,9 +31,7 @@ impl Default for ShellState {
             right_panel_open: false,
             console_open: false,
             two_pane: false,
-            tab: ShellTab::Welcome,
             status: "Ready".to_string(),
-            detail: None,
         }
     }
 }
@@ -58,8 +44,11 @@ pub struct PostguyShell {
     pub sidebar: Sidebar,
     pub sidebar_data: SidebarData,
     pub sidebar_state: SidebarState,
+    pub tabs: Tabs,
     /// The action the sidebar emitted this frame; the app applies it to the engine.
     pub action: Option<SidebarAction>,
+    /// The action the tab strip emitted this frame.
+    pub tab_action: Option<TabAction>,
 }
 
 impl Default for PostguyShell {
@@ -76,7 +65,9 @@ impl PostguyShell {
             sidebar: Sidebar::new(),
             sidebar_data: SidebarData::default(),
             sidebar_state: SidebarState::default(),
+            tabs: Tabs::new(),
             action: None,
+            tab_action: None,
         }
     }
 
@@ -90,13 +81,24 @@ impl PostguyShell {
         self.header(ui, &theme);
         self.bottom_bar(ui, &theme);
         self.action = None;
+        self.tab_action = None;
         if self.state.sidebar_open {
             self.sidebar(ui, &theme);
-            if let Some(SidebarAction::Open { id, kind, .. }) = self.action.clone()
-                && let Some(row) = self.sidebar.rows(&self.sidebar_data, &self.sidebar_state.filter).iter().find(|row| row.id == id)
-            {
-                self.state.tab = ShellTab::Detail;
-                self.state.detail = Some((row.label.clone(), kind));
+        }
+        // The tab strip sits directly under the header, with the environment selector at its end.
+        egui::Panel::top("tab-strip").exact_size(TAB_STRIP_HEIGHT).show(ui, |ui| {
+            let data = &self.sidebar_data;
+            self.tab_action = tabs::tab_strip(ui, &mut self.tabs, data);
+        });
+        tabs::tab_shortcuts(ui, &mut self.tabs);
+        if let Some(SidebarAction::Open { id, kind, preview }) = self.action.clone()
+            && let Some(row) = self.sidebar.rows(&self.sidebar_data, &self.sidebar_state.filter).iter().find(|row| row.id == id).cloned()
+        {
+            let doc = doc_for_row(&row, kind);
+            if preview {
+                self.tabs.open_preview(doc, row.label.clone());
+            } else {
+                self.tabs.open(doc, row.label.clone());
             }
         }
         if self.state.right_panel_open {
@@ -106,10 +108,32 @@ impl PostguyShell {
                 ui.label(RichText::new("cURL, fetch and requests arrive in M3.9.").color(theme.palette.text_muted));
             });
         }
-        egui::CentralPanel::default().show(ui, |ui| match self.state.tab {
-            ShellTab::Welcome => self.welcome(ui, &theme),
-            ShellTab::Settings => self.settings(ui, &theme),
-            ShellTab::Detail => self.detail(ui, &theme),
+        let active = self.tabs.active_tab().cloned();
+        egui::CentralPanel::default().show(ui, |ui| match active {
+            None => self.welcome(ui, &theme),
+            Some(tab) => match &tab.doc {
+                TabDoc::Settings => self.settings(ui, &theme),
+                TabDoc::Welcome => self.welcome(ui, &theme),
+                TabDoc::Request { .. } | TabDoc::Collection { .. } | TabDoc::Folder { .. } | TabDoc::Environment { .. } | TabDoc::History { .. } => {
+                    let note = match &tab.doc {
+                        TabDoc::Request { .. } => "The request builder arrives in M3.4.",
+                        TabDoc::Collection { .. } => "The collection overview arrives in M3.7.",
+                        TabDoc::Folder { .. } => "The folder detail arrives in M3.7.",
+                        TabDoc::Environment { .. } => "The environment editor arrives in M3.6.",
+                        _ => "Reopening a history entry arrives with the request builder (M3.4).",
+                    };
+                    self.detail(ui, &theme, &tab.title, note);
+                }
+                TabDoc::Cookies => {
+                    ui.label("The cookies manager arrives in M3.9.");
+                }
+                TabDoc::Trash => {
+                    ui.label("The trash view arrives in M3.8.");
+                }
+                TabDoc::Runner => {
+                    ui.label("The runner arrives in M3.8/M9.");
+                }
+            },
         });
     }
 
@@ -127,7 +151,7 @@ impl PostguyShell {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let settings = widgets::icon_button(ui, "settings", "Settings");
                     if settings.clicked() {
-                        self.state.tab = ShellTab::Settings;
+                        self.tabs.open(TabDoc::Settings, "Settings");
                     }
                     let search = ui.add(egui::TextEdit::singleline(&mut String::new()).hint_text("Search or run a command…").desired_width(260.0));
                     search.on_hover_text("Command palette (M3.8)");
@@ -143,33 +167,9 @@ impl PostguyShell {
         });
     }
 
-    fn detail(&mut self, ui: &mut egui::Ui, theme: &Theme) {
-        let Some((name, kind)) = &self.state.detail else {
-            ui.label("Nothing open");
-            return;
-        };
-        ui.horizontal(|ui| {
-            ui.heading(name);
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let label = match kind {
-                    RowKind::Collection => "Collection",
-                    RowKind::Folder => "Folder",
-                    RowKind::Request => "Request",
-                    RowKind::Example => "Example",
-                    RowKind::Environment => "Environment",
-                    RowKind::History => "History",
-                };
-                ui.label(RichText::new(label).color(theme.palette.text_muted));
-            });
-        });
+    fn detail(&mut self, ui: &mut egui::Ui, theme: &Theme, name: &str, note: &str) {
+        ui.heading(name);
         ui.separator();
-        let note = match kind {
-            RowKind::Request | RowKind::Example => "The request builder arrives in M3.4.",
-            RowKind::Collection => "The collection overview arrives in M3.7.",
-            RowKind::Folder => "The folder detail arrives in M3.7.",
-            RowKind::Environment => "The environment editor arrives in M3.6.",
-            RowKind::History => "Reopening a history entry arrives with the tab model (M3.3).",
-        };
         ui.label(RichText::new(note).color(theme.palette.text_muted));
     }
 
@@ -242,5 +242,31 @@ impl PostguyShell {
         };
         ui.add_space(8.0);
         ui.label(RichText::new("The real Settings tab arrives in M3.9.").color(theme.palette.text_muted));
+    }
+}
+
+/// Map a sidebar row to the document a tab shows.
+fn doc_for_row(row: &crate::sidebar::SidebarRow, kind: RowKind) -> TabDoc {
+    match kind {
+        RowKind::Collection => TabDoc::Collection { id: row.id.clone() },
+        RowKind::Folder => TabDoc::Folder { collection: row.collection.clone().unwrap_or_default(), folder: row.id.clone() },
+        RowKind::Request => TabDoc::Request {
+            collection: row.collection.clone().unwrap_or_default(),
+            request: row.id.clone(),
+            method: row.method.clone().unwrap_or_else(|| "GET".into()),
+            protocol: match row.method.as_deref() {
+                Some("gRPC") => "grpc".into(),
+                Some("WS") => "websocket".into(),
+                _ => "http".into(),
+            },
+        },
+        RowKind::Environment => TabDoc::Environment { id: row.id.clone() },
+        RowKind::History => TabDoc::History { id: row.id.clone() },
+        RowKind::Example => TabDoc::Request {
+            collection: row.collection.clone().unwrap_or_default(),
+            request: row.parent.clone().unwrap_or_else(|| row.id.clone()),
+            method: "GET".into(),
+            protocol: "http".into(),
+        },
     }
 }

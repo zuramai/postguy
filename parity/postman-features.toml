@@ -875,18 +875,18 @@ title = "Tab strip: preview, dirty dot, drag, overflow, context menu"
 area = "H"
 tier = "P0"
 milestone = "M3.3"
-status = "planned"
-notes = "Middle-click close, reopen closed, dirty close asks; session and drafts restore."
-
+status = "shipped"
+notes = "Preview tabs replace each other and promote on a permanent open; painted close buttons; dirty dot; middle-click; drag reorder; overflow search over open and recently closed; full context menu; environment selector. Tabs serialise into the session with their drafts."
+evidence = ["crates/ui-egui/tests/tabs.rs::a_preview_replaces_the_previous_preview_and_promotes_in_place", "crates/ui-egui/tests/tabs.rs::closing_and_reopening_restores_the_document", "crates/ui-egui/tests/tabs.rs::a_dirty_close_shows_the_three_way_dialog", "crates/ui-egui/tests/tabs.rs::the_strip_activates_middle_click_closes_and_the_close_button_works", "crates/ui-egui/tests/tabs.rs::the_context_menu_closes_other_tabs_and_reveals_the_document"]
 [[feature]]
 id = "h.crash-recovery"
 title = "Crash recovery: drafts in session.json, restored with a notice"
 area = "H"
 tier = "P0"
 milestone = "M3.3"
-status = "planned"
-notes = "Autosave of drafts every few seconds when dirty; a launch saves no sockets (test)."
-
+status = "partial"
+notes = "Tabs/layout save atomically at most once a second when changed; a launch after an unclean exit says so and restores the tabs. Draft text is carried in the tab model but no editor writes it yet (M3.4)."
+evidence = ["apps/postguy/src/main.rs::an_unclean_exit_is_reported_on_restore", "apps/postguy/src/main.rs::the_session_round_trips_across_an_app_restart"]
 [[feature]]
 id = "h.builder"
 title = "Request builder detail (tabs, indicators, save flows, chips)"
@@ -1005,9 +1005,9 @@ title = "Session file: tabs, drafts, geometry, expanded nodes"
 area = "I"
 tier = "P0"
 milestone = "M3.3"
-status = "planned"
-notes = "Also recent workspaces and certificate list."
-
+status = "partial"
+notes = "Tabs, per-tab drafts map, active tab, sidebar section open flags and heights, and the theme preference restore. Missing: window geometry, expanded tree nodes, recent workspaces and the certificate list."
+evidence = ["apps/postguy/src/main.rs::the_session_round_trips_across_an_app_restart"]
 [[feature]]
 id = "i.budgets"
 title = "Budgets enforced in CI (size, bench); duplicate-dep check"

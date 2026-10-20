@@ -11,9 +11,11 @@ use std::path::PathBuf;
 
 use postguy_engine::Engine;
 use postguy_model::{Collection, Id, Item, RequestKind};
-use postguy_store::StorePaths;
+use postguy_store::{StorePaths, config_dir};
 use postguy_ui_egui::sidebar::{RequestProtocol, RowKind, SidebarAction, SidebarData};
-use postguy_ui_egui::{PostguyShell, ShellTab};
+use postguy_ui_egui::tabs::{TabAction, TabDoc, Tabs};
+use postguy_ui_egui::{PostguyShell, ThemeMode};
+use serde::{Deserialize, Serialize};
 
 struct ClipboardItem {
     source_collection: Id,
@@ -25,11 +27,30 @@ struct Clipboard {
     cut: bool,
 }
 
+/// What the session file stores (M3.3). Tabs carry their own drafts; the rest is layout.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct StoredSession {
+    #[serde(default)]
+    tabs: Tabs,
+    #[serde(default)]
+    sidebar_sections: [bool; 3],
+    #[serde(default)]
+    sidebar_heights: [f32; 3],
+    #[serde(default)]
+    theme: String,
+    /// False while the app is running; set true on a clean exit (crash recovery).
+    #[serde(default)]
+    clean_exit: bool,
+}
+
 struct App {
     engine: Option<Engine>,
     shell: PostguyShell,
     clipboard: Option<Clipboard>,
     revision: u64,
+    last_session: Option<String>,
+    last_save: std::time::Instant,
 }
 
 impl App {
@@ -38,13 +59,15 @@ impl App {
         let mut shell = PostguyShell::new(workspace.file_name().and_then(|name| name.to_str()).unwrap_or("Workspace"));
         match open_engine(&workspace, &config) {
             Ok(engine) => {
-                let mut app = App { engine: Some(engine), shell, clipboard: None, revision: 0 };
+                let mut app =
+                    App { engine: Some(engine), shell, clipboard: None, revision: 0, last_session: None, last_save: std::time::Instant::now() };
                 app.refresh();
+                app.restore_session();
                 app
             }
             Err(message) => {
                 shell.state.status = message.clone();
-                App { engine: None, shell, clipboard: None, revision: 0 }
+                App { engine: None, shell, clipboard: None, revision: 0, last_session: None, last_save: std::time::Instant::now() }
             }
         }
     }
@@ -66,6 +89,60 @@ impl App {
             data.active_environment = None;
         }
         self.shell.sidebar_data = data;
+        let dropped = validate_tabs(&mut self.shell.tabs, &self.shell.sidebar_data);
+        if dropped > 0 {
+            self.shell.state.status = format!("Closed {dropped} tab(s) whose item no longer exists");
+        }
+    }
+
+    /// Load tabs and layout from the store's session file (atomic writes; corrupt files are
+    /// quarantined by the store). Missing documents are dropped, and an unclean exit is flagged.
+    fn restore_session(&mut self) {
+        let Some(engine) = &self.engine else { return };
+        let Ok(session) = config_dir::load_session(engine.store_paths()) else { return };
+        let Ok(stored) = serde_json::from_value::<StoredSession>(session.0.clone()) else { return };
+        self.shell.tabs = stored.tabs;
+        if stored.sidebar_heights.iter().all(|height| *height > 0.0) {
+            self.shell.sidebar_state.section_heights = stored.sidebar_heights;
+        }
+        self.shell.sidebar_state.sections = stored.sidebar_sections;
+        self.shell.state.theme_mode = match stored.theme.as_str() {
+            "light" => ThemeMode::Light,
+            "dark" => ThemeMode::Dark,
+            _ => ThemeMode::System,
+        };
+        if !stored.clean_exit {
+            self.shell.state.status = "Session restored after an unexpected exit".into();
+        }
+        self.refresh();
+    }
+
+    /// Persist tabs/layout when they changed (called at most once a second, plus on exit).
+    fn save_session(&mut self, clean_exit: bool, force: bool) {
+        let Some(engine) = &self.engine else { return };
+        let theme = match self.shell.state.theme_mode {
+            ThemeMode::Light => "light",
+            ThemeMode::Dark => "dark",
+            ThemeMode::System => "system",
+        };
+        let stored = StoredSession {
+            tabs: self.shell.tabs.clone(),
+            sidebar_sections: self.shell.sidebar_state.sections,
+            sidebar_heights: self.shell.sidebar_state.section_heights,
+            theme: theme.to_string(),
+            clean_exit,
+        };
+        let Ok(json) = serde_json::to_string(&stored) else { return };
+        if !force && self.last_session.as_deref() == Some(json.as_str()) {
+            return;
+        }
+        if !force && self.last_save.elapsed() < std::time::Duration::from_secs(1) {
+            return;
+        }
+        if config_dir::save_session(engine.store_paths(), &config_dir::SessionFile(serde_json::to_value(&stored).unwrap_or_default())).is_ok() {
+            self.last_session = Some(json);
+            self.last_save = std::time::Instant::now();
+        }
     }
 
     fn apply(&mut self, action: SidebarAction) {
@@ -89,8 +166,7 @@ impl App {
                         _ => None,
                     });
                     if let Some(label) = label {
-                        self.shell.state.tab = ShellTab::Detail;
-                        self.shell.state.detail = Some((label, RowKind::History));
+                        self.shell.tabs.open(TabDoc::History { id }, label);
                     }
                 }
                 Ok("Opened history entry".into())
@@ -114,9 +190,12 @@ impl App {
                     RequestProtocol::WebSocket => "websocket",
                 };
                 let parent_id = parent.as_ref().map(|id| Id(id.clone()));
-                let request = engine.create_request(&Id(collection), parent_id.as_ref(), protocol, "New Request").map_err(|err| err.to_string())?;
-                self.shell.state.tab = ShellTab::Detail;
-                self.shell.state.detail = Some((request.name.clone(), RowKind::Request));
+                let collection_id = Id(collection.clone());
+                let request = engine.create_request(&collection_id, parent_id.as_ref(), protocol, "New Request").map_err(|err| err.to_string())?;
+                self.shell.tabs.open(
+                    TabDoc::Request { collection, request: request.id.0.clone(), method: "GET".into(), protocol: "http".into() },
+                    request.name.clone(),
+                );
                 Ok("Created request".into())
             }
             SidebarAction::NewFolder { collection, parent } => {
@@ -301,6 +380,75 @@ impl App {
     }
 }
 
+impl App {
+    fn apply_tab(&mut self, action: TabAction) {
+        let Some(engine) = self.engine.clone() else { return };
+        match action {
+            TabAction::SetActiveEnvironment(id) => {
+                let _ = engine.set_active_environment(id.map(Id));
+                self.refresh();
+            }
+            TabAction::NewRequest => {
+                let collections = engine.collections().unwrap_or_default();
+                let Some(collection) = collections.first() else {
+                    self.shell.state.status = "Create a collection first".into();
+                    return;
+                };
+                match engine.create_request(&collection.id, None, "http", "New Request") {
+                    Ok(request) => {
+                        let title = request.name.clone();
+                        self.shell.tabs.open(
+                            TabDoc::Request {
+                                collection: collection.id.0.clone(),
+                                request: request.id.0.clone(),
+                                method: "GET".into(),
+                                protocol: "http".into(),
+                            },
+                            title,
+                        );
+                        self.shell.state.status = "Created request".into();
+                        self.refresh();
+                    }
+                    Err(err) => self.shell.state.status = err.to_string(),
+                }
+            }
+            TabAction::RevealInSidebar(id) => {
+                self.shell.sidebar_state.selected.clear();
+                self.shell.sidebar_state.selected.insert(id.clone());
+                self.shell.sidebar_state.focused = Some(id);
+                self.shell.state.sidebar_open = true;
+                self.shell.state.status = "Revealed in the sidebar".into();
+            }
+            TabAction::SaveAndClose(_) => {
+                self.shell.state.status = "Tab closed; the save hook lands with the request editor (M3.4)".into();
+            }
+            TabAction::Restored(doc) => {
+                self.shell.state.status = format!("Reopened {doc:?}");
+            }
+        }
+    }
+}
+
+/// Drop tabs whose documents no longer exist in the workspace (deleted items, another machine's
+/// session). Returns how many were closed.
+fn validate_tabs(tabs: &mut Tabs, data: &SidebarData) -> usize {
+    let collections = &data.collections;
+    let environments = &data.environments;
+    let history = &data.history;
+    tabs.retain_valid(|doc| match doc {
+        TabDoc::Collection { id } => collections.iter().any(|collection| collection.id.0 == *id),
+        TabDoc::Folder { collection, folder } => {
+            collections.iter().find(|value| value.id.0 == *collection).is_some_and(|value| find(&value.items, &Id(folder.clone())).is_some())
+        }
+        TabDoc::Request { collection, request, .. } => {
+            collections.iter().find(|value| value.id.0 == *collection).is_some_and(|value| find(&value.items, &Id(request.clone())).is_some())
+        }
+        TabDoc::Environment { id } => environments.iter().any(|environment| environment.id.0 == *id),
+        TabDoc::History { id } => history.iter().any(|entry| entry.id.0 == *id),
+        _ => true,
+    })
+}
+
 fn open_engine(workspace: &std::path::Path, config: &std::path::Path) -> Result<Engine, String> {
     std::fs::create_dir_all(workspace).map_err(|err| format!("creating workspace {}: {err}", workspace.display()))?;
     std::fs::create_dir_all(config).map_err(|err| format!("creating config dir {}: {err}", config.display()))?;
@@ -351,6 +499,14 @@ impl eframe::App for App {
         if let Some(action) = self.shell.action.take() {
             self.apply(action);
         }
+        if let Some(action) = self.shell.tab_action.take() {
+            self.apply_tab(action);
+        }
+        self.save_session(false, false);
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.save_session(true, true);
     }
 }
 
@@ -377,4 +533,95 @@ fn main() -> eframe::Result<()> {
     };
     let app = App::new(workspace);
     eframe::run_native("Postguy", options, Box::new(move |_cc| Ok(Box::new(app))))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn app_in(dir: &std::path::Path) -> App {
+        App::new(dir.join("workspace"))
+    }
+
+    fn sample_data() -> SidebarData {
+        let request =
+            postguy_model::Request { id: Id("r1".into()), name: "Users".into(), kind: RequestKind::Http(Default::default()), ..Default::default() };
+        let collection =
+            Collection { id: Id("c1".into()), name: "Payments".into(), items: vec![Item::Request(Box::new(request))], ..Default::default() };
+        SidebarData {
+            revision: 1,
+            collections: vec![collection],
+            environments: vec![postguy_model::Environment { id: Id("env1".into()), name: "Staging".into(), ..Default::default() }],
+            ..SidebarData::default()
+        }
+    }
+
+    #[test]
+    fn tab_validation_drops_orphans_and_keeps_the_rest() {
+        let mut tabs = Tabs::new();
+        tabs.open(TabDoc::Collection { id: "c1".into() }, "Payments");
+        tabs.open(TabDoc::Request { collection: "c1".into(), request: "r1".into(), method: "GET".into(), protocol: "http".into() }, "Users");
+        tabs.open(TabDoc::Environment { id: "env1".into() }, "Staging");
+        tabs.open(TabDoc::Settings, "Settings");
+        assert_eq!(validate_tabs(&mut tabs, &sample_data()), 0, "everything exists");
+        let mut missing_request = sample_data();
+        missing_request.collections[0].items.clear();
+        assert_eq!(validate_tabs(&mut tabs, &missing_request), 1);
+        assert!(tabs.tabs.iter().all(|tab| !matches!(&tab.doc, TabDoc::Request { .. })));
+        assert!(tabs.tabs.iter().any(|tab| matches!(tab.doc, TabDoc::Settings)));
+        let mut no_environment = sample_data();
+        no_environment.environments.clear();
+        assert_eq!(validate_tabs(&mut tabs, &no_environment), 1, "the environment tab is dropped");
+    }
+
+    #[test]
+    fn the_session_round_trips_across_an_app_restart() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        {
+            let mut app = app_in(dir.path());
+            let engine = app.engine.clone().expect("engine");
+            let collection = engine.create_collection("Payments").expect("collection");
+            let request = engine.create_request(&collection.id, None, "http", "Users").expect("request");
+            app.refresh();
+            app.shell.tabs.open(
+                TabDoc::Request { collection: collection.id.0.clone(), request: request.id.0.clone(), method: "GET".into(), protocol: "http".into() },
+                "Users",
+            );
+            app.shell.tabs.open(TabDoc::Settings, "Settings");
+            app.shell.sidebar_state.sections = [true, false, true];
+            app.save_session(true, true);
+        }
+        let app = app_in(dir.path());
+        assert_eq!(app.shell.tabs.tabs.len(), 2, "both tabs restored");
+        assert!(app.shell.tabs.tabs.iter().any(|tab| matches!(tab.doc, TabDoc::Settings)));
+        assert_eq!(app.shell.sidebar_state.sections, [true, false, true]);
+        assert!(!app.shell.state.status.contains("unexpected exit"), "a clean exit is not reported as a crash");
+    }
+
+    #[test]
+    fn an_unclean_exit_is_reported_on_restore() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        {
+            let mut app = app_in(dir.path());
+            app.shell.tabs.open(TabDoc::Settings, "Settings");
+            app.save_session(false, true);
+        }
+        let app = app_in(dir.path());
+        assert!(app.shell.state.status.contains("unexpected exit"), "{}", app.shell.state.status);
+        assert_eq!(app.shell.tabs.tabs.len(), 1);
+    }
+
+    #[test]
+    fn the_new_request_tab_action_creates_and_opens_a_request() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("Payments").expect("collection");
+        app.refresh();
+        app.apply_tab(TabAction::NewRequest);
+        assert_eq!(app.shell.tabs.tabs.len(), 1);
+        assert!(matches!(app.shell.tabs.tabs[0].doc, TabDoc::Request { .. }));
+        let loaded = engine.collections().expect("collections");
+        assert_eq!(loaded.iter().find(|value| value.id == collection.id).map(|value| value.items.len()), Some(1));
+    }
 }
