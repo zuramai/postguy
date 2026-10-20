@@ -107,7 +107,7 @@ Planned observation requests:
 - [x] M2.2 `http` connector: DNS/TCP/TLS with phase timings, rustls (native roots plus optional CA), verify toggle, ALPN h1/h2, cancellation, timeouts.
 - [x] M2.3 Request building: all body modes (multipart boundary, urlencoded, raw, binary, GraphQL JSON), automatic headers (no request-token header), header order and case, user headers win.
 - [x] M2.4 Response handling: gzip/deflate/br/zstd with decoded-size and ratio caps, max response size, size breakdown, streaming to file for Send and Download.
-- [ ] M2.5 Redirects: manual loop, per-hop record, method rewrite rules, cross-host credential dropping, cap and loop detection.
+- [x] M2.5 Redirects: manual loop, per-hop record, method rewrite rules, cross-host credential dropping, cap and loop detection.
 - [ ] M2.6 Cookie jar (RFC 6265): persistence, `Set-Cookie` on every hop, per-request disable, allowlist storage.
 - [ ] M2.7 Proxy: env vars, custom HTTP and SOCKS5, bypass list. Auth: Basic, Bearer, API key. Observation request 2.
 - [ ] M2.8 Send pipeline in `engine` (12 steps, scripts as no-op hooks), history and console models, runtime ownership, panic-to-error wrapping.

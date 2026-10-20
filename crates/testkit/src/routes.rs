@@ -67,6 +67,7 @@ pub fn route(request: Incoming) -> Reply {
         "/echo" => echo(&request),
         "/redirect" => redirect(&request.query),
         "/redirect/chain" => redirect_chain(&request.query),
+        "/redirect/loop" => redirect_loop(),
         "/redirect/done" => Reply::ok(b"done".to_vec()),
         "/cookies/set" => cookies_set(&request.query),
         "/cookies/echo" => cookies_echo(&request),
@@ -171,8 +172,18 @@ impl TapStatus for Reply {
 fn redirect_chain(query: &str) -> Reply {
     let pairs = query_pairs(query);
     let hops = query_usize(&pairs, "hops", 1).max(1);
-    let next = if hops <= 1 { "/redirect/done".to_string() } else { format!("/redirect/chain?hops={}", hops - 1) };
+    let to = query_get(&pairs, "to").unwrap_or("/redirect/done");
+    let next = if hops <= 1 { to.to_string() } else { format!("/redirect/chain?hops={}&to={}", hops - 1, encode_fixture(to)) };
     Reply::ok(Vec::new()).tap_status(StatusCode::FOUND).with_header(LOCATION.as_str(), &next)
+}
+
+fn redirect_loop() -> Reply {
+    Reply::ok(Vec::new()).tap_status(StatusCode::FOUND).with_header(LOCATION.as_str(), "/redirect/loop")
+}
+
+/// Minimal percent-encoding for fixture query propagation.
+fn encode_fixture(value: &str) -> String {
+    value.replace('%', "%25").replace('&', "%26").replace(' ', "%20")
 }
 
 fn cookies_set(query: &str) -> Reply {
