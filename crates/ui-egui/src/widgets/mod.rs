@@ -436,7 +436,7 @@ pub fn inline_rename(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debug, te
         }
         return RenameAction::Idle;
     }
-    let edit = ui.add(TextEdit::singleline(&mut state.buffer).id(Id::new((id, "rename"))).desired_width(180.0));
+    let edit = ui.add(TextEdit::singleline(&mut state.buffer).id(Id::new((id, "rename"))).hint_text("Rename").desired_width(180.0));
     if ui.input(|input| input.key_pressed(Key::Enter)) {
         let trimmed = state.buffer.trim();
         if !trimmed.is_empty() {

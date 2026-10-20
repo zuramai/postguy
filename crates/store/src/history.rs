@@ -57,6 +57,26 @@ pub fn append_line(path: &Path, entry: &postguy_model::HistoryEntry) -> Result<(
         .map_err(|source| postguy_util::Error::Io { operation: format!("appending to {}", path.display()), source })
 }
 
+/// Remove one entry by id (the sidebar's Delete). Returns whether it existed; the file is
+/// rewritten atomically.
+pub fn remove(path: &Path, id: &str) -> Result<bool> {
+    let mut entries = latest(path, usize::MAX)?;
+    let before = entries.len();
+    entries.retain(|entry| entry.id.0 != id);
+    if entries.len() == before {
+        return Ok(false);
+    }
+    let mut out = String::with_capacity(entries.len() * 64);
+    for entry in &entries {
+        let line = serde_json::to_string(&Line { entry: entry.clone() })
+            .map_err(|err| postguy_util::Error::JsonSyntax { what: format!("serializing history entry into {}", path.display()), source: err })?;
+        out.push_str(&line);
+        out.push('\n');
+    }
+    postguy_util::atomic_write(path, out.as_bytes())?;
+    Ok(true)
+}
+
 /// Remove every history entry (the History panel's Clear and the `history_clear` tool). The
 /// file is rewritten atomically, so a failed clear leaves the old history intact.
 pub fn clear(path: &Path) -> Result<()> {

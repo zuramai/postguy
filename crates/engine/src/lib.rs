@@ -7,6 +7,7 @@
 //! [`Engine::send_async`] from the runtime and never blocks its own thread.
 
 pub mod console;
+pub mod edit;
 pub mod error;
 pub mod pipeline;
 pub mod runtime;
@@ -237,6 +238,11 @@ impl Engine {
             jar.store_from_headers(url, [set_cookie]);
         }
         self.save_jar()
+    }
+
+    /// Remove one history entry (the sidebar's Delete).
+    pub fn delete_history(&self, id: &str) -> Result<bool> {
+        Ok(self.inner.workspace.delete_history(id)?)
     }
 
     /// Empty the history file atomically.

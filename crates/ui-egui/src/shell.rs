@@ -7,6 +7,7 @@
 
 use egui::{Align, Layout, RichText};
 
+use crate::sidebar::{RowKind, Sidebar, SidebarAction, SidebarData, SidebarState};
 use crate::theme::{Metrics, Theme, ThemeMode};
 use crate::widgets;
 
@@ -16,6 +17,8 @@ pub enum ShellTab {
     #[default]
     Welcome,
     Settings,
+    /// A collection/folder/request/environment detail (the real editors arrive in M3.4-M3.7).
+    Detail,
 }
 
 /// Layout state the shell keeps across frames.
@@ -28,6 +31,8 @@ pub struct ShellState {
     pub two_pane: bool,
     pub tab: ShellTab,
     pub status: String,
+    /// (name, kind) of the item shown in the detail tab.
+    pub detail: Option<(String, RowKind)>,
 }
 
 impl Default for ShellState {
@@ -40,6 +45,7 @@ impl Default for ShellState {
             two_pane: false,
             tab: ShellTab::Welcome,
             status: "Ready".to_string(),
+            detail: None,
         }
     }
 }
@@ -49,17 +55,29 @@ impl Default for ShellState {
 pub struct PostguyShell {
     pub state: ShellState,
     pub workspace_label: String,
+    pub sidebar: Sidebar,
+    pub sidebar_data: SidebarData,
+    pub sidebar_state: SidebarState,
+    /// The action the sidebar emitted this frame; the app applies it to the engine.
+    pub action: Option<SidebarAction>,
 }
 
 impl Default for PostguyShell {
     fn default() -> Self {
-        PostguyShell { state: ShellState::default(), workspace_label: "No workspace".to_string() }
+        PostguyShell::new("No workspace")
     }
 }
 
 impl PostguyShell {
     pub fn new(workspace_label: impl Into<String>) -> PostguyShell {
-        PostguyShell { state: ShellState::default(), workspace_label: workspace_label.into() }
+        PostguyShell {
+            state: ShellState::default(),
+            workspace_label: workspace_label.into(),
+            sidebar: Sidebar::new(),
+            sidebar_data: SidebarData::default(),
+            sidebar_state: SidebarState::default(),
+            action: None,
+        }
     }
 
     /// Draw one frame into the root UI (eframe's `App::ui` and kittest both call this).
@@ -71,8 +89,15 @@ impl PostguyShell {
 
         self.header(ui, &theme);
         self.bottom_bar(ui, &theme);
+        self.action = None;
         if self.state.sidebar_open {
             self.sidebar(ui, &theme);
+            if let Some(SidebarAction::Open { id, kind, .. }) = self.action.clone()
+                && let Some(row) = self.sidebar.rows(&self.sidebar_data, &self.sidebar_state.filter).iter().find(|row| row.id == id)
+            {
+                self.state.tab = ShellTab::Detail;
+                self.state.detail = Some((row.label.clone(), kind));
+            }
         }
         if self.state.right_panel_open {
             egui::Panel::right("snippet-panel").exact_size(metrics.right_panel).resizable(true).show(ui, |ui| {
@@ -84,6 +109,7 @@ impl PostguyShell {
         egui::CentralPanel::default().show(ui, |ui| match self.state.tab {
             ShellTab::Welcome => self.welcome(ui, &theme),
             ShellTab::Settings => self.settings(ui, &theme),
+            ShellTab::Detail => self.detail(ui, &theme),
         });
     }
 
@@ -112,19 +138,39 @@ impl PostguyShell {
 
     fn sidebar(&mut self, ui: &mut egui::Ui, theme: &Theme) {
         egui::Panel::left("sidebar").default_size(theme.metrics.sidebar_default).resizable(true).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Filter…").color(theme.palette.text_muted));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label("+");
-                });
-            });
-            ui.separator();
-            for section in ["COLLECTIONS", "ENVIRONMENTS", "HISTORY"] {
-                ui.add_space(4.0);
-                ui.label(RichText::new(section).small().color(theme.palette.text_muted));
-                ui.label(RichText::new("The tree lands in M3.2.").small().color(theme.palette.text_muted));
-            }
+            let data = &self.sidebar_data;
+            self.action = self.sidebar.show(ui, &mut self.sidebar_state, data);
         });
+    }
+
+    fn detail(&mut self, ui: &mut egui::Ui, theme: &Theme) {
+        let Some((name, kind)) = &self.state.detail else {
+            ui.label("Nothing open");
+            return;
+        };
+        ui.horizontal(|ui| {
+            ui.heading(name);
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let label = match kind {
+                    RowKind::Collection => "Collection",
+                    RowKind::Folder => "Folder",
+                    RowKind::Request => "Request",
+                    RowKind::Example => "Example",
+                    RowKind::Environment => "Environment",
+                    RowKind::History => "History",
+                };
+                ui.label(RichText::new(label).color(theme.palette.text_muted));
+            });
+        });
+        ui.separator();
+        let note = match kind {
+            RowKind::Request | RowKind::Example => "The request builder arrives in M3.4.",
+            RowKind::Collection => "The collection overview arrives in M3.7.",
+            RowKind::Folder => "The folder detail arrives in M3.7.",
+            RowKind::Environment => "The environment editor arrives in M3.6.",
+            RowKind::History => "Reopening a history entry arrives with the tab model (M3.3).",
+        };
+        ui.label(RichText::new(note).color(theme.palette.text_muted));
     }
 
     fn bottom_bar(&mut self, ui: &mut egui::Ui, theme: &Theme) {

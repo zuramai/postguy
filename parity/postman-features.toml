@@ -24,54 +24,54 @@ title = "Collections tree with carets, nesting and method labels"
 area = "A"
 tier = "P0"
 milestone = "M3.2"
-status = "planned"
-notes = "Rows ~26 px, caret toggles only, name click opens a preview tab; examples nested collapsed."
-
+status = "shipped"
+notes = "26 px rows, painted chevrons, method labels and colours, examples collapsed until the request caret is used, inline rename, preview-open intents. Favourite star (P1) is not drawn."
+evidence = ["crates/ui-egui/tests/sidebar.rs::flatten_orders_collections_folders_requests_examples_and_history", "crates/ui-egui/tests/sidebar.rs::caret_collapses_a_folder_and_expands_request_examples", "crates/ui-egui/tests/sidebar.rs::clicking_a_request_opens_it_as_a_preview"]
 [[feature]]
 id = "a.create-organise"
 title = "Create/rename/duplicate/delete collections, folders, requests"
 area = "A"
 tier = "P0"
 milestone = "M3.2"
-status = "planned"
-notes = "Delete goes to trash; duplicates deep-copy with new ids; New request asks the protocol."
-
+status = "shipped"
+notes = "Create/rename/duplicate/delete for collections, folders, requests and environments through the engine; deletes park a JSON record under .trash; duplicates deep-copy with fresh ids; New asks HTTP/gRPC/WebSocket."
+evidence = ["crates/engine/tests/edits.rs::collections_folders_and_requests_round_trip_and_rename", "crates/engine/tests/edits.rs::duplicate_regenerates_ids_and_move_refuses_cycles", "crates/ui-egui/tests/sidebar.rs::the_new_menu_creates_requests_only_when_a_container_is_selected"]
 [[feature]]
 id = "a.drag-and-drop"
 title = "Drag and drop reorder and nest with drop indicator"
 area = "A"
 tier = "P0"
 milestone = "M3.2"
-status = "planned"
-notes = "Cmd/Ctrl-drag copies; OS files dropping opens the import dialog."
-
+status = "partial"
+notes = "Row drag with insertion line and folder outline; drop onto a folder nests; Cmd/Ctrl-drag copies; bulk drag moves a selection; drops into an item's own subtree are refused. Missing: OS file drop opening the import dialog (M4.1)."
+evidence = ["crates/ui-egui/tests/sidebar.rs::dragging_a_request_onto_a_folder_emits_a_move"]
 [[feature]]
 id = "a.keyboard-and-multiselect"
 title = "Keyboard navigation and multi-select (Cmd/Ctrl, Shift)"
 area = "A"
 tier = "P0"
 milestone = "M3.2"
-status = "planned"
-notes = "Arrows, Enter, F2, Delete, copy/cut/paste, bulk delete/move."
-
+status = "shipped"
+notes = "Arrows/Left/Right/Enter/F2/Delete, Cmd/Ctrl+C/X/V, Cmd/Ctrl-click and Shift ranges; bulk delete, move and copy of a multi-selection; paste keeps names unique (Copy, Copy 2). Keyboard paste targets the focused container/collection."
+evidence = ["crates/ui-egui/tests/sidebar.rs::keyboard_moves_focus_opens_and_duplicates_the_selection", "crates/ui-egui/tests/sidebar.rs::multi_select_extends_with_command_and_shift", "crates/ui-egui/tests/sidebar.rs::deleting_a_multi_selection_emits_one_bulk_delete", "crates/ui-egui/tests/sidebar.rs::copying_a_multi_selection_emits_one_bulk_copy", "crates/ui-egui/tests/sidebar.rs::dragging_one_of_a_selection_moves_the_whole_selection"]
 [[feature]]
 id = "a.context-menus"
 title = "Context menus per tree row exactly as PROMPT.md 5.1"
 area = "A"
 tier = "P0"
 milestone = "M3.2"
-status = "planned"
-notes = "Collection/folder/request/example/environment tables; `...` on hover opens the same menu."
-
+status = "partial"
+notes = "Per-target menus as PROMPT.md 5.1 including the hover ... button opening the same menu. Missing P1 items (Add to favourites, Sort A-Z, Collapse all, Reveal in file manager) and a few deferred actions (Run M3.8, Export/Import M4, Copy as cURL M4)."
+evidence = ["crates/ui-egui/tests/sidebar.rs::context_menu_rename_commits_through_inline_edit"]
 [[feature]]
 id = "a.filter"
 title = "Sidebar live filter (name and URL)"
 area = "A"
 tier = "P0"
 milestone = "M3.2"
-status = "planned"
-notes = "Under one frame for 10 000 items; keeps parents of matches visible."
-
+status = "shipped"
+notes = "Case-insensitive name/URL matching that keeps parents visible and highlights matches; cached flattening. Release measurement for 10 100 rows: cold 3.8 ms, filtered 3.4 ms (budget: under one frame)."
+evidence = ["crates/ui-egui/src/sidebar.rs::ten_thousand_rows_flatten_and_filter_within_a_frame_budget", "crates/ui-egui/tests/sidebar.rs::filtering_keeps_parents_and_matches_urls"]
 [[feature]]
 id = "a.variables"
 title = "Collection variables applied to all descendants"
@@ -866,9 +866,9 @@ title = "Sidebar sections COLLECTIONS / ENVIRONMENTS / HISTORY"
 area = "H"
 tier = "P0"
 milestone = "M3.2"
-status = "planned"
-notes = "Collapsible headers, splitter, persisted open state; nothing else ever."
-
+status = "partial"
+notes = "COLLECTIONS/ENVIRONMENTS/HISTORY with collapsible headers, draggable splitters, per-section scrolling, the filter and the engine-backed tree. Missing: persisted open state (session restore, M3.3)."
+evidence = ["crates/ui-egui/tests/widgets.rs::the_shell_draws_its_regions_and_opens_settings", "crates/ui-egui/tests/sidebar.rs::sections_collapse_independently_and_show_the_active_environment"]
 [[feature]]
 id = "h.tabs"
 title = "Tab strip: preview, dirty dot, drag, overflow, context menu"

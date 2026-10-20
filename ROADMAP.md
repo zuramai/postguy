@@ -21,6 +21,18 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-20 (M3.2, core):** Sidebar tree and workspace editing: COLLECTIONS/ENVIRONMENTS/
+  HISTORY with painted chevrons, 26 px rows, method labels, examples collapsed per request,
+  preview-open clicks, arrows/Enter/F2/Delete, Cmd/Ctrl and Shift multi-select, inline rename,
+  typed delete confirmation, drag/drop with insertion line plus folder nesting (Cmd/Ctrl copies),
+  per-target context menus and the hover `...` menu, a name/URL filter with match highlighting
+  and cached flattening (10 100 rows: 3.8 ms cold, 3.4 ms filtered in release), environment
+  activation and history open/delete. Engine gained atomic collection/environment/tree edits
+  (deep duplicate with fresh ids, move cycle refusal, trash parking). The app opens a workspace
+  (`--workspace`) and applies sidebar intents. Still open: bulk multi-select operations, OS file
+  drop, section splitters/persisted state (M3.3), P1 menu rows, and deferred Run/Export/Import
+  targets from later milestones. Bulk delete/move/copy and draggable section splitters landed
+  next, and pasted names get `Copy` suffixes.
 - **2026-10-20 (M3.1):** Desktop shell and widget kit: eframe/glow app (min 900x560, default
   1280x800), semantic light/dark tokens with every text colour at >= 4.5:1 (tested) and
   System/Light/Dark via egui's OS signal, a from-scratch SVG path-data renderer for the

@@ -388,7 +388,8 @@ fn the_shell_draws_its_regions_and_opens_settings() {
     harness.run();
     assert!(harness.query_by_label_contains("demo-workspace").is_some());
     assert!(harness.query_by_label_contains("COLLECTIONS").is_some());
-    assert!(harness.query_all_by_label_contains("The tree lands").next().is_some());
+    assert!(harness.query_by_label("ENVIRONMENTS").is_some());
+    assert!(harness.query_by_label("HISTORY").is_some());
     harness.get_by_label("Settings").click();
     harness.run();
     assert_eq!(harness.state().state.tab, ShellTab::Settings);
