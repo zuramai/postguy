@@ -21,6 +21,12 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-20 (M2.5):** Redirects: a manual loop (never hyper's) with per-hop records,
+  RFC 3986 reference resolution for absolute/root/scheme-relative/path/query-only Locations,
+  method rules (303 -> GET except HEAD; 301/302 POST -> GET unless follow-original; 307/308
+  preserve), cross-host dropping of Authorization (toggleable), Cookie and body headers, the
+  remove-referer setting, a hop cap and loop detection with actionable errors. Testkit gained
+  a redirect-loop fixture and chain targets. 4 unit + 7 socket tests.
 - **2026-10-20 (M2.4):** Response handling: automatic Content-Encoding decode for gzip,
   deflate (zlib with raw-deflate fallback), brotli and zstd (pure-Rust ruzstd), chained
   encodings in reverse order, decoded-size cap enforced WHILE reading plus a 200x ratio cap
