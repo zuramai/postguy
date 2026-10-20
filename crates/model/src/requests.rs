@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// One key-value row (PROMPT.md 4.5): the table type used by params, headers, form-data fields
 /// and gRPC metadata. `kind` matters for form-data rows (text vs file); file paths are
 /// working-directory-relative (PROMPT.md 5.3.2).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KeyValue {
     #[serde(default)]
@@ -30,10 +30,26 @@ pub struct KeyValue {
     pub extras: Extras,
 }
 
+impl Default for KeyValue {
+    /// A new row is enabled, matching the file default (`enabled` missing means true).
+    fn default() -> Self {
+        KeyValue {
+            key: String::new(),
+            value: String::new(),
+            description: String::new(),
+            enabled: true,
+            kind: KeyValueKind::Text,
+            content_type: None,
+            secret: false,
+            extras: Extras::default(),
+        }
+    }
+}
+
 impl KeyValue {
     /// A single empty row as a table's trailing entry (`Add variable` placeholder semantics).
     pub fn empty_enabled() -> Self {
-        Self { enabled: true, ..Default::default() }
+        Self::default()
     }
 
     /// Whether the row participates when built (an empty-key row is kept but ignored —

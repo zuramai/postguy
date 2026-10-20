@@ -7,7 +7,7 @@ use crate::ids::Id;
 use serde::{Deserialize, Serialize};
 
 /// One variable row: key, value, description, enabled, secret.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Variable {
     #[serde(default)]
@@ -42,6 +42,13 @@ pub struct Environment {
     pub variables: Vec<Variable>,
     #[serde(default, flatten)]
     pub extras: Extras,
+}
+
+impl Default for Variable {
+    /// A new row is enabled, matching the file default (`enabled` missing means true).
+    fn default() -> Self {
+        Variable { key: String::new(), value: String::new(), description: String::new(), enabled: true, secret: false, extras: Extras::default() }
+    }
 }
 
 impl Environment {

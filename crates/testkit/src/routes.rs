@@ -65,6 +65,7 @@ pub fn route(request: Incoming) -> Reply {
     let path = request.path.as_str();
     match path {
         "/echo" => echo(&request),
+        path if path.starts_with("/echo/") => echo(&request),
         "/redirect" => redirect(&request.query),
         "/redirect/chain" => redirect_chain(&request.query),
         "/redirect/loop" => redirect_loop(),

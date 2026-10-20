@@ -20,7 +20,7 @@ use crate::tls::{self, TlsMode};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 /// Per-phase timings of one connection attempt (milliseconds, measured around each await).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectTimings {
     pub dns_ms: u64,

@@ -15,7 +15,8 @@ use crate::proxy::base64_encode;
 
 /// Where a header written by auth came from, so the UI can mark the row (auto-generated and
 /// read-only) and the importer/report can explain it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum AuthPlacement {
     Header,
     Query,

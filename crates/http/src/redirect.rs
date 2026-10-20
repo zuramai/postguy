@@ -42,7 +42,8 @@ impl Default for RedirectPolicy {
 }
 
 /// One hop as the Console and the response timeline list it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RedirectHop {
     pub url: String,
     pub status: u16,

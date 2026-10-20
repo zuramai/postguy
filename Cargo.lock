@@ -2733,6 +2733,21 @@ dependencies = [
 [[package]]
 name = "postguy-engine"
 version = "0.1.0"
+dependencies = [
+ "base64",
+ "hyper",
+ "postguy-http",
+ "postguy-model",
+ "postguy-store",
+ "postguy-testkit",
+ "postguy-urlkit",
+ "postguy-util",
+ "postguy-vars",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
 
 [[package]]
 name = "postguy-grpc"

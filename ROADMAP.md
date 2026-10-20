@@ -21,6 +21,13 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-20 (M2.8):** Engine send pipeline: scope chain (globals/collection/folders/
+  environment with secrets from the secrets store), explicit no-op script hooks, inherited
+  P0 auth, URL building (path vars, query merge, IDNA, Appendix D encoding), body and automatic
+  headers, cookie merging and persistence, proxy-aware send with redirects, the response model,
+  masked History and Console recording, one owned tokio runtime, and `catch_unwind` around the
+  pipeline so a panic becomes an actionable error. In-memory row defaults now match the file
+  default (`enabled: true`). 10 engine integration tests + console/runtime unit tests.
 - **2026-10-20 (M2.7):** Proxy and auth: `ProxyPolicy` resolves `HTTP_PROXY`/`HTTPS_PROXY`/
   `ALL_PROXY`/`NO_PROXY` or the custom Settings > Proxy block (custom wins), with wildcard
   bypass lists; the connector sends plain HTTP in absolute-form through an HTTP proxy, opens

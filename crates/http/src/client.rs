@@ -42,9 +42,11 @@ impl Cancel {
         Cancel { sender: Arc::new(sender) }
     }
 
-    /// Request cancellation; idempotent.
+    /// Request cancellation; idempotent. `send_replace` keeps the value even when no future is
+    /// subscribed yet (a pre-cancelled handle must stay cancelled: `send` rejects without
+    /// receivers).
     pub fn cancel(&self) {
-        let _ = self.sender.send(true);
+        self.sender.send_replace(true);
     }
 
     pub fn is_cancelled(&self) -> bool {
@@ -138,7 +140,7 @@ pub struct ResponseData {
 }
 
 /// The size breakdown the response viewer shows on hover.
-#[derive(Debug, Clone, Copy, Default, serde::Serialize)]
+#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResponseSize {
     pub header_bytes: usize,
@@ -150,7 +152,7 @@ pub struct ResponseSize {
     pub content_encoding: Option<&'static str>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResponseTimings {
     /// Connection phases from the connector (DNS/TCP/TLS).
