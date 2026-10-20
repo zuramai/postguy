@@ -1837,10 +1837,18 @@ impl App {
                 Err(err) => self.shell.state.status = err.to_string(),
             },
             TabAction::NewRequest => {
+                // A fresh workspace has no collection yet; the welcome/tab-strip New Request
+                // button still has to do something useful rather than only printing a hint.
                 let collections = engine.collections().unwrap_or_default();
-                let Some(collection) = collections.first() else {
-                    self.shell.state.status = "Create a collection first".into();
-                    return;
+                let collection = match collections.first() {
+                    Some(collection) => collection.clone(),
+                    None => match engine.create_collection("New Collection") {
+                        Ok(collection) => collection,
+                        Err(err) => {
+                            self.shell.state.status = err.to_string();
+                            return;
+                        }
+                    },
                 };
                 match engine.create_request(&collection.id, None, "http", "New Request") {
                     Ok(request) => {
@@ -2879,6 +2887,30 @@ mod tests {
         let tab = app.shell.tabs.active_tab().expect("environment tab");
         assert!(matches!(tab.doc, TabDoc::Environment { .. }));
         assert!(app.env_editors.contains_key(&tab.id));
+    }
+
+    #[test]
+    fn the_sidebar_new_request_action_creates_a_root_request() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("Payments").expect("collection");
+        app.apply(SidebarAction::NewRequest { collection: collection.id.0.clone(), parent: None, protocol: RequestProtocol::Http });
+        let loaded = engine.collections().expect("collections");
+        assert_eq!(loaded.iter().find(|value| value.id == collection.id).map(|value| value.items.len()), Some(1));
+        assert!(app.shell.tabs.active_tab().is_some_and(|tab| matches!(tab.doc, TabDoc::Request { .. })));
+    }
+
+    #[test]
+    fn new_request_in_a_fresh_workspace_creates_a_collection_too() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        app.apply_tab(TabAction::NewRequest);
+        let engine = app.engine.clone().expect("engine");
+        let collections = engine.collections().expect("collections");
+        assert_eq!(collections.len(), 1, "a fresh New Request creates its container");
+        assert_eq!(collections[0].items.len(), 1);
+        assert!(app.shell.tabs.active_tab().is_some_and(|tab| matches!(tab.doc, TabDoc::Request { .. })));
     }
 
     #[test]

@@ -11,3 +11,11 @@
 
 # Editor and OS noise
 .DS_Store
+
+# Runtime data written when the default demo workspace is opened
+/postguy-workspace/collections/
+/postguy-workspace/environments/
+/postguy-workspace/.postguy/
+/postguy-workspace/protos/
+/postguy-workspace/files/
+/postguy-workspace/postguy.json.bak

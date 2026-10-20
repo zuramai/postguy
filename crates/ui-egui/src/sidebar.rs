@@ -390,9 +390,8 @@ impl Sidebar {
                     ui.set_min_width(190.0);
                     let selected_container =
                         state.selected.iter().next().and_then(|id| self.rows.iter().find(|row| row.id == *id)).and_then(|row| match row.kind {
-                            RowKind::Collection | RowKind::Folder => {
-                                Some((row.collection.clone().unwrap_or_else(|| row.id.clone()), Some(row.id.clone())))
-                            }
+                            RowKind::Collection => Some((row.collection.clone().unwrap_or_else(|| row.id.clone()), None)),
+                            RowKind::Folder => Some((row.collection.clone().unwrap_or_else(|| row.id.clone()), Some(row.id.clone()))),
                             _ => None,
                         });
                     if menu_item(ui, Some("plus"), "New HTTP request", None, selected_container.is_some()).clicked()
@@ -582,7 +581,7 @@ impl Sidebar {
                 if add.clicked() {
                     *action = Some(SidebarAction::NewRequest {
                         collection: row.collection.clone().unwrap_or_else(|| row.id.clone()),
-                        parent: Some(row.id.clone()),
+                        parent: None,
                         protocol: RequestProtocol::Http,
                     });
                 }
@@ -693,14 +692,10 @@ impl Sidebar {
         match row.kind {
             RowKind::Collection => {
                 if menu_item(ui, Some("plus"), "Add request", None, true).clicked() {
-                    *action = Some(SidebarAction::NewRequest {
-                        collection: collection.clone(),
-                        parent: Some(row.id.clone()),
-                        protocol: RequestProtocol::Http,
-                    });
+                    *action = Some(SidebarAction::NewRequest { collection: collection.clone(), parent: None, protocol: RequestProtocol::Http });
                 }
                 if menu_item(ui, Some("plus"), "Add folder", None, true).clicked() {
-                    *action = Some(SidebarAction::NewFolder { collection: collection.clone(), parent: Some(row.id.clone()) });
+                    *action = Some(SidebarAction::NewFolder { collection: collection.clone(), parent: None });
                 }
                 if menu_item(ui, Some("send"), "Run", None, true).clicked() {
                     *action = Some(SidebarAction::Run { id: row.id.clone() });

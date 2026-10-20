@@ -21,6 +21,14 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-20 (fix, Add Request):** the sidebar's collection Add buttons and the toolbar New
+  menu passed the collection id as a folder parent, so request creation failed; collection-level
+  actions now pass `None` and folder actions keep the folder id. New Request from the welcome
+  screen, tab-strip menu or command palette in a fresh workspace now creates a "New Collection"
+  container instead of only printing "Create a collection first". Regression tests cover both
+  the emitted sidebar intent and the engine/app path; live control verified a fresh workspace
+  creating and opening its first request.
+
 - **2026-10-20 (M4.1-M4.3, core):** Import dialog (paste Postman JSON/env/globals/cURL, multiple
   files, folders, drop anywhere, async native pickers, report with Open, numeric name suffixes,
   explicit replace); engine/automation import auto-detection with guided refusals for URL,

@@ -295,16 +295,55 @@ fn dragging_a_request_onto_a_folder_emits_a_move() {
 }
 
 #[test]
-fn the_new_menu_creates_requests_only_when_a_container_is_selected() {
-    let mut harness = harness();
-    harness.run();
-    harness.get_by_label("Users").click();
-    harness.run();
-    harness.get_by_label("+").click();
-    harness.run();
-    assert!(harness.query_by_label("New collection").is_some());
-    let new_request = harness.query_by_label("New HTTP request");
-    assert!(new_request.is_none() || harness.state().last_action.is_some());
+fn the_new_menu_uses_the_collection_as_the_container_not_as_a_folder() {
+    let mut collection_harness = harness();
+    collection_harness.run();
+    collection_harness.get_by_label("Payments").click();
+    collection_harness.run();
+    collection_harness.get_by_label("+").click();
+    collection_harness.run();
+    collection_harness.get_by_label("New HTTP request").click();
+    collection_harness.run();
+    match &collection_harness.state().last_action {
+        Some(SidebarAction::NewRequest { collection, parent, protocol }) => {
+            assert_eq!(collection, "col1");
+            assert_eq!(parent, &None, "a collection is not a folder id");
+            assert_eq!(*protocol, RequestProtocol::Http);
+        }
+        other => panic!("expected NewRequest, got {other:?}"),
+    }
+
+    // The hover "+" on a collection row uses the same container rule.
+    let mut hover_harness = harness();
+    hover_harness.run();
+    hover_harness.get_by_label("Payments").click();
+    hover_harness.run();
+    hover_harness.get_by_label("Add request to Payments").click();
+    hover_harness.run();
+    match &hover_harness.state().last_action {
+        Some(SidebarAction::NewRequest { collection, parent, .. }) => {
+            assert_eq!(collection, "col1");
+            assert_eq!(parent, &None, "the collection row's + must not pass its own id as a folder");
+        }
+        other => panic!("expected NewRequest from the hover button, got {other:?}"),
+    }
+
+    // A selected folder is still passed as the parent.
+    let mut folder_harness = harness();
+    folder_harness.run();
+    folder_harness.get_by_label("v1").click();
+    folder_harness.run();
+    folder_harness.get_by_label("+").click();
+    folder_harness.run();
+    folder_harness.get_by_label("New HTTP request").click();
+    folder_harness.run();
+    match &folder_harness.state().last_action {
+        Some(SidebarAction::NewRequest { collection, parent, .. }) => {
+            assert_eq!(collection, "col1");
+            assert_eq!(parent.as_deref(), Some("folder1"));
+        }
+        other => panic!("expected NewRequest, got {other:?}"),
+    }
 }
 
 #[test]

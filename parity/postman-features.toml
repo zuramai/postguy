@@ -35,7 +35,7 @@ tier = "P0"
 milestone = "M3.2"
 status = "shipped"
 notes = "Create/rename/duplicate/delete for collections, folders, requests and environments through the engine; deletes park a JSON record under .trash; duplicates deep-copy with fresh ids; New asks HTTP/gRPC/WebSocket."
-evidence = ["crates/engine/tests/edits.rs::collections_folders_and_requests_round_trip_and_rename", "crates/engine/tests/edits.rs::duplicate_regenerates_ids_and_move_refuses_cycles", "crates/ui-egui/tests/sidebar.rs::the_new_menu_creates_requests_only_when_a_container_is_selected"]
+evidence = ["crates/engine/tests/edits.rs::collections_folders_and_requests_round_trip_and_rename", "crates/engine/tests/edits.rs::duplicate_regenerates_ids_and_move_refuses_cycles", "crates/ui-egui/tests/sidebar.rs::the_new_menu_uses_the_collection_as_the_container_not_as_a_folder", "apps/postguy/src/main.rs::new_request_in_a_fresh_workspace_creates_a_collection_too"]
 [[feature]]
 id = "a.drag-and-drop"
 title = "Drag and drop reorder and nest with drop indicator"
