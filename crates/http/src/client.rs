@@ -18,6 +18,7 @@ use tokio::sync::watch;
 use crate::connector::{ConnectTimings, ConnectorConfig, TimedConnector};
 use crate::decode::{DecodeCaps, header_bytes};
 use crate::error::{HttpError, Result};
+use crate::proxy::{ProxyPolicy, ProxyRoute};
 use crate::tls::TlsMode;
 
 /// HTTP version preference (PROMPT.md 5.3.2: Auto, HTTP/1.x, HTTP/2).
@@ -106,11 +107,18 @@ pub struct ClientConfig {
     pub tls: TlsMode,
     pub version: HttpVersionPreference,
     pub connect_timeout: Duration,
+    /// Proxy settings (PROMPT.md 5.5); the environment is read once here.
+    pub proxy: postguy_model::ProxySettings,
 }
 
 impl Default for ClientConfig {
     fn default() -> Self {
-        ClientConfig { tls: TlsMode::default(), version: HttpVersionPreference::Auto, connect_timeout: Duration::from_secs(30) }
+        ClientConfig {
+            tls: TlsMode::default(),
+            version: HttpVersionPreference::Auto,
+            connect_timeout: Duration::from_secs(30),
+            proxy: postguy_model::ProxySettings::default(),
+        }
     }
 }
 
@@ -160,6 +168,8 @@ pub struct ResponseTimings {
 pub struct Client {
     inner: LegacyClient<TimedConnector, Full<Bytes>>,
     connector: TimedConnector,
+    proxy: ProxyPolicy,
+    version: HttpVersionPreference,
 }
 
 impl std::fmt::Debug for Client {
@@ -176,7 +186,9 @@ impl Client {
             HttpVersionPreference::Http1 => vec![b"http/1.1".to_vec()],
             HttpVersionPreference::Http2 => vec![b"h2".to_vec()],
         };
-        let connector = TimedConnector::new(ConnectorConfig { tls: config.tls.clone(), connect_timeout: config.connect_timeout, alpn });
+        let proxy = ProxyPolicy::new(config.proxy.clone());
+        let connector =
+            TimedConnector::new(ConnectorConfig { tls: config.tls.clone(), connect_timeout: config.connect_timeout, alpn, proxy: proxy.clone() });
         let mut builder = LegacyClient::builder(TokioExecutor::new());
         builder
             .pool_timer(hyper_util::rt::TokioTimer::new())
@@ -185,7 +197,33 @@ impl Client {
             .http1_title_case_headers(false)
             .http1_preserve_header_case(false);
         let inner = builder.build::<_, Full<Bytes>>(connector.clone());
-        Ok(Client { inner, connector })
+        Ok(Client { inner, connector, proxy, version: config.version })
+    }
+
+    /// The proxy route this client would use for `url` (the Console logs it).
+    pub fn proxy_route_for(&self, url: &str) -> Option<ProxyRoute> {
+        self.proxy.route_for(url)
+    }
+
+    /// Per-request proxy preparation: plain HTTP through an HTTP proxy uses absolute-form
+    /// requests, which cannot be HTTP/2 (PROMPT.md 5.5: "a proxy forces HTTP/1.x for plain
+    /// HTTP"); the proxy's basic auth rides the request, never the tunneled HTTPS request.
+    fn prepare_for_proxy(&self, mut spec: RequestSpec) -> Result<RequestSpec> {
+        let Some(route) = self.proxy.route_for(&spec.url) else { return Ok(spec) };
+        let scheme = postguy_urlkit::Url::parse(&spec.url).scheme.unwrap_or_default().to_ascii_lowercase();
+        if scheme == "http" && !route.is_http_tunnel(&scheme) {
+            if self.version == HttpVersionPreference::Http2 {
+                return Err(HttpError::Config {
+                    reason: "HTTP/2 cannot go through an HTTP proxy in absolute-form; choose HTTP/1.x or a SOCKS5 proxy".into(),
+                });
+            }
+            if let Some(auth) = route.basic_auth_value()
+                && !spec.headers.iter().any(|(name, _)| name.eq_ignore_ascii_case("proxy-authorization"))
+            {
+                spec.headers.push(("Proxy-Authorization".to_string(), auth));
+            }
+        }
+        Ok(spec)
     }
 
     /// The last connection's phase timings (single-flight contract; the engine serialises).
@@ -199,6 +237,7 @@ impl Client {
         if cancel.is_cancelled() {
             return Err(HttpError::Cancelled);
         }
+        let spec = self.prepare_for_proxy(spec)?;
         let uri: hyper::Uri = spec.url.parse().map_err(|err| HttpError::BadUrl { url: spec.url.clone(), reason: format!("{err}") })?;
         let mut builder = Request::builder().method(spec.method.clone()).uri(uri);
         for (name, value) in &spec.headers {
@@ -299,6 +338,7 @@ impl Client {
         if cancel.is_cancelled() {
             return Err(HttpError::Cancelled);
         }
+        let spec = self.prepare_for_proxy(spec)?;
         let uri: hyper::Uri = spec.url.parse().map_err(|err| HttpError::BadUrl { url: spec.url.clone(), reason: format!("{err}") })?;
         let mut builder = Request::builder().method(spec.method.clone()).uri(uri);
         for (name, value) in &spec.headers {

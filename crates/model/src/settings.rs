@@ -91,6 +91,7 @@ impl Default for Settings {
             theme: Theme::System,
             history_cap: 5000,
             save_history_responses: false,
+            proxy: ProxySettings::default(),
             extras: Extras::default(),
         }
     }
@@ -159,8 +160,98 @@ pub struct Settings {
     /// "Save responses" toggle (PROMPT.md 5.5): bodies cached under `.postguy/responses/`.
     #[serde(default)]
     pub save_history_responses: bool,
+    /// Proxy (PROMPT.md 5.5): system env vars by default, or a custom route.
+    #[serde(default)]
+    pub proxy: ProxySettings,
     #[serde(default, flatten)]
     pub extras: Extras,
+}
+
+/// Where the proxy comes from: the environment (`HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`) or the
+/// custom block below (which wins, PROMPT.md 5.5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ProxyMode {
+    #[default]
+    System,
+    Custom,
+}
+
+/// The proxy protocol. `Socks5h` resolves the target host at the proxy; `Socks5` resolves it
+/// locally (PROMPT.md 5.5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ProxyProtocol {
+    #[default]
+    Http,
+    Socks5,
+    Socks5h,
+}
+
+/// Settings > Proxy (PROMPT.md 5.5). Empty `host` with `Custom` means no proxy.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxySettings {
+    #[serde(default)]
+    pub mode: ProxyMode,
+    #[serde(default)]
+    pub protocol: ProxyProtocol,
+    #[serde(default)]
+    pub host: String,
+    #[serde(default = "proxy_port")]
+    pub port: u16,
+    /// Optional HTTP proxy basic auth (never logged; masked in the console).
+    #[serde(default)]
+    pub username: String,
+    #[serde(default)]
+    pub password: String,
+    #[serde(default = "true_value")]
+    pub apply_to_http: bool,
+    #[serde(default = "true_value")]
+    pub apply_to_https: bool,
+    /// Comma-separated hosts or patterns (`*.internal.example`, `localhost`).
+    #[serde(default)]
+    pub bypass: String,
+    #[serde(default, flatten)]
+    pub extras: Extras,
+}
+
+impl std::fmt::Debug for ProxySettings {
+    /// Never print the proxy password (PROMPT.md 9: secrets stay out of logs and the console).
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProxySettings")
+            .field("mode", &self.mode)
+            .field("protocol", &self.protocol)
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("username", &self.username)
+            .field("password", &if self.password.is_empty() { "" } else { "<redacted>" })
+            .field("apply_to_http", &self.apply_to_http)
+            .field("apply_to_https", &self.apply_to_https)
+            .field("bypass", &self.bypass)
+            .finish()
+    }
+}
+
+impl Default for ProxySettings {
+    fn default() -> Self {
+        ProxySettings {
+            mode: ProxyMode::System,
+            protocol: ProxyProtocol::Http,
+            host: String::new(),
+            port: 8080,
+            username: String::new(),
+            password: String::new(),
+            apply_to_http: true,
+            apply_to_https: true,
+            bypass: String::new(),
+            extras: Extras::default(),
+        }
+    }
+}
+
+fn proxy_port() -> u16 {
+    8080
 }
 
 /// Http version preference per request or globally.

@@ -13,6 +13,12 @@ streaming bodies with size cap, cancellation.
 - `redirect` — the manual follow loop: 301/302/303/307/308 rules, per-hop records, cross-host
   credential dropping, hop cap and loop detection. `send_with_cookies` also captures
   `Set-Cookie` on every hop and merges jar cookies with a manual Cookie header.
+- `proxy` — route resolution from `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`/`NO_PROXY` or the
+  custom Settings > Proxy block (custom wins), absolute-form plain HTTP through an HTTP proxy,
+  CONNECT tunnels for HTTPS, SOCKS5 and SOCKS5h (local or proxy DNS) handshakes, optional proxy
+  basic auth, wildcard bypass lists. Credentials never print (`Debug` redacts them).
+- `auth` — the v1 P0 set applied to a prepared spec: Basic, Bearer (optional prefix), API key
+  in a header or the query; other kinds fail with an actionable "not supported yet" error.
 - `jar` — the visible, persistent cookie jar (`stored` in `.postguy/cookies.json` by the
   store): domain/path/secure/expiry rules, per-domain and total caps, domain allowlist for
   scripts. No public-suffix list yet (documented gap); SameSite stored, not enforced.

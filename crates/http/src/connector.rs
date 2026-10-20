@@ -15,7 +15,9 @@ use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 
 use crate::error::{HttpError, Result};
+use crate::proxy::{ProxyPolicy, ProxyProtocol, ProxyRoute};
 use crate::tls::{self, TlsMode};
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 /// Per-phase timings of one connection attempt (milliseconds, measured around each await).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
@@ -42,11 +44,18 @@ pub struct ConnectorConfig {
     pub connect_timeout: Duration,
     /// ALPN preference for HTTPS connections.
     pub alpn: Vec<Vec<u8>>,
+    /// Proxy resolution (environment or custom; PROMPT.md 5.5).
+    pub proxy: ProxyPolicy,
 }
 
 impl Default for ConnectorConfig {
     fn default() -> Self {
-        ConnectorConfig { tls: TlsMode::default(), connect_timeout: Duration::from_secs(30), alpn: vec![b"h2".to_vec(), b"http/1.1".to_vec()] }
+        ConnectorConfig {
+            tls: TlsMode::default(),
+            connect_timeout: Duration::from_secs(30),
+            alpn: vec![b"h2".to_vec(), b"http/1.1".to_vec()],
+            proxy: ProxyPolicy::new(postguy_model::ProxySettings::default()),
+        }
     }
 }
 
@@ -77,6 +86,11 @@ impl TimedConnector {
 pub struct TimedStream {
     inner: StreamKind,
     http2: bool,
+    /// The connection is to an HTTP proxy in absolute-form mode (plain HTTP through a proxy):
+    /// hyper-util then writes absolute-form request targets (PROMPT.md 5.5).
+    proxied: bool,
+    /// The proxy route used for this connection, if any (the Console logs it).
+    proxy: Option<ProxyRoute>,
 }
 
 enum StreamKind {
@@ -92,7 +106,7 @@ impl std::fmt::Debug for TimedStream {
 
 impl Connection for TimedStream {
     fn connected(&self) -> Connected {
-        Connected::new().proxy(false)
+        Connected::new().proxy(self.proxied)
     }
 }
 
@@ -148,13 +162,22 @@ impl tower_service::Service<Uri> for TimedConnector {
             let port = uri.port_u16().unwrap_or(if scheme == "https" { 443 } else { 80 });
             let tls_required = scheme == "https";
 
-            // DNS.
+            // Proxy route for this target (None = direct). The route is decided per URI, so
+            // one client can send some hosts through the proxy and some direct.
+            let route = config.proxy.route_for(&uri.to_string());
+            let (connect_host, connect_port) = match &route {
+                Some(route) => (route.host.clone(), route.port),
+                None => (host.clone(), port),
+            };
+
+            // DNS (the proxy's host when one is used; SOCKS5h resolves the target remotely).
             let dns_started = Instant::now();
-            let mut addresses =
-                tokio::net::lookup_host((host.as_str(), port)).await.map_err(|source| HttpError::Dns { host: host.clone(), source })?;
+            let mut addresses = tokio::net::lookup_host((connect_host.as_str(), connect_port))
+                .await
+                .map_err(|source| HttpError::Dns { host: connect_host.clone(), source })?;
             let Some(address) = addresses.next() else {
                 return Err(HttpError::Dns {
-                    host: host.clone(),
+                    host: connect_host.clone(),
                     source: std::io::Error::new(std::io::ErrorKind::NotFound, "no addresses returned"),
                 });
             };
@@ -162,7 +185,7 @@ impl tower_service::Service<Uri> for TimedConnector {
 
             // TCP (bounded by the connect timeout).
             let tcp_started = Instant::now();
-            let tcp = match tokio::time::timeout(config.connect_timeout, TcpStream::connect(address)).await {
+            let mut tcp = match tokio::time::timeout(config.connect_timeout, TcpStream::connect(address)).await {
                 Ok(Ok(stream)) => stream,
                 Ok(Err(source)) => {
                     return Err(HttpError::Connect { address: address.to_string(), source, timeout: false });
@@ -177,6 +200,30 @@ impl tower_service::Service<Uri> for TimedConnector {
             };
             let _ = tcp.set_nodelay(true);
             let tcp_ms = millis(tcp_started.elapsed());
+
+            // Proxy handshakes: an HTTP CONNECT tunnel for HTTPS, a SOCKS5 greeting for both
+            // schemes. Plain HTTP through an HTTP proxy needs no handshake; hyper writes the
+            // absolute-form request target once the stream is marked proxied.
+            let mut proxied = false;
+            if let Some(route) = &route {
+                match route.protocol {
+                    ProxyProtocol::Http => {
+                        if route.is_http_tunnel(&scheme) {
+                            tokio::time::timeout(config.connect_timeout, connect_tunnel(&mut tcp, &host, port, route))
+                                .await
+                                .map_err(|_| HttpError::Proxy { address: route.address(), reason: "CONNECT timed out".into() })??;
+                        } else {
+                            proxied = true;
+                        }
+                    }
+                    ProxyProtocol::Socks5 | ProxyProtocol::Socks5h => {
+                        let remote_dns = route.protocol == ProxyProtocol::Socks5h;
+                        tcp = tokio::time::timeout(config.connect_timeout, socks5_connect(tcp, &host, port, route, remote_dns))
+                            .await
+                            .map_err(|_| HttpError::Proxy { address: route.address(), reason: "SOCKS5 handshake timed out".into() })??;
+                    }
+                }
+            }
 
             // TLS when the scheme asks for it.
             let (stream, http2) = if tls_required {
@@ -206,7 +253,7 @@ impl tower_service::Service<Uri> for TimedConnector {
                 (StreamKind::Plain(tcp), false)
             };
 
-            Ok(TokioIo::new(TimedStream { inner: stream, http2 }))
+            Ok(TokioIo::new(TimedStream { inner: stream, http2, proxied, proxy: route }))
         })
     }
 }
@@ -223,4 +270,156 @@ impl TimedStream {
     pub fn negotiated_http2(&self) -> bool {
         self.http2
     }
+
+    /// The proxy route this connection used, if any (the Console logs it).
+    pub fn proxy_route(&self) -> Option<&ProxyRoute> {
+        self.proxy.as_ref()
+    }
+}
+
+/// HTTP CONNECT (PROMPT.md 5.5): establish a tunnel through an HTTP proxy before TLS. Reads the
+/// proxy's response one byte at a time so no tunneled bytes are consumed, and caps the header.
+async fn connect_tunnel(tcp: &mut TcpStream, host: &str, port: u16, route: &ProxyRoute) -> Result<()> {
+    let authority = if host.contains(':') { format!("[{host}]:{port}") } else { format!("{host}:{port}") };
+    let mut request = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n");
+    if let Some(auth) = route.basic_auth_value() {
+        request.push_str(&format!("Proxy-Authorization: {auth}\r\n"));
+    }
+    request.push_str("\r\n");
+    tcp.write_all(request.as_bytes())
+        .await
+        .map_err(|err| HttpError::Proxy { address: route.address(), reason: format!("writing CONNECT: {err}") })?;
+    tcp.flush().await.map_err(|err| HttpError::Proxy { address: route.address(), reason: format!("writing CONNECT: {err}") })?;
+
+    let mut head: Vec<u8> = Vec::with_capacity(256);
+    let mut byte = [0u8; 1];
+    loop {
+        if head.len() >= 16 * 1024 {
+            return Err(HttpError::Proxy { address: route.address(), reason: "CONNECT response headers exceed 16 KiB".into() });
+        }
+        let read = tcp
+            .read(&mut byte)
+            .await
+            .map_err(|err| HttpError::Proxy { address: route.address(), reason: format!("reading CONNECT response: {err}") })?;
+        if read == 0 {
+            return Err(HttpError::Proxy { address: route.address(), reason: "the proxy closed the connection during CONNECT".into() });
+        }
+        head.push(byte[0]);
+        if head.ends_with(b"\r\n\r\n") {
+            break;
+        }
+    }
+    let text = String::from_utf8_lossy(&head);
+    let status_line = text.lines().next().unwrap_or_default();
+    let status = status_line.split_whitespace().nth(1).and_then(|code| code.parse::<u16>().ok()).unwrap_or(0);
+    if status != 200 {
+        return Err(HttpError::Proxy {
+            address: route.address(),
+            reason: format!("CONNECT was refused ({status_line}); check the proxy address and credentials"),
+        });
+    }
+    Ok(())
+}
+
+/// SOCKS5 (RFC 1928) with optional username/password auth (RFC 1929). `remote_dns` sends the
+/// host name to the proxy (`socks5h`); otherwise it is resolved locally (`socks5`).
+async fn socks5_connect(mut tcp: TcpStream, host: &str, port: u16, route: &ProxyRoute, remote_dns: bool) -> Result<TcpStream> {
+    let fail = |reason: String| HttpError::Proxy { address: route.address(), reason };
+    let has_credentials = !route.username.is_empty() || !route.password.is_empty();
+    let greeting: &[u8] = if has_credentials { &[0x05, 0x02, 0x00, 0x02] } else { &[0x05, 0x01, 0x00] };
+    tcp.write_all(greeting).await.map_err(|err| fail(format!("writing greeting: {err}")))?;
+    let mut choice = [0u8; 2];
+    tcp.read_exact(&mut choice).await.map_err(|err| fail(format!("reading method choice: {err}")))?;
+    if choice.first() != Some(&0x05) {
+        return Err(fail(format!("not a SOCKS5 proxy (version {})", choice.first().copied().unwrap_or(0))));
+    }
+    match choice.get(1).copied() {
+        Some(0x00) => {}
+        Some(0x02) if has_credentials => {
+            let user = route.username.as_bytes();
+            let password = route.password.as_bytes();
+            if user.len() > 255 || password.len() > 255 {
+                return Err(fail("SOCKS5 username/password are limited to 255 bytes".into()));
+            }
+            let mut auth = vec![0x01, user.len() as u8];
+            auth.extend_from_slice(user);
+            auth.push(password.len() as u8);
+            auth.extend_from_slice(password);
+            tcp.write_all(&auth).await.map_err(|err| fail(format!("writing credentials: {err}")))?;
+            let mut reply = [0u8; 2];
+            tcp.read_exact(&mut reply).await.map_err(|err| fail(format!("reading auth reply: {err}")))?;
+            if reply.get(1).copied() != Some(0x00) {
+                return Err(fail("SOCKS5 authentication was rejected".into()));
+            }
+        }
+        Some(0x02) => return Err(fail("the SOCKS5 proxy asked for credentials but none are configured".into())),
+        Some(method) => return Err(fail(format!("the SOCKS5 proxy accepted no usable method (offered {method:#x})"))),
+        None => return Err(fail("malformed SOCKS5 method choice".into())),
+    }
+
+    // Address: domain (remote DNS) or a locally resolved socket address.
+    let mut request = vec![0x05, 0x01, 0x00];
+    if remote_dns {
+        if host.len() > 255 {
+            return Err(fail("host name is longer than 255 bytes".into()));
+        }
+        request.push(0x03);
+        request.push(host.len() as u8);
+        request.extend_from_slice(host.as_bytes());
+    } else {
+        let mut addresses = tokio::net::lookup_host((host, port)).await.map_err(|err| fail(format!("resolving {host} for SOCKS5: {err}")))?;
+        let Some(address) = addresses.next() else {
+            return Err(fail(format!("no addresses for {host}")));
+        };
+        match address {
+            std::net::SocketAddr::V4(v4) => {
+                request.push(0x01);
+                request.extend_from_slice(&v4.ip().octets());
+            }
+            std::net::SocketAddr::V6(v6) => {
+                request.push(0x04);
+                request.extend_from_slice(&v6.ip().octets());
+            }
+        }
+    }
+    request.extend_from_slice(&port.to_be_bytes());
+    tcp.write_all(&request).await.map_err(|err| fail(format!("writing connect request: {err}")))?;
+
+    let mut reply = [0u8; 4];
+    tcp.read_exact(&mut reply).await.map_err(|err| fail(format!("reading connect reply: {err}")))?;
+    if reply.first() != Some(&0x05) {
+        return Err(fail("malformed SOCKS5 connect reply".into()));
+    }
+    match reply.get(1).copied() {
+        Some(0x00) => {}
+        Some(code) => {
+            let reason = match code {
+                0x01 => "general SOCKS server failure",
+                0x02 => "connection not allowed by ruleset",
+                0x03 => "network unreachable",
+                0x04 => "host unreachable",
+                0x05 => "connection refused",
+                0x06 => "TTL expired",
+                0x07 => "command not supported",
+                0x08 => "address type not supported",
+                _ => "unknown SOCKS5 error",
+            };
+            return Err(fail(format!("SOCKS5 connect failed: {reason}")));
+        }
+        None => return Err(fail("truncated SOCKS5 reply".into())),
+    }
+    // Drain the bound address so the tunnel starts clean.
+    let address_len = match reply.get(3).copied() {
+        Some(0x01) => 4,
+        Some(0x04) => 16,
+        Some(0x03) => {
+            let mut len = [0u8; 1];
+            tcp.read_exact(&mut len).await.map_err(|err| fail(format!("reading bound address: {err}")))?;
+            usize::from(len[0])
+        }
+        _ => return Err(fail("unsupported address type in SOCKS5 reply".into())),
+    };
+    let mut discard = vec![0u8; address_len + 2];
+    tcp.read_exact(&mut discard).await.map_err(|err| fail(format!("reading bound address: {err}")))?;
+    Ok(tcp)
 }

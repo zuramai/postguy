@@ -26,4 +26,4 @@ pub use requests::{
     BinaryEncoding, ContentEncoding, Example, ExampleBody, GrpcRequest, GrpcSettings, HttpMethod, HttpRequest, KeyValue, KeyValueKind, MessageFormat,
     RequestKind, SavedMessage, Script, Scripts, ServiceDefinition, WsMessage, WsRequest, WsSettings,
 };
-pub use settings::{HttpVersion, RequestSettings, ResponseFormatDetection, Settings, Theme};
+pub use settings::{HttpVersion, ProxyMode, ProxyProtocol, ProxySettings, RequestSettings, ResponseFormatDetection, Settings, Theme};
