@@ -28,6 +28,7 @@ pub enum TabDoc {
     Collection { id: String },
     Folder { collection: String, folder: String },
     Environment { id: String },
+    Globals,
     History { id: String },
 }
 
@@ -44,6 +45,7 @@ impl TabDoc {
             TabDoc::Collection { id } => format!("collection:{id}"),
             TabDoc::Folder { collection, folder } => format!("folder:{collection}:{folder}"),
             TabDoc::Environment { id } => format!("environment:{id}"),
+            TabDoc::Globals => "globals".into(),
             TabDoc::History { id } => format!("history:{id}"),
         }
     }
@@ -107,6 +109,8 @@ pub enum TabAction {
     /// The user chose Save while closing `id`; the app persists the draft, then the tab closes.
     SaveAndClose(u64),
     SetActiveEnvironment(Option<String>),
+    /// Create an environment and open its editor.
+    CreateEnvironment,
     /// A closed-tab reopen happened (the app may need the workspace to resolve the document).
     Restored(TabDoc),
 }
@@ -443,19 +447,80 @@ pub fn tab_strip(ui: &mut Ui, tabs: &mut Tabs, data: &SidebarData) -> Option<Tab
                 .and_then(|id| data.environments.iter().find(|environment| environment.id == *id))
                 .map(|environment| environment.name.clone())
                 .unwrap_or_else(|| "No environment".to_string());
+            let quick = ui.add(egui::Button::new("Vars").frame(false)).on_hover_text("Variables quick look");
+            egui::Popup::menu(&quick).show(|ui| {
+                ui.set_min_width(340.0);
+                let collection_id = tabs.active_tab().and_then(|tab| match &tab.doc {
+                    TabDoc::Request { collection, .. } => Some(collection.clone()),
+                    _ => None,
+                });
+                let groups = vec![
+                    crate::environment::VariableGroup {
+                        title: "Environment".into(),
+                        variables: data
+                            .active_environment
+                            .as_ref()
+                            .and_then(|id| data.environments.iter().find(|environment| environment.id == *id))
+                            .map(|environment| {
+                                environment
+                                    .variables
+                                    .iter()
+                                    .filter(|variable| variable.enabled)
+                                    .map(|variable| (variable.key.clone(), variable.value.clone(), variable.secret))
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                    },
+                    crate::environment::VariableGroup {
+                        title: "Globals".into(),
+                        variables: data
+                            .globals
+                            .variables
+                            .iter()
+                            .filter(|variable| variable.enabled)
+                            .map(|variable| (variable.key.clone(), variable.value.clone(), variable.secret))
+                            .collect(),
+                    },
+                    crate::environment::VariableGroup {
+                        title: "Collection".into(),
+                        variables: collection_id
+                            .and_then(|id| data.collections.iter().find(|collection| collection.id.0 == id))
+                            .map(|collection| {
+                                collection
+                                    .variables
+                                    .iter()
+                                    .filter(|variable| variable.enabled)
+                                    .map(|variable| (variable.key.clone(), variable.value.clone(), variable.secret))
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                    },
+                ];
+                crate::environment::variable_quick_look(ui, &groups);
+            });
             let response = ui.add(egui::Button::new(RichText::new(format!("{active_name}  ·")).color(theme.palette.text)));
-            egui::Popup::menu(&response).close_behavior(egui::PopupCloseBehavior::CloseOnClick).show(|ui| {
+            egui::Popup::menu(&response).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
                 ui.set_min_width(240.0);
-                ui.label(RichText::new("Active environment").small().color(theme.palette.text_muted));
+                ui.label(RichText::new("Choose an environment for every request; pinning is P2.").small().color(theme.palette.text_muted));
                 let current = data.active_environment.as_ref().map(|id| id.0.clone());
-                if ui
-                    .add(egui::Button::new("No environment").selected(current.is_none()).frame(false).min_size(vec2(ui.available_width(), 24.0)))
-                    .clicked()
+                let filter_key = egui::Id::new("env-selector-filter");
+                let mut filter = ui.data(|data| data.get_temp::<String>(filter_key)).unwrap_or_default();
+                if ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Search environments…").desired_width(f32::INFINITY)).changed() {
+                    ui.data_mut(|data| data.insert_temp(filter_key, filter.clone()));
+                }
+                let needle = filter.to_ascii_lowercase();
+                if needle.is_empty()
+                    && ui
+                        .add(egui::Button::new("No environment").selected(current.is_none()).frame(false).min_size(vec2(ui.available_width(), 24.0)))
+                        .clicked()
                 {
                     action = Some(TabAction::SetActiveEnvironment(None));
                     ui.close();
                 }
                 for environment in &data.environments {
+                    if !needle.is_empty() && !environment.name.to_ascii_lowercase().contains(&needle) {
+                        continue;
+                    }
                     let selected = current.as_deref() == Some(environment.id.0.as_str());
                     if ui
                         .add(
@@ -469,6 +534,11 @@ pub fn tab_strip(ui: &mut Ui, tabs: &mut Tabs, data: &SidebarData) -> Option<Tab
                         action = Some(TabAction::SetActiveEnvironment(Some(environment.id.0.clone())));
                         ui.close();
                     }
+                }
+                ui.separator();
+                if ui.add(egui::Button::new("+ Create new environment").frame(false).min_size(vec2(ui.available_width(), 24.0))).clicked() {
+                    action = Some(TabAction::CreateEnvironment);
+                    ui.close();
                 }
             });
             let overflow = ui.add(egui::Button::new("Tabs").frame(false)).on_hover_text("Search tabs");

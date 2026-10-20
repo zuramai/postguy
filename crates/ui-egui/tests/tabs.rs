@@ -4,7 +4,7 @@
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
-use postguy_model::{Environment, Id, Variable};
+use postguy_model::{Collection, Environment, Id, Variable};
 use postguy_ui_egui::sidebar::SidebarData;
 use postguy_ui_egui::tabs::{CloseChoice, TabAction, TabDoc, Tabs, tab_strip};
 
@@ -25,6 +25,18 @@ fn data() -> SidebarData {
             Environment { id: Id("env2".into()), name: "Production".into(), ..Default::default() },
         ],
         active_environment: Some(Id("env1".into())),
+        collections: vec![Collection {
+            id: Id("c1".into()),
+            name: "Demo".into(),
+            variables: vec![Variable { key: "collectionVar".into(), value: "value".into(), ..Default::default() }],
+            ..Default::default()
+        }],
+        globals: Environment {
+            id: Id("globals".into()),
+            name: "Globals".into(),
+            variables: vec![Variable { key: "region".into(), value: "eu".into(), ..Default::default() }],
+            ..Default::default()
+        },
         ..SidebarData::default()
     }
 }
@@ -209,6 +221,44 @@ fn the_overflow_button_lists_open_and_recently_closed_tabs() {
     assert!(harness.query_by_label("Open tabs").is_some());
     assert!(harness.query_by_label_contains("Recently closed").is_some());
     assert!(harness.query_by_label_contains("Beta").is_some(), "the closed tab is listed");
+}
+
+#[test]
+fn the_variable_quick_look_groups_scopes_and_masks_secrets() {
+    let mut harness = harness();
+    harness.state_mut().tabs.open(doc("a"), "Alpha");
+    harness.run();
+    harness.get_by_label("Vars").click();
+    harness.run();
+    assert!(harness.query_by_label("Variables").is_some());
+    assert!(harness.query_by_label("Environment").is_some());
+    assert!(harness.query_by_label("Globals").is_some());
+    assert!(harness.query_by_label("Collection").is_some());
+    assert!(harness.query_by_label_contains("base").is_some(), "the environment variable is listed");
+}
+
+#[test]
+fn the_selector_can_create_an_environment() {
+    let mut harness = harness();
+    harness.run();
+    harness.get_by_label_contains("Staging").click();
+    harness.run();
+    harness.get_by_label_contains("+ Create new environment").click();
+    harness.run();
+    assert_eq!(harness.state().last_action, Some(TabAction::CreateEnvironment));
+}
+
+#[test]
+fn the_environment_selector_searches() {
+    let mut harness = harness();
+    harness.run();
+    harness.get_by_label_contains("Staging").click();
+    harness.run();
+    harness.get_by_role(egui::accesskit::Role::TextInput).click();
+    harness.get_by_role(egui::accesskit::Role::TextInput).type_text("Prod");
+    harness.run();
+    assert!(harness.query_by_label_contains("Production").is_some());
+    assert_eq!(harness.query_all_by_label_contains("Staging").count(), 1, "only the selector button still says Staging");
 }
 
 #[test]

@@ -7,6 +7,7 @@
 pub mod icons_gen;
 
 pub mod builder;
+pub mod environment;
 pub mod icons;
 pub mod response;
 pub mod shell;
@@ -16,6 +17,7 @@ pub mod theme;
 pub mod widgets;
 
 pub use builder::{BodyDrafts, BuilderAction, BuilderTab, RequestBuilder, SendProgress};
+pub use environment::{EnvironmentAction, EnvironmentEditor, VariableGroup, variable_quick_look};
 pub use response::{BodyMode, ResponseAction, ResponseData, ResponseTab, ResponseViewerState, response_view};
 pub use shell::{PostguyShell, ShellState};
 pub use sidebar::{RequestProtocol, RowKind, Sidebar, SidebarAction, SidebarData, SidebarRow, SidebarState};

@@ -66,6 +66,7 @@ fn sample_data() -> SidebarData {
         environments: vec![environment],
         history: vec![history],
         active_environment: Some(Id("env1".into())),
+        globals: Environment { id: Id("globals".into()), name: "Globals".into(), ..Environment::default() },
     }
 }
 

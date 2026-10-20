@@ -21,6 +21,14 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-20 (M3.6, core):** Environment/Globals editor: colour dot, editable title, search,
+  description toggle, enabled/secret flags with masked values and a reveal toggle, per-row
+  delete, drag reorder, add-by-typing and autosave through the engine (debounced; secret values
+  split by the store). Globals open from the bottom bar. The tab-strip selector gained search,
+  No Environment, checks and Create new environment, plus a grouped Variables quick-look over
+  the active environment, globals and collection, with masked secrets and click-to-copy. App
+  tests cover autosave, duplicate/delete, globals persistence and selector creation; 7 editor
+  tests. Still missing: per-chip hover popovers and the Set as variable action.
 - **2026-10-20 (M3.5, core):** Response viewer wired to the engine's cached send: status/time/
   size chips with phase, size and network popovers; Body/Cookies/Headers tabs; Pretty (JSON
   re-indent), Raw, Preview (text/binary message) and virtualised Hex; wrap toggle; search with a

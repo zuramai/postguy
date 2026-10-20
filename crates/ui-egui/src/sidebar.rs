@@ -80,6 +80,8 @@ pub struct SidebarData {
     pub environments: Vec<Environment>,
     pub history: Vec<HistoryEntry>,
     pub active_environment: Option<ModelId>,
+    /// Globals are a single file; the quick-look popover reads them without an engine handle.
+    pub globals: Environment,
 }
 
 /// An action the app must apply to the engine. The sidebar never mutates the workspace.

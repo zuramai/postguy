@@ -145,36 +145,36 @@ title = "Environments: create/rename/duplicate/delete, variable table"
 area = "B"
 tier = "P0"
 milestone = "M3.6"
-status = "planned"
-notes = "Autosaves; secret rows masked with reveal; drag reorder; add-by-typing placeholder row."
-
+status = "shipped"
+notes = "Create/rename/duplicate/delete environments through the engine; the editor autosaves after a short pause; variables have enabled/secret flags with masked values, drag reordering, add-by-typing, description toggle and search."
+evidence = ["crates/ui-egui/tests/environment.rs::renaming_and_editing_autosave", "crates/ui-egui/tests/environment.rs::deleting_a_variable_changes_the_model_and_saves", "apps/postguy/src/main.rs::environment_tabs_load_autosave_duplicate_and_delete"]
 [[feature]]
 id = "b.selector"
 title = "Active environment selector at the tab strip end"
 area = "B"
 tier = "P0"
 milestone = "M3.6"
-status = "planned"
-notes = "Search, No Environment, list with check, create-new at the bottom."
-
+status = "shipped"
+notes = "Search, No Environment, the list with a check on the active row and Create new environment at the bottom; activating writes through the engine immediately."
+evidence = ["crates/ui-egui/tests/tabs.rs::the_selector_can_create_an_environment", "crates/ui-egui/tests/tabs.rs::the_environment_selector_searches", "crates/ui-egui/tests/tabs.rs::the_environment_selector_reports_activation"]
 [[feature]]
 id = "b.quickenvironment-look"
 title = "Variables quick-look popover"
 area = "B"
 tier = "P1"
 milestone = "M3.6"
-status = "planned"
-notes = "Active env + globals + collection variables, grouped, masked, edited in place."
-
+status = "partial"
+notes = "Grouped active-environment, globals and current-collection variables; secret values masked with a reveal toggle; click copies. Missing: editing a value in place and adding a variable from the popover."
+evidence = ["crates/ui-egui/tests/tabs.rs::the_variable_quick_look_groups_scopes_and_masks_secrets", "crates/ui-egui/tests/environment.rs::the_quick_look_groups_mask_secrets_and_copy_values"]
 [[feature]]
 id = "b.globals"
 title = "Globals file and editor tab"
 area = "B"
 tier = "P0"
 milestone = "M3.6"
-status = "planned"
-notes = "Lowest precedence scope; opened from the bottom bar."
-
+status = "shipped"
+notes = "The globals file opens from the bottom bar in its own tab, uses the same table/editor and saves through the store (lowest precedence in resolution)."
+evidence = ["apps/postguy/src/main.rs::globals_load_and_save_through_the_editor", "crates/ui-egui/tests/widgets.rs::the_shell_draws_its_regions_and_opens_settings"]
 [[feature]]
 id = "b.secrets"
 title = "Secret variables: masked, stored in the secrets file only"
@@ -902,9 +902,9 @@ title = "Environment editor and globals tabs"
 area = "H"
 tier = "P0"
 milestone = "M3.6"
-status = "planned"
-notes = "Table with secret toggles, reorder, description column toggle, quick-look beside the selector."
-
+status = "shipped"
+notes = "Environment and globals editor tabs: colour dot, rename, search, description toggle, secret toggles/reveal, per-row delete, drag handles and a trailing add row; the app autosaves atomically and keeps the tab title in sync."
+evidence = ["crates/ui-egui/tests/environment.rs::renaming_and_editing_autosave", "crates/ui-egui/tests/environment.rs::search_filters_the_variable_rows", "crates/ui-egui/tests/environment.rs::the_menu_duplicates_exports_and_deletes"]
 [[feature]]
 id = "h.detail-tabs"
 title = "Collection and folder detail tabs"

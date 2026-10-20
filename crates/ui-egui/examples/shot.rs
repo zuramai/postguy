@@ -7,11 +7,16 @@ use postguy_model::{Collection, Environment, HistoryEntry, HttpMethod, HttpReque
 use postguy_ui_egui::PostguyShell;
 use postguy_ui_egui::builder::{BodyDrafts, BuilderTab, RequestBuilder};
 use postguy_ui_egui::response::{ResponseData, ResponseViewerState, response_view};
+use postguy_ui_egui::shell::PanelAction;
 use postguy_ui_egui::sidebar::SidebarData;
 use postguy_ui_egui::tabs::TabDoc;
 
 struct DemoState {
     shell: PostguyShell,
+    environment: postguy_model::Environment,
+    env_search: String,
+    env_desc: bool,
+    env_reveal: bool,
     name: String,
     description: String,
     draft: HttpRequest,
@@ -26,6 +31,19 @@ impl DemoState {
     fn new(shell: PostguyShell) -> DemoState {
         DemoState {
             shell,
+            environment: postguy_model::Environment {
+                id: Id("demo-env".into()),
+                name: "Staging".into(),
+                color: Some("#2F6FEB".into()),
+                variables: vec![
+                    Variable { key: "baseUrl".into(), value: "https://staging.example.com".into(), ..Default::default() },
+                    Variable { key: "token".into(), value: "secret-token-value".into(), secret: true, ..Default::default() },
+                ],
+                ..Default::default()
+            },
+            env_search: String::new(),
+            env_desc: true,
+            env_reveal: false,
             name: "List payments".into(),
             description: "Lists payments for the current account.".into(),
             draft: HttpRequest {
@@ -125,6 +143,7 @@ fn demo_data() -> SidebarData {
         }],
         history: vec![history],
         active_environment: Some(Id("demo-env".into())),
+        globals: Environment { id: Id("demo-globals".into()), name: "Globals".into(), ..Environment::default() },
     }
 }
 
@@ -146,7 +165,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(tab) = shell.tabs.tabs.last_mut() {
         tab.preview = true;
     }
-    if let Some(first) = shell.tabs.tabs.first() {
+    if mode == "env" {
+        if let Some(environment) = shell.tabs.tabs.iter().find(|tab| matches!(tab.doc, TabDoc::Environment { .. })) {
+            shell.tabs.activate(environment.id);
+        }
+    } else if let Some(first) = shell.tabs.tabs.first() {
         shell.tabs.activate(first.id);
     }
     shell.state.theme_mode = match mode.as_str() {
@@ -156,29 +179,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let mut harness = Harness::builder().with_size(egui::vec2(1280.0, 800.0)).wgpu().build_ui_state(
         |ui, state: &mut DemoState| {
-            let mut panel = |ui: &mut egui::Ui| {
-                let mut builder = RequestBuilder {
-                    name: &mut state.name,
-                    description: &mut state.description,
-                    collection_name: "Payments API",
-                    draft: &mut state.draft,
-                    bodies: &mut state.bodies,
-                    dirty: &mut state.dirty,
-                    tab: &mut state.tab,
-                    variables: &[],
-                    sending: None,
-                    undo_paste: false,
-                };
-                let total = ui.available_height();
-                let request_height = (total * 0.52).max(170.0);
-                let action = ui
-                    .allocate_ui_with_layout(egui::vec2(ui.available_width(), request_height), egui::Layout::top_down(egui::Align::Min), |ui| {
-                        builder.show(ui)
-                    })
-                    .inner;
-                ui.separator();
-                let _ = response_view(ui, &mut state.response, &mut state.viewer);
-                action
+            let mut panel = |ui: &mut egui::Ui, doc: &TabDoc| match doc {
+                TabDoc::Request { .. } => {
+                    let mut builder = RequestBuilder {
+                        name: &mut state.name,
+                        description: &mut state.description,
+                        collection_name: "Payments API",
+                        draft: &mut state.draft,
+                        bodies: &mut state.bodies,
+                        dirty: &mut state.dirty,
+                        tab: &mut state.tab,
+                        variables: &[],
+                        sending: None,
+                        undo_paste: false,
+                    };
+                    let total = ui.available_height();
+                    let request_height = (total * 0.52).max(170.0);
+                    let action = ui
+                        .allocate_ui_with_layout(egui::vec2(ui.available_width(), request_height), egui::Layout::top_down(egui::Align::Min), |ui| {
+                            builder.show(ui)
+                        })
+                        .inner;
+                    ui.separator();
+                    let _ = response_view(ui, &mut state.response, &mut state.viewer);
+                    action.map(PanelAction::Builder)
+                }
+                TabDoc::Environment { .. } | TabDoc::Globals => {
+                    let mut editor = postguy_ui_egui::environment::EnvironmentEditor {
+                        environment: &mut state.environment,
+                        globals: matches!(doc, TabDoc::Globals),
+                        search: &mut state.env_search,
+                        show_description: &mut state.env_desc,
+                        reveal: &mut state.env_reveal,
+                    };
+                    editor.show(ui).map(PanelAction::Environment)
+                }
+                _ => None,
             };
             state.shell.ui_with(ui, Some(&mut panel));
         },
