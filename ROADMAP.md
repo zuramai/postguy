@@ -1,6 +1,6 @@
 # Postguy roadmap
 
-**Stage: bootstrap (M0)** · next: M0 exit review, then M1 (model, variables, storage, import/export)
+**Stage: M3 exit review (REVIEW STOP 2)** · shell complete; measured what the budgets need, remaining gaps in `docs/gaps.md`
 
 Postguy is a clean-room, offline, native API client (HTTP, WebSocket, gRPC) in Rust + egui.
 The full picture: `PROMPT.md` (product brief), `PLAN.md` (order of work, exit criteria),
@@ -20,6 +20,46 @@ The full picture: `PROMPT.md` (product brief), `PLAN.md` (order of work, exit cr
 The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
+
+- **2026-10-20 (M3.10 exit measurements):** `xtask bench` added: headless frame-time capture for a
+  10 000-request tree and a 10 MB Raw body, `--check` enforces the budgets. Release numbers:
+  tree 5.8 ms first / 10.2 ms filter, 10 MB Raw 10.3 ms first / 10.1 ms average. A 10 MB
+  minified line had frozen the viewer in a single galley; `LargeTextView` now chunks physical
+  lines at 4 KiB and caches Raw text per buffer, with UTF-8/line tests. Release binary 8.31 MiB;
+  first control inspect ~176 ms; idle CPU 0.2%; empty-workspace RSS 100.7 MiB (over the 90 MiB
+  budget). Recorded remaining metrics and the control synthetic-input limitation in
+  docs/gaps.md.
+- **2026-10-20 (M3.10 control, verified live):** launched the release app with `--control` and
+  drove it through `postguy-cli ui`: inspect returned state, `set console=true` opened the
+  panel, screenshot wrote a real 2560x1600 PNG. The server now wakes an idle app through
+  `Context::request_repaint` (no repaint loop), replaces any stale token file without following
+  symlinks, caps concurrent handlers at 16, and removes the file only while it still holds this
+  launch's token.
+
+- **2026-10-20 (M3.10, partial):** Shortcut table in Settings (fed by the command registry) and
+  keyboard dispatch for Cmd+N/I/K/Comma/W/Shift+T and Alt variants. Opt-in `--control FILE`
+  server: loopback only, fresh 128-bit token per launch in an owner-only (0600) file, never
+  logged; inspect/command/set/screenshot are wired to the running UI and `postguy-cli ui`
+  authenticates with the token (refuses group/world-readable token files, honours `--root` for
+  screenshot output). Screenshots run through egui's viewport screenshot event and are encoded
+  as PNG; `xtask screenshots` renders dark/light/environment review shots into
+  `target/screenshots/`. Click/key/type return an actionable refusal (no supported synthetic
+  input path), recorded in docs/gaps.md and parity. 3 CLI client tests + 2 app control tests.
+- **2026-10-20 (M3.9):** Console panel (All/Requests/Logs/Warnings/Errors filters, search,
+  timestamps, clear, engine ring buffer with masked secrets), cookies manager (search, flags,
+  delete, clear-all, script domain allowlist) and settings tab (General/Editor/Themes/
+  Shortcuts/Data/Certificates/Proxy/About) wired through engine settings; bottom bar toggles
+  sidebar/console/cookies/globals/trash/runner/two-pane/right, and the right code-snippet panel
+  generates cURL/fetch/requests from the active draft. Settings save persists theme/proxy;
+  cookies actions hit the jar; trash restore and rename/move undo are covered by app tests.
+- **2026-10-20 (M3.8):** Command registry/palette (fuzzy search, Cmd+K, document items, keyboard
+  selection), trash view with restore, and tree undo/redo for renames and moves. Settings
+  Shortcuts table reads the same registry. Palette tests + app undo/trash tests.
+- **2026-10-20 (M3.7):** Collection and folder detail tabs: Overview (description
+  edit/preview, counts), Authorization (no Inherit at collection level), Variables table
+  (enabled/secret/search/add) and Scripts shell; autosave/debounce, rename, duplicate/export/
+  delete menu and dirty close; folder detail edits the folder with no Runs tab. 4 UI tests + app
+  folder/collection persistence tests.
 
 - **2026-10-20 (M3.6, core):** Environment/Globals editor: colour dot, editable title, search,
   description toggle, enabled/secret flags with masked values and a reveal toggle, per-row

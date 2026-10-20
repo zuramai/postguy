@@ -7,20 +7,31 @@
 
 use egui::{Align, Layout, RichText};
 
+use crate::collection::CollectionAction;
+use crate::commands::{CommandAction, CommandRegistry, PaletteItem, PaletteState, command_palette};
+use crate::console::{ConsoleAction, ConsoleRow, ConsoleState, console_view};
+use crate::cookies::{CookieAction, CookieData, CookieState};
 use crate::environment::EnvironmentAction;
+use crate::settings::{SettingsAction, SettingsState};
 use crate::sidebar::{RowKind, Sidebar, SidebarAction, SidebarData, SidebarState};
+use crate::snippet::{SnippetPanelState, snippet_panel};
 use crate::tabs::{self, TAB_STRIP_HEIGHT, TabAction, TabDoc, Tabs};
+use crate::trash::TrashAction;
 
 /// What an app-supplied central panel did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PanelAction {
     Builder(crate::builder::BuilderAction),
     Environment(EnvironmentAction),
+    Collection(CollectionAction),
+    Trash(TrashAction),
+    Cookies(CookieAction),
+    Settings(SettingsAction),
 }
 
 /// The app-supplied editor shown in the central panel for request/environment/globals tabs.
 pub type ContentPanel<'a> = &'a mut dyn FnMut(&mut egui::Ui, &TabDoc) -> Option<PanelAction>;
-use crate::theme::{Metrics, Theme, ThemeMode};
+use crate::theme::{Theme, ThemeMode};
 use crate::widgets;
 
 /// Layout state the shell keeps across frames.
@@ -60,6 +71,18 @@ pub struct PostguyShell {
     pub action: Option<SidebarAction>,
     /// The action the tab strip emitted this frame.
     pub tab_action: Option<TabAction>,
+    pub command_registry: CommandRegistry,
+    pub palette: PaletteState,
+    /// The command invoked from the palette this frame.
+    pub command_action: Option<CommandAction>,
+    pub console_rows: Vec<ConsoleRow>,
+    pub console_state: ConsoleState,
+    pub cookie_data: CookieData,
+    pub cookie_state: CookieState,
+    pub settings: SettingsState,
+    pub settings_value: postguy_model::Settings,
+    pub snippet: SnippetPanelState,
+    pub snippet_request: Option<postguy_model::HttpRequest>,
 }
 
 impl Default for PostguyShell {
@@ -79,6 +102,17 @@ impl PostguyShell {
             tabs: Tabs::new(),
             action: None,
             tab_action: None,
+            command_registry: CommandRegistry::default(),
+            palette: PaletteState::default(),
+            command_action: None,
+            console_rows: Vec::new(),
+            console_state: ConsoleState::default(),
+            cookie_data: CookieData::default(),
+            cookie_state: CookieState::default(),
+            settings: SettingsState::default(),
+            settings_value: postguy_model::Settings::default(),
+            snippet: SnippetPanelState::default(),
+            snippet_request: None,
         }
     }
 
@@ -98,8 +132,55 @@ impl PostguyShell {
 
         self.header(ui, &theme);
         self.bottom_bar(ui, &theme);
+        if self.state.console_open {
+            let height = 190.0;
+            egui::Panel::bottom("console-panel").exact_size(height).resizable(true).show(ui, |ui| {
+                if let Some(ConsoleAction::Clear) = console_view(ui, &self.console_rows, &mut self.console_state) {
+                    self.command_action = Some(CommandAction::ClearConsole);
+                }
+            });
+        }
         self.action = None;
         self.tab_action = None;
+        self.command_action = None;
+        if !ui.ctx().egui_wants_keyboard_input() {
+            let mut shortcut: Option<CommandAction> = None;
+            ui.input(|input| {
+                let command = input.modifiers.command;
+                let alt = input.modifiers.alt;
+                let shift = input.modifiers.shift;
+                if command && input.key_pressed(egui::Key::K) {
+                    self.palette.open = true;
+                }
+                if command && input.key_pressed(egui::Key::Comma) {
+                    shortcut = Some(CommandAction::OpenSettings);
+                }
+                if command && alt && input.key_pressed(egui::Key::C) {
+                    shortcut = Some(CommandAction::ToggleConsole);
+                }
+                if command && alt && input.key_pressed(egui::Key::V) {
+                    shortcut = Some(CommandAction::ToggleTwoPane);
+                }
+                if command && input.key_pressed(egui::Key::N) {
+                    shortcut = Some(CommandAction::NewRequest);
+                }
+                if command && input.key_pressed(egui::Key::I) {
+                    shortcut = Some(CommandAction::Import);
+                }
+                if command && shift && input.key_pressed(egui::Key::T) {
+                    shortcut = Some(CommandAction::ReopenTab);
+                }
+                if command && !shift && input.key_pressed(egui::Key::W) {
+                    shortcut = Some(CommandAction::CloseTab);
+                }
+                if command && input.key_pressed(egui::Key::Tab) {
+                    shortcut = Some(if shift { CommandAction::PreviousTab } else { CommandAction::NextTab });
+                }
+            });
+            if let Some(action) = shortcut {
+                self.command_action = Some(action);
+            }
+        }
         if self.state.sidebar_open {
             self.sidebar(ui, &theme);
         }
@@ -108,7 +189,11 @@ impl PostguyShell {
             let data = &self.sidebar_data;
             self.tab_action = tabs::tab_strip(ui, &mut self.tabs, data);
         });
-        tabs::tab_shortcuts(ui, &mut self.tabs);
+
+        let items = palette_items(&self.sidebar_data, &self.tabs);
+        if let Some(action) = command_palette(ui, &mut self.palette, &self.command_registry, &items) {
+            self.command_action = Some(action);
+        }
         if let Some(SidebarAction::Open { id, kind, preview }) = self.action.clone()
             && let Some(row) = self.sidebar.rows(&self.sidebar_data, &self.sidebar_state.filter).iter().find(|row| row.id == id).cloned()
         {
@@ -121,9 +206,13 @@ impl PostguyShell {
         }
         if self.state.right_panel_open {
             egui::Panel::right("snippet-panel").exact_size(metrics.right_panel).resizable(true).show(ui, |ui| {
-                ui.heading("Code snippet");
-                ui.separator();
-                ui.label(RichText::new("cURL, fetch and requests arrive in M3.9.").color(theme.palette.text_muted));
+                if let Some(request) = self.snippet_request.clone() {
+                    snippet_panel(ui, &request, &mut self.snippet);
+                } else {
+                    ui.heading("Code snippet");
+                    ui.separator();
+                    ui.label(RichText::new("Open a request to see its generated code.").color(theme.palette.text_muted));
+                }
             });
         }
         let active = self.tabs.active_tab().cloned();
@@ -131,13 +220,22 @@ impl PostguyShell {
         egui::CentralPanel::default().show(ui, |ui| match active {
             None => self.welcome(ui, &theme),
             Some(tab) => match &tab.doc {
-                TabDoc::Settings => self.settings(ui, &theme),
                 TabDoc::Welcome => self.welcome(ui, &theme),
-                TabDoc::Request { .. } | TabDoc::Environment { .. } | TabDoc::Globals if content_panel.is_some() => {
+                TabDoc::Request { .. }
+                | TabDoc::Environment { .. }
+                | TabDoc::Globals
+                | TabDoc::Collection { .. }
+                | TabDoc::Folder { .. }
+                | TabDoc::Trash
+                | TabDoc::Cookies
+                | TabDoc::Settings
+                    if content_panel.is_some() =>
+                {
                     if let Some(panel) = content_panel.as_mut() {
                         builder_action = panel(ui, &tab.doc);
                     }
                 }
+                TabDoc::Settings => self.settings(ui, &theme),
                 TabDoc::Request { .. }
                 | TabDoc::Collection { .. }
                 | TabDoc::Folder { .. }
@@ -184,8 +282,14 @@ impl PostguyShell {
                     if settings.clicked() {
                         self.tabs.open(TabDoc::Settings, "Settings");
                     }
-                    let search = ui.add(egui::TextEdit::singleline(&mut String::new()).hint_text("Search or run a command…").desired_width(260.0));
-                    search.on_hover_text("Command palette (M3.8)");
+                    let search = ui.add_sized(
+                        [260.0, 22.0],
+                        egui::Button::new(RichText::new("Search or run a command…").color(theme.palette.text_muted)).frame(true),
+                    );
+                    if search.clicked() {
+                        self.palette.open = true;
+                    }
+                    search.on_hover_text("Command palette (Cmd/Ctrl+K)");
                 });
             });
         });
@@ -213,15 +317,23 @@ impl PostguyShell {
                 if ui.add(egui::Button::new("Console").frame(false)).clicked() {
                     self.state.console_open = !self.state.console_open;
                 }
-                ui.label("Cookies");
+                if ui.add(egui::Button::new("Cookies").frame(false)).clicked() {
+                    self.tabs.open(TabDoc::Cookies, "Cookies");
+                }
                 if ui.add(egui::Button::new("Globals").frame(false)).clicked() {
                     self.tabs.open(TabDoc::Globals, "Globals");
+                }
+                if ui.add(egui::Button::new("Trash").frame(false)).clicked() {
+                    self.tabs.open(TabDoc::Trash, "Trash");
                 }
                 ui.label("Runner");
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.label(RichText::new(&self.state.status).small().color(theme.palette.text_muted));
-                    if ui.add(egui::Button::new("Right").frame(false)).clicked() {
+                    if ui.add(egui::Button::new("Right").frame(false).selected(self.state.right_panel_open)).clicked() {
                         self.state.right_panel_open = !self.state.right_panel_open;
+                    }
+                    if ui.add(egui::Button::new("Two-pane").frame(false).selected(self.state.two_pane)).clicked() {
+                        self.state.two_pane = !self.state.two_pane;
                     }
                 });
             });
@@ -229,29 +341,25 @@ impl PostguyShell {
     }
 
     fn welcome(&mut self, ui: &mut egui::Ui, theme: &Theme) {
-        let metrics: Metrics = theme.metrics;
-        ui.add_space(24.0);
+        ui.add_space(72.0);
         ui.vertical_centered(|ui| {
-            ui.heading("Postguy");
-            ui.label(RichText::new("An offline API client: HTTP, gRPC and WebSocket.").color(theme.palette.text_muted));
-            ui.add_space(16.0);
+            ui.heading(RichText::new("Postguy").size(26.0));
+            ui.label(RichText::new("An offline API client for HTTP, gRPC and WebSocket.").color(theme.palette.text_muted));
+            ui.add_space(18.0);
             ui.horizontal(|ui| {
-                ui.add_space((ui.available_width() - 240.0).max(0.0) / 2.0);
-                let mut checked = true;
-                widgets::checkbox(ui, &mut checked, "Square checkbox");
+                ui.add_space((ui.available_width() - 330.0).max(0.0) / 2.0);
+                if ui.add(egui::Button::new("New HTTP request")).clicked() {
+                    self.command_action = Some(CommandAction::NewRequest);
+                }
+                if ui.add(egui::Button::new("Import…")).clicked() {
+                    self.command_action = Some(CommandAction::Import);
+                }
+                if ui.add(egui::Button::new("Settings…")).clicked() {
+                    self.command_action = Some(CommandAction::OpenSettings);
+                }
             });
-            ui.horizontal(|ui| {
-                ui.add_space((ui.available_width() - 240.0).max(0.0) / 2.0);
-                let mut on = true;
-                widgets::switch(ui, &mut on, "Toggle switch");
-            });
-            ui.horizontal(|ui| {
-                ui.add_space((ui.available_width() - 240.0).max(0.0) / 2.0);
-                let mut choice = "one".to_string();
-                widgets::radio(ui, &mut choice, "one", "Outlined radio");
-            });
-            ui.add_space(8.0);
-            ui.label(RichText::new(format!("Theme: {} · base {:.0} px", if theme.dark { "dark" } else { "light" }, metrics.ui_font)).small());
+            ui.add_space(12.0);
+            ui.label(RichText::new("Cmd/Ctrl+N new request · Cmd/Ctrl+I import · Cmd/Ctrl+K commands").small().color(theme.palette.text_muted));
         });
     }
 
@@ -303,4 +411,63 @@ fn doc_for_row(row: &crate::sidebar::SidebarRow, kind: RowKind) -> TabDoc {
             protocol: "http".into(),
         },
     }
+}
+
+/// Workspace documents and open/recent tabs for the palette.
+fn palette_items(data: &SidebarData, tabs: &Tabs) -> Vec<PaletteItem> {
+    let mut items = Vec::new();
+    for tab in &tabs.tabs {
+        items.push(PaletteItem { label: tab.title.clone(), hint: "Open tab".into(), doc: tab.doc.clone() });
+    }
+    for tab in tabs.closed.iter().take(10) {
+        items.push(PaletteItem { label: tab.title.clone(), hint: "Recently closed".into(), doc: tab.doc.clone() });
+    }
+    for collection in &data.collections {
+        items.push(PaletteItem {
+            label: collection.name.clone(),
+            hint: "Collection".into(),
+            doc: TabDoc::Collection { id: collection.id.0.clone() },
+        });
+        let mut stack: Vec<(&String, &Vec<postguy_model::Item>)> = vec![(&collection.id.0, &collection.items)];
+        while let Some((collection_id, items_slice)) = stack.pop() {
+            for item in items_slice {
+                match item {
+                    postguy_model::Item::Folder(folder) => {
+                        items.push(PaletteItem {
+                            label: folder.name.clone(),
+                            hint: "Folder".into(),
+                            doc: TabDoc::Folder { collection: collection_id.clone(), folder: folder.id.0.clone() },
+                        });
+                        stack.push((collection_id, &folder.items));
+                    }
+                    postguy_model::Item::Request(request) => {
+                        let (method, protocol) = match &request.kind {
+                            postguy_model::RequestKind::Http(http) => (format!("{:?}", http.method).to_ascii_uppercase(), "http"),
+                            postguy_model::RequestKind::Grpc(_) => ("gRPC".to_string(), "grpc"),
+                            postguy_model::RequestKind::WebSocket(_) => ("WS".to_string(), "websocket"),
+                            _ => (String::new(), "http"),
+                        };
+                        items.push(PaletteItem {
+                            label: request.name.clone(),
+                            hint: format!("{method} request"),
+                            doc: TabDoc::Request {
+                                collection: collection_id.clone(),
+                                request: request.id.0.clone(),
+                                method,
+                                protocol: protocol.into(),
+                            },
+                        });
+                    }
+                }
+            }
+        }
+    }
+    for environment in &data.environments {
+        items.push(PaletteItem {
+            label: environment.name.clone(),
+            hint: "Environment".into(),
+            doc: TabDoc::Environment { id: environment.id.0.clone() },
+        });
+    }
+    items
 }

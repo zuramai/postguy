@@ -12,6 +12,7 @@ workspace = true
 egui = { workspace = true, features = ["default_fonts"] }
 postguy-model.workspace = true
 postguy-urlkit.workspace = true
+postguy-interop.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

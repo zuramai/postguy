@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use egui::{Align, Color32, Id, Key, Layout, RichText, ScrollArea, Sense, Ui, vec2};
+use egui::{Align, Color32, Id, Layout, RichText, ScrollArea, Sense, Ui, vec2};
 use serde::{Deserialize, Serialize};
 
 use crate::sidebar::SidebarData;
@@ -679,22 +679,3 @@ fn method_badge(theme: &Theme, doc: &TabDoc) -> Option<(Color32, String)> {
 
 /// The tab strip's fixed height (PROMPT.md 6.2 keeps it compact).
 pub const TAB_STRIP_HEIGHT: f32 = 34.0;
-
-/// Keyboard handling for the strip: Cmd/Ctrl+W close, Cmd/Ctrl+Shift+T reopen, Cmd/Ctrl+Tab
-/// cycles (the full shortcut table lands in M3.10).
-pub fn tab_shortcuts(ui: &Ui, tabs: &mut Tabs) {
-    let input = ui.input(|input| (input.modifiers, input.key_pressed(Key::W), input.key_pressed(Key::T), input.key_pressed(Key::Tab)));
-    let (modifiers, close, reopen, cycle) = input;
-    if modifiers.command
-        && close
-        && let Some(id) = tabs.active
-    {
-        tabs.request_close(id);
-    }
-    if modifiers.command && modifiers.shift && reopen {
-        tabs.reopen_last();
-    }
-    if modifiers.command && cycle {
-        tabs.activate_next();
-    }
-}

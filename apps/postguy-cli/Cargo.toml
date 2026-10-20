@@ -14,6 +14,7 @@ postguy-urlkit = { workspace = true }
 postguy-vars = { workspace = true }
 postguy-interop = { workspace = true }
 postguy-automation = { workspace = true }
+serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]

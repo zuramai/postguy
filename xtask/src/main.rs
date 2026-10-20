@@ -3,6 +3,7 @@
 use std::process::ExitCode;
 
 mod assets;
+mod bench;
 mod deny;
 mod fuzz;
 mod gates;
@@ -23,6 +24,7 @@ const COMMANDS: &[(&str, &str, Command)] = &[
     ("parity", "Validate parity/postman-features.toml against the registry, tools and tests; report progress (--json, --partial)", parity::run),
     ("deny", "Dependency licences and sources (deny.toml; delegates to cargo-deny when installed)", deny::run),
     ("size", "Measure the release binaries against the PROMPT.md 8 budgets", size::run),
+    ("bench", "Headless frame-time capture; reports (--check enforces) the PROMPT.md 8 budgets", bench::run),
     ("icons", "Regenerate crates/ui-egui/src/icons_gen.rs from assets/icons/*.svg (--check verifies)", icons::run),
     ("logo", "Rasterize assets/logo/postguy.svg into the packaging PNG sizes (--check verifies)", logo::run),
     ("fuzz", "Mutation-fuzz the parsers and importers in child processes; findings in fuzz-out/ (--time 300)", fuzz::run),

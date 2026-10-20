@@ -23,6 +23,9 @@ pub struct ResponseData {
     pub headers: Vec<(String, String)>,
     /// DECODED body bytes.
     pub body: Vec<u8>,
+    /// Identifies this response body; the viewer caches formatted text under it. The app sets
+    /// a fresh value per send (history id); tests and the example use any distinct number.
+    pub revision: u64,
     pub header_bytes: usize,
     pub body_encoded_bytes: usize,
     pub body_decoded_bytes: usize,
@@ -63,11 +66,14 @@ pub struct ResponseViewerState {
     pub wrap: bool,
     /// Cache of the pretty-printed body and the signature it was built from.
     pretty: Option<(u64, usize, Arc<str>)>,
+    /// Cache of the UTF-8 body for Raw/Preview, keyed by the response revision so a new send
+    /// invalidates it without hashing 10 MB every frame.
+    raw: Option<(u64, Arc<str>)>,
 }
 
 impl Default for ResponseViewerState {
     fn default() -> Self {
-        ResponseViewerState { tab: ResponseTab::Body, mode: BodyMode::Pretty, search: String::new(), wrap: false, pretty: None }
+        ResponseViewerState { tab: ResponseTab::Body, mode: BodyMode::Pretty, search: String::new(), wrap: false, pretty: None, raw: None }
     }
 }
 
@@ -84,6 +90,18 @@ pub const PRETTY_CAP: usize = 5 << 20;
 impl ResponseData {
     fn text(&self) -> Option<String> {
         String::from_utf8(self.body.clone()).ok()
+    }
+
+    /// UTF-8 text for the Raw/Preview viewer, cloned at most once per response buffer.
+    fn raw_text(&mut self, state: &mut ResponseViewerState) -> Option<Arc<str>> {
+        if let Some((revision, text)) = &state.raw
+            && *revision == self.revision
+        {
+            return Some(text.clone());
+        }
+        let text: Arc<str> = String::from_utf8(self.body.clone()).ok()?.into();
+        state.raw = Some((self.revision, text.clone()));
+        Some(text)
     }
 
     fn content_type(&self) -> Option<&str> {
@@ -260,7 +278,7 @@ fn body_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseViewerSta
     let rendered: Option<Arc<str>> = match state.mode {
         BodyMode::Pretty => {
             if data.body.len() > PRETTY_CAP {
-                data.text().map(Arc::<str>::from)
+                data.raw_text(state)
             } else {
                 data.pretty(state)
             }
@@ -269,7 +287,7 @@ fn body_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseViewerSta
             if state.mode == BodyMode::Preview && data.content_type().is_some_and(is_image) {
                 None
             } else {
-                data.text().map(Arc::<str>::from)
+                data.raw_text(state)
             }
         }
         BodyMode::Hex => None,
@@ -414,6 +432,7 @@ mod tests {
                 ("set-cookie".into(), "sid=abc; Path=/; HttpOnly".into()),
             ],
             body,
+            revision: 1,
             header_bytes: 120,
             body_encoded_bytes: 18,
             body_decoded_bytes: 18,
@@ -436,6 +455,20 @@ mod tests {
         assert!(state.pretty.is_some());
         let second = data.pretty(&mut state).expect("cached");
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn raw_text_is_cached_until_the_response_revision_changes() {
+        let mut data = data(false);
+        let mut state = ResponseViewerState::default();
+        let first = data.raw_text(&mut state).expect("raw");
+        let second = data.raw_text(&mut state).expect("cached");
+        assert!(Arc::ptr_eq(&first, &second), "the same revision reuses the text");
+        data.body = b"different".to_vec();
+        data.revision = 2;
+        let third = data.raw_text(&mut state).expect("new revision");
+        assert!(!Arc::ptr_eq(&first, &third));
+        assert_eq!(&*third, "different");
     }
 
     #[test]

@@ -18,6 +18,7 @@ struct State {
     last: Option<BuilderAction>,
     variables: Vec<VariableInfo>,
     undo_paste: bool,
+    inherited: Option<String>,
 }
 
 fn harness() -> Harness<'static, State> {
@@ -34,6 +35,7 @@ fn harness() -> Harness<'static, State> {
                 variables: &state.variables,
                 sending: None,
                 undo_paste: state.undo_paste,
+                inherited_auth: state.inherited.as_deref(),
             };
             state.action = builder.show(ui);
             if state.action.is_some() {
@@ -54,6 +56,7 @@ fn harness() -> Harness<'static, State> {
                 VariableInfo { name: "token".into(), value: "hunter2".into(), secret: true, scope: "environment".into() },
             ],
             undo_paste: false,
+            inherited: None,
         },
     )
 }

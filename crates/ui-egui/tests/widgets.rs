@@ -382,6 +382,58 @@ fn timeline_shows_newest_first_and_expands_a_row() {
 }
 
 #[test]
+fn the_welcome_state_offers_new_request_import_and_settings() {
+    let mut shell = PostguyShell::new("demo");
+    let mut harness = Harness::new_ui_state(
+        |ui, shell: &mut PostguyShell| {
+            shell.ui(ui);
+        },
+        std::mem::take(&mut shell),
+    );
+    harness.run();
+    assert!(harness.query_by_label_contains("New HTTP request").is_some());
+    assert!(harness.query_by_label_contains("Import…").is_some());
+    assert!(harness.query_by_label_contains("Cmd/Ctrl+N new request").is_some());
+}
+
+#[test]
+fn the_shell_bottom_bar_opens_panels_and_the_snippet_shows_generated_code() {
+    let mut shell = PostguyShell::new("demo");
+    shell.snippet_request = Some(postguy_model::HttpRequest {
+        method: postguy_model::HttpMethod::Get,
+        url: "https://api.example.com/users".into(),
+        ..Default::default()
+    });
+    shell.state.right_panel_open = true;
+    shell.state.console_open = true;
+    shell.console_rows.push(postguy_ui_egui::console::ConsoleRow {
+        id: 1,
+        time_ms: 0,
+        level: "info".into(),
+        kind: "request".into(),
+        message: "GET /users 200".into(),
+        detail: None,
+    });
+    let mut harness = Harness::new_ui_state(move |ui, shell: &mut PostguyShell| shell.ui(ui), shell);
+    harness.run();
+    assert!(harness.query_by_label_contains("GET /users 200").is_some(), "console rows render");
+    assert!(harness.query_by_label("Code snippet").is_some());
+
+    harness.get_by_label("Cookies").click();
+    harness.run();
+    assert!(harness.state().tabs.active_tab().is_some_and(|tab| matches!(tab.doc, postguy_ui_egui::TabDoc::Cookies)));
+    harness.get_by_label("Two-pane").click();
+    harness.run();
+    assert!(harness.state().state.two_pane);
+    harness.get_by_label("Right").click();
+    harness.run();
+    assert!(!harness.state().state.right_panel_open);
+    harness.get_by_label("Console").click();
+    harness.run();
+    assert!(!harness.state().state.console_open);
+}
+
+#[test]
 fn the_shell_draws_its_regions_and_opens_settings() {
     let shell = PostguyShell::new("demo-workspace");
     let mut harness = Harness::new_ui_state(move |ui, shell: &mut PostguyShell| shell.ui(ui), shell);

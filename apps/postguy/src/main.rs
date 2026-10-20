@@ -15,14 +15,22 @@ use postguy_engine::{Cancel, Engine, SendOptions, SendTarget};
 use postguy_model::{Collection, Environment, HttpRequest, Id, Item, Request, RequestKind};
 use postguy_store::{StorePaths, config_dir};
 use postguy_ui_egui::builder::{BodyDrafts, BuilderAction, BuilderTab, RequestBuilder, SendProgress};
+use postguy_ui_egui::collection::{CollectionAction, CollectionDetail, DetailState};
+use postguy_ui_egui::commands::CommandAction;
+use postguy_ui_egui::console::ConsoleRow;
+use postguy_ui_egui::cookies::{CookieAction, CookieData, CookieRow, cookie_manager};
 use postguy_ui_egui::environment::{EnvironmentAction, EnvironmentEditor};
 use postguy_ui_egui::response::{ResponseAction, ResponseData, ResponseViewerState, response_view};
+use postguy_ui_egui::settings::SettingsAction;
 use postguy_ui_egui::shell::PanelAction;
 use postguy_ui_egui::sidebar::{RequestProtocol, RowKind, SidebarAction, SidebarData};
 use postguy_ui_egui::tabs::{TabAction, TabDoc, Tabs};
+use postguy_ui_egui::trash::{TrashAction, TrashEntryView, trash_view};
 use postguy_ui_egui::widgets::field::VariableInfo;
 use postguy_ui_egui::{PostguyShell, ThemeMode};
 use serde::{Deserialize, Serialize};
+
+mod control;
 
 struct ClipboardItem {
     source_collection: Id,
@@ -73,6 +81,15 @@ struct RequestEditor {
     tab: BuilderTab,
     /// The draft before the last cURL import (the inline Undo hint).
     undo_paste: Option<HttpRequest>,
+    /// The auth kind inherited through folders/collection (None = no auth).
+    inherited_auth: Option<String>,
+}
+
+struct DetailEditorState {
+    collection: Collection,
+    folder: Option<Id>,
+    state: DetailState,
+    dirty: bool,
 }
 
 struct EnvironmentEditorState {
@@ -81,6 +98,26 @@ struct EnvironmentEditorState {
     search: String,
     show_description: bool,
     reveal: bool,
+}
+
+#[derive(Clone)]
+enum RenameTarget {
+    Collection(Id),
+    Environment(Id),
+    Item { collection: Id, id: Id },
+}
+
+#[derive(Clone)]
+enum UndoEntry {
+    Rename { target: RenameTarget, old: String, new: String },
+    Move { collection: Id, id: Id, from_parent: Option<Id>, from_index: usize, to_parent: Option<Id>, to_index: usize },
+}
+
+struct PendingScreenshot {
+    id: u64,
+    path: PathBuf,
+    reply: std::sync::mpsc::Sender<Result<serde_json::Value, String>>,
+    started: std::time::Instant,
 }
 
 struct Sending {
@@ -98,12 +135,20 @@ struct App {
     editors: BTreeMap<u64, RequestEditor>,
     env_editors: BTreeMap<u64, EnvironmentEditorState>,
     pending_env_save: Option<(u64, Environment, bool, std::time::Instant)>,
+    detail_editors: BTreeMap<u64, DetailEditorState>,
+    pending_detail_save: Option<(u64, Collection, std::time::Instant)>,
     responses: BTreeMap<u64, ResponseData>,
     viewer_states: BTreeMap<u64, ResponseViewerState>,
+    trash_entries: Vec<TrashEntryView>,
+    undo_stack: Vec<UndoEntry>,
+    redo_stack: Vec<UndoEntry>,
     sending: Option<Sending>,
     revision: u64,
     last_session: Option<String>,
     last_save: std::time::Instant,
+    control_server: Option<control::ControlServer>,
+    control_queue: Option<control::ControlQueue>,
+    pending_screenshot: Option<PendingScreenshot>,
 }
 
 impl App {
@@ -119,13 +164,22 @@ impl App {
                     editors: BTreeMap::new(),
                     env_editors: BTreeMap::new(),
                     pending_env_save: None,
+                    detail_editors: BTreeMap::new(),
+                    pending_detail_save: None,
                     responses: BTreeMap::new(),
                     viewer_states: BTreeMap::new(),
+                    trash_entries: Vec::new(),
+                    undo_stack: Vec::new(),
+                    redo_stack: Vec::new(),
                     sending: None,
                     revision: 0,
                     last_session: None,
                     last_save: std::time::Instant::now(),
+                    control_server: None,
+                    control_queue: None,
+                    pending_screenshot: None,
                 };
+                app.shell.settings_value = app.engine.as_ref().map(|engine| engine.settings()).unwrap_or_default();
                 app.refresh();
                 app.restore_session();
                 app
@@ -139,15 +193,231 @@ impl App {
                     editors: BTreeMap::new(),
                     env_editors: BTreeMap::new(),
                     pending_env_save: None,
+                    detail_editors: BTreeMap::new(),
+                    pending_detail_save: None,
                     responses: BTreeMap::new(),
                     viewer_states: BTreeMap::new(),
+                    trash_entries: Vec::new(),
+                    undo_stack: Vec::new(),
+                    redo_stack: Vec::new(),
                     sending: None,
                     revision: 0,
                     last_session: None,
                     last_save: std::time::Instant::now(),
+                    control_server: None,
+                    control_queue: None,
+                    pending_screenshot: None,
                 }
             }
         }
+    }
+
+    /// Start answering the opt-in control channel (AGENTS.md 3). Only `--control` calls this.
+    fn attach_control(&mut self, server: control::ControlServer) {
+        self.control_queue = Some(server.queue());
+        self.control_server = Some(server);
+    }
+
+    /// Drain control requests at the top of a frame, then capture a requested screenshot once
+    /// egui delivers it. The network thread only queues; all UI work stays on this thread.
+    fn poll_control(&mut self, ctx: &egui::Context) {
+        if let Some(server) = &self.control_server {
+            server.set_context(ctx.clone());
+        }
+        if self.pending_screenshot.as_ref().is_some_and(|pending| pending.started.elapsed() > std::time::Duration::from_secs(10))
+            && let Some(pending) = self.pending_screenshot.take()
+        {
+            let _ = pending.reply.send(Err("the screenshot did not arrive from the windowing system".into()));
+        }
+        self.capture_screenshot(ctx);
+        let Some(queue) = self.control_queue.clone() else { return };
+        let requests: Vec<_> = match queue.lock() {
+            Ok(mut queue) => queue.drain(..).collect(),
+            Err(_) => return,
+        };
+        for (command, reply) in requests {
+            if let control::ControlCommand::Screenshot(path) = command {
+                if let Err(error) = self.begin_screenshot(path, reply.clone(), ctx) {
+                    let _ = reply.send(Err(error));
+                }
+                continue;
+            }
+            let result = self.apply_control(command);
+            let _ = reply.send(result);
+        }
+    }
+
+    fn apply_control(&mut self, command: control::ControlCommand) -> Result<serde_json::Value, String> {
+        match command {
+            control::ControlCommand::Inspect => Ok(self.inspect()),
+            control::ControlCommand::Command(id) => {
+                let registry = postguy_ui_egui::commands::CommandRegistry::default();
+                let action =
+                    registry.action(&id).ok_or_else(|| format!("unknown command `{id}`; run with `--help` or inspect the command palette"))?;
+                self.apply_command(action);
+                Ok(serde_json::json!({"ok": true, "command": id}))
+            }
+            control::ControlCommand::Set(key, value) => self.set_control(&key, value),
+            // Handled in `poll_control`, which keeps the reply channel until the frame is captured.
+            control::ControlCommand::Screenshot(_) => Err("internal screenshot handling".into()),
+            control::ControlCommand::Click(_, _) => Err("synthetic clicks are not supported; use `command` or `set`".into()),
+            control::ControlCommand::Key(_) => Err("synthetic keys are not supported; use `command` or `set`".into()),
+            control::ControlCommand::Type(_) => Err("synthetic typing is not supported; use `command` or `set`".into()),
+        }
+    }
+
+    fn begin_screenshot(
+        &mut self,
+        path: PathBuf,
+        reply: std::sync::mpsc::Sender<Result<serde_json::Value, String>>,
+        ctx: &egui::Context,
+    ) -> Result<(), String> {
+        if self.pending_screenshot.is_some() {
+            return Err("a screenshot is already in progress".into());
+        }
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent).map_err(|err| format!("creating {}: {err}", parent.display()))?;
+        }
+        let id = self.revision.wrapping_add(1);
+        self.pending_screenshot = Some(PendingScreenshot { id, path, reply, started: std::time::Instant::now() });
+        ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::new(id)));
+        Ok(())
+    }
+
+    fn set_control(&mut self, key: &str, value: serde_json::Value) -> Result<serde_json::Value, String> {
+        match key {
+            "tab" => {
+                let name = value.as_str().ok_or("`tab` needs a string value")?;
+                let doc = match name {
+                    "settings" => TabDoc::Settings,
+                    "globals" => TabDoc::Globals,
+                    "cookies" => TabDoc::Cookies,
+                    "trash" => TabDoc::Trash,
+                    "runner" => TabDoc::Runner,
+                    other => {
+                        let tab = self
+                            .shell
+                            .tabs
+                            .tabs
+                            .iter()
+                            .find(|tab| tab.title.eq_ignore_ascii_case(other))
+                            .ok_or_else(|| format!("unknown tab `{other}`"))?;
+                        self.shell.tabs.activate(tab.id);
+                        return Ok(serde_json::json!({"ok": true, "tab": other}));
+                    }
+                };
+                let title = match &doc {
+                    TabDoc::Settings => "Settings",
+                    TabDoc::Globals => "Globals",
+                    TabDoc::Cookies => "Cookies",
+                    TabDoc::Trash => "Trash",
+                    TabDoc::Runner => "Runner",
+                    _ => "Tab",
+                };
+                self.shell.tabs.open(doc, title);
+                Ok(serde_json::json!({"ok": true, "tab": name}))
+            }
+            "console" | "right" | "two-pane" | "sidebar" => {
+                let open = value.as_bool().ok_or("panel values are booleans")?;
+                match key {
+                    "console" => self.shell.state.console_open = open,
+                    "right" => self.shell.state.right_panel_open = open,
+                    "two-pane" => self.shell.state.two_pane = open,
+                    _ => self.shell.state.sidebar_open = open,
+                }
+                Ok(serde_json::json!({"ok": true, "key": key, "value": open}))
+            }
+            "theme" => {
+                let mode = match value.as_str() {
+                    Some("light") => ThemeMode::Light,
+                    Some("dark") => ThemeMode::Dark,
+                    Some("system") => ThemeMode::System,
+                    _ => return Err("`theme` is light, dark or system".into()),
+                };
+                self.shell.state.theme_mode = mode;
+                Ok(serde_json::json!({"ok": true, "theme": value}))
+            }
+            "url" => {
+                let url = value.as_str().ok_or("`url` needs a string value")?;
+                let active = self.shell.tabs.active.ok_or("no active tab")?;
+                let editor = self.editors.get_mut(&active).ok_or("the active tab has no request editor")?;
+                editor.draft.url = url.to_string();
+                editor.dirty = true;
+                Ok(serde_json::json!({"ok": true, "url": url}))
+            }
+            other => Err(format!("unknown key `{other}`; keys are tab, console, right, two-pane, sidebar, theme, url")),
+        }
+    }
+
+    fn inspect(&self) -> serde_json::Value {
+        let tabs: Vec<serde_json::Value> =
+            self.shell.tabs.tabs.iter().map(|tab| serde_json::json!({"id": tab.id, "title": tab.title, "dirty": tab.dirty})).collect();
+        let panel = self.shell.tabs.active_tab().map(|tab| match &tab.doc {
+            TabDoc::Request { .. } => "request",
+            TabDoc::Environment { .. } | TabDoc::Globals => "environment",
+            TabDoc::Collection { .. } | TabDoc::Folder { .. } => "collection",
+            TabDoc::Settings => "settings",
+            TabDoc::Cookies => "cookies",
+            TabDoc::Trash => "trash",
+            TabDoc::Runner => "runner",
+            TabDoc::History { .. } => "history",
+            TabDoc::Welcome => "welcome",
+        });
+        serde_json::json!({
+            "tabs": tabs,
+            "active": self.shell.tabs.active,
+            "panel": panel,
+            "sidebar": self.shell.state.sidebar_open,
+            "console": self.shell.state.console_open,
+            "right": self.shell.state.right_panel_open,
+            "twoPane": self.shell.state.two_pane,
+            "status": self.shell.state.status,
+            "consoleRows": self.shell.console_rows.len(),
+            "engine": self.engine.is_some(),
+        })
+    }
+
+    fn capture_screenshot(&mut self, ctx: &egui::Context) {
+        let Some(pending) = self.pending_screenshot.take() else { return };
+        let screenshot = ctx.input(|input| {
+            input.events.iter().find_map(|event| match event {
+                egui::Event::Screenshot { user_data, image, .. } => {
+                    let id = user_data.data.as_ref().and_then(|data| data.downcast_ref::<u64>()).copied();
+                    Some((id, image.clone()))
+                }
+                _ => None,
+            })
+        });
+        let Some((id, image)) = screenshot else {
+            self.pending_screenshot = Some(pending);
+            return;
+        };
+        if id != Some(pending.id) {
+            self.pending_screenshot = Some(pending);
+            return;
+        }
+        let [width, height] = image.size;
+        let mut rgba = Vec::with_capacity(width.saturating_mul(height).saturating_mul(4));
+        for pixel in &image.pixels {
+            rgba.extend_from_slice(&pixel.to_array());
+        }
+        let result = image::save_buffer_with_format(
+            &pending.path,
+            &rgba,
+            width as u32,
+            height as u32,
+            image::ExtendedColorType::Rgba8,
+            image::ImageFormat::Png,
+        )
+        .map_err(|err| format!("writing {}: {err}", pending.path.display()));
+        #[cfg(unix)]
+        if result.is_ok() {
+            use std::os::unix::fs::PermissionsExt as _;
+            let _ = std::fs::set_permissions(&pending.path, std::fs::Permissions::from_mode(0o600));
+        }
+        let _ = pending.reply.send(result.map(|()| serde_json::json!({"ok": true, "path": pending.path})));
     }
 
     fn refresh(&mut self) {
@@ -157,6 +427,18 @@ impl App {
         let environments = engine.environments().unwrap_or_default();
         let active = engine.active_environment().unwrap_or_default();
         let globals = engine.globals().unwrap_or_default();
+        self.trash_entries = engine
+            .trash_entries()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|entry| TrashEntryView {
+                id: entry.id,
+                kind: entry.kind,
+                original: entry.original,
+                deleted_at_ms: entry.deleted_at_ms,
+                size_bytes: entry.size_bytes,
+            })
+            .collect();
         let mut data = SidebarData {
             revision: self.revision,
             collections: engine.collections().unwrap_or_default(),
@@ -169,6 +451,43 @@ impl App {
             data.active_environment = None;
         }
         self.shell.sidebar_data = data;
+        self.shell.console_rows = engine
+            .console_entries(0)
+            .into_iter()
+            .map(|entry| ConsoleRow {
+                id: entry.id,
+                time_ms: entry.time_ms,
+                level: match entry.level {
+                    postguy_engine::console::ConsoleLevel::Info => "info".into(),
+                    postguy_engine::console::ConsoleLevel::Warning => "warning".into(),
+                    postguy_engine::console::ConsoleLevel::Error => "error".into(),
+                },
+                kind: match entry.kind {
+                    postguy_engine::console::ConsoleKind::Request => "request".into(),
+                    postguy_engine::console::ConsoleKind::Log => "log".into(),
+                    postguy_engine::console::ConsoleKind::Warning => "warning".into(),
+                    postguy_engine::console::ConsoleKind::Error => "error".into(),
+                },
+                message: entry.message,
+                detail: entry.detail,
+            })
+            .collect();
+        self.shell.cookie_data = CookieData {
+            cookies: engine
+                .cookies()
+                .into_iter()
+                .map(|cookie| CookieRow {
+                    name: cookie.name,
+                    value: cookie.value,
+                    domain: cookie.domain,
+                    path: cookie.path,
+                    secure: cookie.secure,
+                    http_only: cookie.http_only,
+                    expires_ms: cookie.expires_ms,
+                })
+                .collect(),
+            allowlist: engine.cookie_domains(),
+        };
         let dropped = validate_tabs(&mut self.shell.tabs, &self.shell.sidebar_data);
         if dropped > 0 {
             self.shell.state.status = format!("Closed {dropped} tab(s) whose item no longer exists");
@@ -300,12 +619,36 @@ impl App {
             }
             SidebarAction::Rename { id, name } => {
                 let id = Id(id.clone());
-                if collections.iter().any(|collection| collection.id == id) {
-                    engine.rename_collection(&id, &name).map_err(|err| err.to_string())?;
+                let target = if collections.iter().any(|collection| collection.id == id) {
+                    Some(RenameTarget::Collection(id.clone()))
                 } else if engine.environments().map_err(|err| err.to_string())?.iter().any(|environment| environment.id == id) {
-                    engine.rename_environment(&id, &name).map_err(|err| err.to_string())?;
-                } else if let Some(collection) = item_collection(&collections, &id) {
-                    engine.rename_item(&collection, &id, &name).map_err(|err| err.to_string())?;
+                    Some(RenameTarget::Environment(id.clone()))
+                } else {
+                    item_collection(&collections, &id).map(|collection| RenameTarget::Item { collection, id: id.clone() })
+                };
+                let old = target.as_ref().and_then(|target| match target {
+                    RenameTarget::Collection(id) => {
+                        collections.iter().find(|collection| collection.id == *id).map(|collection| collection.name.clone())
+                    }
+                    RenameTarget::Environment(id) => engine
+                        .environments()
+                        .ok()
+                        .and_then(|environments| environments.into_iter().find(|environment| environment.id == *id))
+                        .map(|environment| environment.name),
+                    RenameTarget::Item { collection: collection_id, id } => collections
+                        .iter()
+                        .find(|collection| collection.id == *collection_id)
+                        .and_then(|collection| find(&collection.items, id).map(|item| item.name().to_string())),
+                });
+                let Some(target) = target else { return Err(format!("`{}` is not in the workspace", id.0)) };
+                match &target {
+                    RenameTarget::Collection(id) => engine.rename_collection(id, &name).map_err(|err| err.to_string())?,
+                    RenameTarget::Environment(id) => engine.rename_environment(id, &name).map_err(|err| err.to_string())?,
+                    RenameTarget::Item { collection, id } => engine.rename_item(collection, id, &name).map_err(|err| err.to_string())?,
+                }
+                if let Some(old) = old {
+                    self.undo_stack.push(UndoEntry::Rename { target, old, new: name });
+                    self.redo_stack.clear();
                 }
                 Ok("Renamed".into())
             }
@@ -374,8 +717,20 @@ impl App {
             SidebarAction::Move { id, parent, index, copy } => {
                 let id = Id(id.clone());
                 let collection = item_collection(&collections, &id).ok_or_else(|| format!("item `{}` is not in the workspace", id.0))?;
+                let from = locate_item(&collections, &id);
                 let parent_id = parent.as_ref().map(|id| Id(id.clone()));
                 engine.move_item(&collection, &id, parent_id.as_ref(), index, copy).map_err(|err| err.to_string())?;
+                if !copy && let Some((from_parent, from_index)) = from {
+                    self.undo_stack.push(UndoEntry::Move {
+                        collection: collection.clone(),
+                        id,
+                        from_parent,
+                        from_index,
+                        to_parent: parent_id,
+                        to_index: index,
+                    });
+                    self.redo_stack.clear();
+                }
                 Ok(if copy { "Copied".into() } else { "Moved".into() })
             }
             SidebarAction::Copy { id } => {
@@ -507,7 +862,9 @@ impl App {
             let bodies = stored.as_ref().map(|stored| stored.bodies.clone()).unwrap_or_default();
             let tab = stored.as_ref().map(|stored| stored.tab).unwrap_or_default();
             let dirty = self.shell.tabs.tabs.iter().find(|tab| tab.id == tab_id).is_some_and(|tab| tab.dirty);
-            self.editors.insert(tab_id, RequestEditor { collection, request, draft, description, bodies, dirty, tab, undo_paste: None });
+            let inherited_auth = engine.inherited_auth_kind(&Id(collection.clone()), &Id(request_id.clone())).ok().flatten();
+            self.editors
+                .insert(tab_id, RequestEditor { collection, request, draft, description, bodies, dirty, tab, undo_paste: None, inherited_auth });
         }
     }
 
@@ -624,6 +981,147 @@ impl App {
             EnvironmentAction::Close => {
                 self.flush_pending_env(true);
                 self.env_editors.remove(&tab_id);
+                self.shell.tabs.force_close(tab_id);
+            }
+        }
+    }
+
+    /// Load collection/folder detail state for their tabs.
+    fn sync_detail_editors(&mut self) {
+        let Some(engine) = self.engine.clone() else { return };
+        let open: Vec<(u64, String, Option<String>)> = self
+            .shell
+            .tabs
+            .tabs
+            .iter()
+            .filter_map(|tab| match &tab.doc {
+                TabDoc::Collection { id } => Some((tab.id, id.clone(), None)),
+                TabDoc::Folder { collection, folder } => Some((tab.id, collection.clone(), Some(folder.clone()))),
+                _ => None,
+            })
+            .collect();
+        self.detail_editors.retain(|id, _| open.iter().any(|(tab, _, _)| tab == id));
+        for (tab_id, collection_id, folder_id) in open {
+            if self.detail_editors.contains_key(&tab_id) {
+                continue;
+            }
+            if let Ok(collection) = engine.collection(&Id(collection_id)) {
+                self.detail_editors
+                    .insert(tab_id, DetailEditorState { collection, folder: folder_id.map(Id), state: DetailState::default(), dirty: false });
+            }
+        }
+    }
+
+    fn flush_pending_detail(&mut self, force: bool) {
+        let Some((tab_id, collection, at)) = &self.pending_detail_save else { return };
+        if !force && at.elapsed() < std::time::Duration::from_millis(400) {
+            return;
+        }
+        let tab_id = *tab_id;
+        let collection = collection.clone();
+        self.pending_detail_save = None;
+        let Some(engine) = self.engine.clone() else { return };
+        match engine.save_collection(&collection) {
+            Ok(()) => {
+                let name = self.detail_editors.get(&tab_id).map(|editor| detail_name(&collection, editor.folder.as_ref())).unwrap_or_default();
+                self.shell.tabs.set_title(tab_id, name);
+                self.refresh();
+            }
+            Err(err) => self.shell.state.status = format!("Save failed: {err}"),
+        }
+    }
+
+    fn apply_collection(&mut self, tab_id: u64, action: CollectionAction) {
+        let Some(engine) = self.engine.clone() else { return };
+        match action {
+            CollectionAction::Save => {
+                if let Some(editor) = self.detail_editors.get_mut(&tab_id) {
+                    editor.dirty = true;
+                    self.pending_detail_save = Some((tab_id, editor.collection.clone(), std::time::Instant::now()));
+                }
+            }
+            CollectionAction::Duplicate => {
+                self.flush_pending_detail(true);
+                if let Some(editor) = self.detail_editors.get(&tab_id) {
+                    if let Some(folder) = &editor.folder {
+                        match engine.duplicate_item(&editor.collection.id, folder) {
+                            Ok(_) => {
+                                self.refresh();
+                                self.shell.state.status = "Duplicated folder".into();
+                            }
+                            Err(err) => self.shell.state.status = err.to_string(),
+                        }
+                    } else {
+                        match engine.duplicate_collection(&editor.collection.id, None) {
+                            Ok(copy) => {
+                                self.refresh();
+                                self.shell.tabs.open(TabDoc::Collection { id: copy.id.0.clone() }, copy.name.clone());
+                                self.sync_detail_editors();
+                                self.shell.state.status = "Duplicated collection".into();
+                            }
+                            Err(err) => self.shell.state.status = err.to_string(),
+                        }
+                    }
+                }
+            }
+            CollectionAction::Export => self.shell.state.status = "Collection export arrives with M4".into(),
+            CollectionAction::Delete => {
+                self.pending_detail_save = None;
+                if let Some(editor) = self.detail_editors.remove(&tab_id) {
+                    let result = if let Some(folder) = &editor.folder {
+                        engine.delete_item(&editor.collection.id, folder)
+                    } else {
+                        engine.delete_collection(&editor.collection.id)
+                    };
+                    match result {
+                        Ok(()) => {
+                            self.shell.tabs.force_close(tab_id);
+                            self.refresh();
+                            self.shell.state.status = "Moved to trash".into();
+                        }
+                        Err(err) => self.shell.state.status = err.to_string(),
+                    }
+                }
+            }
+            CollectionAction::Run => self.shell.state.status = "The runner arrives in M3.8/M9".into(),
+            CollectionAction::NewRequest => {
+                if let Some(editor) = self.detail_editors.get(&tab_id) {
+                    let collection_id = editor.collection.id.clone();
+                    let parent = editor.folder.clone();
+                    match engine.create_request(&collection_id, parent.as_ref(), "http", "New Request") {
+                        Ok(request) => {
+                            self.refresh();
+                            self.shell.tabs.open(
+                                TabDoc::Request {
+                                    collection: collection_id.0.clone(),
+                                    request: request.id.0.clone(),
+                                    method: "GET".into(),
+                                    protocol: "http".into(),
+                                },
+                                request.name,
+                            );
+                            self.sync_editors();
+                            self.shell.state.status = "Created request".into();
+                        }
+                        Err(err) => self.shell.state.status = err.to_string(),
+                    }
+                }
+            }
+            CollectionAction::NewFolder => {
+                if let Some(editor) = self.detail_editors.get(&tab_id) {
+                    let parent = editor.folder.clone();
+                    match engine.create_folder(&editor.collection.id, parent.as_ref(), "New Folder") {
+                        Ok(folder) => {
+                            self.refresh();
+                            self.shell.state.status = format!("Created folder `{}`", folder.name);
+                        }
+                        Err(err) => self.shell.state.status = err.to_string(),
+                    }
+                }
+            }
+            CollectionAction::Close => {
+                self.flush_pending_detail(true);
+                self.detail_editors.remove(&tab_id);
                 self.shell.tabs.force_close(tab_id);
             }
         }
@@ -815,6 +1313,194 @@ impl App {
 }
 
 impl App {
+    fn undo(&mut self) {
+        let Some(entry) = self.undo_stack.pop() else { return };
+        let result = self.apply_undo(&entry, false);
+        match result {
+            Ok(()) => {
+                self.redo_stack.push(entry);
+                self.shell.state.status = "Undone".into();
+                self.refresh();
+            }
+            Err(err) => self.shell.state.status = err,
+        }
+    }
+
+    fn redo(&mut self) {
+        let Some(entry) = self.redo_stack.pop() else { return };
+        let result = self.apply_undo(&entry, true);
+        match result {
+            Ok(()) => {
+                self.undo_stack.push(entry);
+                self.shell.state.status = "Redone".into();
+                self.refresh();
+            }
+            Err(err) => self.shell.state.status = err,
+        }
+    }
+
+    fn apply_undo(&self, entry: &UndoEntry, forward: bool) -> Result<(), String> {
+        let Some(engine) = &self.engine else { return Err("no workspace is open".into()) };
+        match entry {
+            UndoEntry::Rename { target, old, new } => {
+                let value = if forward { new } else { old };
+                match target {
+                    RenameTarget::Collection(id) => engine.rename_collection(id, value).map_err(|err| err.to_string()),
+                    RenameTarget::Environment(id) => engine.rename_environment(id, value).map_err(|err| err.to_string()),
+                    RenameTarget::Item { collection, id } => engine.rename_item(collection, id, value).map_err(|err| err.to_string()),
+                }
+            }
+            UndoEntry::Move { collection, id, from_parent, from_index, to_parent, to_index } => {
+                let (parent, index) = if forward { (to_parent, *to_index) } else { (from_parent, *from_index) };
+                engine.move_item(collection, id, parent.as_ref(), index, false).map(|_| ()).map_err(|err| err.to_string())
+            }
+        }
+    }
+
+    fn apply_cookie(&mut self, action: CookieAction) {
+        let Some(engine) = self.engine.clone() else { return };
+        let result = match action {
+            CookieAction::Delete { domain, path, name } => engine.remove_cookie(&domain, &path, &name),
+            CookieAction::Clear => engine.clear_cookies(),
+            CookieAction::Allow(domain) => engine.allow_cookie_domain(&domain),
+            CookieAction::Disallow(domain) => engine.disallow_cookie_domain(&domain),
+        };
+        match result {
+            Ok(()) => {
+                self.refresh();
+                self.shell.state.status = "Cookie jar updated".into();
+            }
+            Err(err) => self.shell.state.status = err.to_string(),
+        }
+    }
+
+    fn apply_settings(&mut self, action: SettingsAction) {
+        let Some(engine) = self.engine.clone() else { return };
+        if action == SettingsAction::ResetSettings {
+            self.shell.settings_value = postguy_model::Settings::default();
+        }
+        let settings = self.shell.settings_value.clone();
+        match engine.update_settings(settings.clone()) {
+            Ok(()) => {
+                self.shell.state.theme_mode = match settings.theme {
+                    postguy_model::Theme::System => ThemeMode::System,
+                    postguy_model::Theme::Light => ThemeMode::Light,
+                    postguy_model::Theme::Dark => ThemeMode::Dark,
+                };
+                self.shell.state.status = "Settings saved".into();
+            }
+            Err(err) => self.shell.state.status = format!("Settings save failed: {err}"),
+        }
+    }
+
+    fn apply_trash(&mut self, action: TrashAction) {
+        match action {
+            TrashAction::Restore(id) => {
+                if let Some(engine) = &self.engine {
+                    match engine.restore_trash(&id) {
+                        Ok(Some(path)) => {
+                            self.shell.state.status = format!("Restored {}", path.display());
+                            self.refresh();
+                        }
+                        Ok(None) => self.shell.state.status = "That trash entry no longer exists".into(),
+                        Err(err) => self.shell.state.status = err.to_string(),
+                    }
+                }
+            }
+        }
+    }
+
+    fn apply_command(&mut self, action: CommandAction) {
+        use CommandAction::*;
+        match action {
+            NewRequest => self.apply_tab(TabAction::NewRequest),
+            NewCollection => self.apply(SidebarAction::NewCollection),
+            NewEnvironment => self.apply_tab(TabAction::CreateEnvironment),
+            Import => self.shell.state.status = "Import arrives with M4".into(),
+            OpenSettings => {
+                self.shell.tabs.open(TabDoc::Settings, "Settings");
+            }
+            OpenGlobals => {
+                self.shell.tabs.open(TabDoc::Globals, "Globals");
+            }
+            OpenCookies => {
+                self.shell.tabs.open(TabDoc::Cookies, "Cookies");
+            }
+            OpenTrash => {
+                self.shell.tabs.open(TabDoc::Trash, "Trash");
+            }
+            ToggleSidebar => self.shell.state.sidebar_open = !self.shell.state.sidebar_open,
+            ToggleConsole => self.shell.state.console_open = !self.shell.state.console_open,
+            ToggleRightPanel => self.shell.state.right_panel_open = !self.shell.state.right_panel_open,
+            ToggleTwoPane => self.shell.state.two_pane = !self.shell.state.two_pane,
+            CloseTab => {
+                if let Some(id) = self.shell.tabs.active {
+                    self.shell.tabs.request_close(id);
+                }
+            }
+            ReopenTab => {
+                if let Some(tab) = self.shell.tabs.reopen_last() {
+                    self.shell.state.status = format!("Reopened `{}`", tab.title);
+                }
+            }
+            NextTab => self.shell.tabs.activate_next(),
+            PreviousTab => self.shell.tabs.activate_previous(),
+            ClearConsole => {
+                if let Some(engine) = &self.engine {
+                    engine.clear_console();
+                }
+                self.shell.state.status = "Console cleared".into();
+            }
+            OpenDoc(doc) => {
+                let title = self.doc_title(&doc);
+                self.shell.tabs.open(doc, title);
+            }
+        }
+    }
+
+    fn doc_title(&self, doc: &TabDoc) -> String {
+        match doc {
+            TabDoc::Request { collection, request, .. } => self
+                .shell
+                .sidebar_data
+                .collections
+                .iter()
+                .find(|value| value.id.0 == *collection)
+                .and_then(|collection| find(&collection.items, &Id(request.clone())).map(|item| item.name().to_string()))
+                .unwrap_or_else(|| "Request".into()),
+            TabDoc::Collection { id } => self
+                .shell
+                .sidebar_data
+                .collections
+                .iter()
+                .find(|value| value.id.0 == *id)
+                .map(|value| value.name.clone())
+                .unwrap_or_else(|| "Collection".into()),
+            TabDoc::Folder { folder, .. } => self
+                .shell
+                .sidebar_data
+                .collections
+                .iter()
+                .find_map(|collection| find(&collection.items, &Id(folder.clone())).map(|item| item.name().to_string()))
+                .unwrap_or_else(|| "Folder".into()),
+            TabDoc::Environment { id } => self
+                .shell
+                .sidebar_data
+                .environments
+                .iter()
+                .find(|value| value.id.0 == *id)
+                .map(|value| value.name.clone())
+                .unwrap_or_else(|| "Environment".into()),
+            TabDoc::Globals => "Globals".into(),
+            TabDoc::Settings => "Settings".into(),
+            TabDoc::Cookies => "Cookies".into(),
+            TabDoc::Trash => "Trash".into(),
+            TabDoc::Runner => "Runner".into(),
+            TabDoc::Welcome => "Welcome".into(),
+            TabDoc::History { .. } => "History".into(),
+        }
+    }
+
     fn apply_tab(&mut self, action: TabAction) {
         let Some(engine) = self.engine.clone() else { return };
         match action {
@@ -904,12 +1590,14 @@ fn validate_tabs(tabs: &mut Tabs, data: &SidebarData) -> usize {
 
 fn response_from_cached(cached: &postguy_engine::CachedResponse) -> ResponseData {
     let response = &cached.response;
+    let revision = cached.history_id.bytes().fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3));
     ResponseData {
         status: response.status,
         status_text: response.status_text.clone(),
         http_version: response.http_version.clone(),
         headers: response.headers.clone(),
         body: response.body.clone(),
+        revision,
         header_bytes: response.size.header_bytes,
         body_encoded_bytes: response.size.body_encoded_bytes,
         body_decoded_bytes: response.size.body_decoded_bytes,
@@ -923,10 +1611,52 @@ fn response_from_cached(cached: &postguy_engine::CachedResponse) -> ResponseData
     }
 }
 
+fn detail_name(collection: &Collection, folder: Option<&Id>) -> String {
+    let Some(folder) = folder else { return collection.name.clone() };
+    fn find<'a>(items: &'a [Item], id: &Id) -> Option<&'a postguy_model::Folder> {
+        let mut stack: Vec<&Item> = items.iter().collect();
+        while let Some(item) = stack.pop() {
+            match item {
+                Item::Folder(found) => {
+                    if found.id == *id {
+                        return Some(found);
+                    }
+                    stack.extend(found.items.iter());
+                }
+                Item::Request(_) => {}
+            }
+        }
+        None
+    }
+    find(&collection.items, folder).map(|found| found.name.clone()).unwrap_or_default()
+}
+
 fn open_engine(workspace: &std::path::Path, config: &std::path::Path) -> Result<Engine, String> {
     std::fs::create_dir_all(workspace).map_err(|err| format!("creating workspace {}: {err}", workspace.display()))?;
     std::fs::create_dir_all(config).map_err(|err| format!("creating config dir {}: {err}", config.display()))?;
     Engine::open(StorePaths::new(workspace, config)).map_err(|err| err.to_string())
+}
+
+fn locate_item(collections: &[Collection], id: &Id) -> Option<(Option<Id>, usize)> {
+    fn walk(items: &[Item], id: &Id, parent: Option<&Id>) -> Option<(Option<Id>, usize)> {
+        for (index, item) in items.iter().enumerate() {
+            if item.id() == id {
+                return Some((parent.cloned(), index));
+            }
+            if let Item::Folder(folder) = item
+                && let Some(found) = walk(&folder.items, id, Some(&folder.id))
+            {
+                return Some(found);
+            }
+        }
+        None
+    }
+    for collection in collections {
+        if let Some(found) = walk(&collection.items, id, None) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 fn item_with_collection(collections: &[Collection], id: &Id) -> Option<(Id, Item)> {
@@ -969,12 +1699,24 @@ fn resolve_target(collections: &[Collection], target: &Id) -> Result<(Id, Option
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.poll_control(ui.ctx());
+        if !ui.ctx().egui_wants_keyboard_input() && ui.input(|input| input.modifiers.command && input.key_pressed(egui::Key::Z)) {
+            if ui.input(|input| input.modifiers.shift) {
+                self.redo();
+            } else {
+                self.undo();
+            }
+        }
         self.poll_send();
         self.sync_editors();
         self.sync_env_editors();
         self.flush_pending_env(false);
+        self.sync_detail_editors();
+        self.flush_pending_detail(false);
         let active = self.shell.tabs.active_tab().cloned();
         let active_id = active.as_ref().map(|tab| tab.id);
+        self.shell.snippet_request = active_id.and_then(|id| self.editors.get(&id)).map(|editor| editor.draft.clone());
+        let two_pane = self.shell.state.two_pane;
         let is_request = active.as_ref().is_some_and(|tab| matches!(tab.doc, TabDoc::Request { .. }));
         let panel_tab = if is_request { active_id } else { None };
         let variables = panel_tab.and_then(|id| self.editors.get(&id)).map(|editor| self.variables_for(&editor.collection)).unwrap_or_default();
@@ -997,9 +1739,15 @@ impl eframe::App for App {
             }
         });
         let panel_result = {
+            let cookie_data = std::mem::take(&mut self.shell.cookie_data);
+            let mut cookie_state = std::mem::take(&mut self.shell.cookie_state);
+            let mut settings_state = std::mem::take(&mut self.shell.settings);
+            let mut settings_value = std::mem::take(&mut self.shell.settings_value);
             let shell = &mut self.shell;
             let editors = &mut self.editors;
             let env_editors = &mut self.env_editors;
+            let detail_editors = &mut self.detail_editors;
+            let trash_entries = &self.trash_entries;
             let responses = &mut self.responses;
             let viewer_states = &mut self.viewer_states;
             let mut response_action: Option<ResponseAction> = None;
@@ -1019,19 +1767,35 @@ impl eframe::App for App {
                             variables: &variables,
                             sending: progress,
                             undo_paste: editor.undo_paste.is_some(),
+                            inherited_auth: editor.inherited_auth.as_deref(),
                         };
                         let builder_action = if let Some(data) = responses.get_mut(&panel_id) {
-                            let total = ui.available_height();
-                            let request_height = (total * 0.52).max(170.0);
-                            let action = ui
-                                .allocate_ui_with_layout(vec2(ui.available_width(), request_height), Layout::top_down(Align::Min), |ui| {
-                                    builder.show(ui)
-                                })
-                                .inner;
-                            ui.separator();
                             let viewer = viewer_states.entry(panel_id).or_default();
-                            response_action = response_view(ui, data, viewer);
-                            action
+                            if two_pane {
+                                let width = (ui.available_width() * 0.5).max(260.0);
+                                ui.horizontal_top(|ui| {
+                                    let action = ui
+                                        .allocate_ui_with_layout(vec2(width, ui.available_height()), Layout::top_down(Align::Min), |ui| {
+                                            builder.show(ui)
+                                        })
+                                        .inner;
+                                    ui.separator();
+                                    response_action = response_view(ui, data, viewer);
+                                    action
+                                })
+                                .inner
+                            } else {
+                                let total = ui.available_height();
+                                let request_height = (total * 0.52).max(170.0);
+                                let action = ui
+                                    .allocate_ui_with_layout(vec2(ui.available_width(), request_height), Layout::top_down(Align::Min), |ui| {
+                                        builder.show(ui)
+                                    })
+                                    .inner;
+                                ui.separator();
+                                response_action = response_view(ui, data, viewer);
+                                action
+                            }
                         } else {
                             builder.show(ui)
                         };
@@ -1049,6 +1813,18 @@ impl eframe::App for App {
                         };
                         environment.show(ui).map(PanelAction::Environment)
                     }
+                    TabDoc::Collection { .. } | TabDoc::Folder { .. } => {
+                        let editor = detail_editors.get_mut(&panel_id)?;
+                        let mut detail =
+                            CollectionDetail { collection: &mut editor.collection, folder: editor.folder.clone(), state: &mut editor.state };
+                        detail.show(ui).map(PanelAction::Collection)
+                    }
+                    TabDoc::Trash => trash_view(ui, trash_entries).map(PanelAction::Trash),
+                    TabDoc::Cookies => cookie_manager(ui, &cookie_data, &mut cookie_state).map(PanelAction::Cookies),
+                    TabDoc::Settings => {
+                        let mut editor = postguy_ui_egui::settings::SettingsEditor { settings: &mut settings_value, state: &mut settings_state };
+                        editor.show(ui).map(PanelAction::Settings)
+                    }
                     _ => None,
                 }
             };
@@ -1056,6 +1832,10 @@ impl eframe::App for App {
             if let (Some(tab), Some(action)) = (panel_tab, response_action) {
                 self.apply_response_action(tab, action);
             }
+            self.shell.cookie_data = cookie_data;
+            self.shell.cookie_state = cookie_state;
+            self.shell.settings = settings_state;
+            self.shell.settings_value = settings_value;
             result
         };
         if let Some(panel_id) = panel_tab
@@ -1069,6 +1849,9 @@ impl eframe::App for App {
         if let Some(action) = self.shell.tab_action.take() {
             self.apply_tab(action);
         }
+        if let Some(action) = self.shell.command_action.take() {
+            self.apply_command(action);
+        }
         if let Some(action) = panel_result {
             match action {
                 PanelAction::Builder(action) => self.apply_builder(panel_tab.unwrap_or(0), action),
@@ -1077,6 +1860,14 @@ impl eframe::App for App {
                         self.apply_environment(tab, action);
                     }
                 }
+                PanelAction::Collection(action) => {
+                    if let Some(tab) = active_id {
+                        self.apply_collection(tab, action);
+                    }
+                }
+                PanelAction::Trash(action) => self.apply_trash(action),
+                PanelAction::Cookies(action) => self.apply_cookie(action),
+                PanelAction::Settings(action) => self.apply_settings(action),
             }
         }
         self.save_session(false, false);
@@ -1084,6 +1875,7 @@ impl eframe::App for App {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.flush_pending_env(true);
+        self.flush_pending_detail(true);
         self.save_session(true, true);
     }
 }
@@ -1102,6 +1894,20 @@ fn workspace_argument() -> PathBuf {
     PathBuf::from("postguy-workspace")
 }
 
+fn control_argument() -> Option<PathBuf> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut index = 0;
+    while index < args.len() {
+        if args.get(index).map(String::as_str) == Some("--control")
+            && let Some(path) = args.get(index + 1)
+        {
+            return Some(PathBuf::from(path));
+        }
+        index += 1;
+    }
+    None
+}
+
 fn main() -> eframe::Result<()> {
     let workspace = workspace_argument();
     let options = eframe::NativeOptions {
@@ -1109,7 +1915,16 @@ fn main() -> eframe::Result<()> {
         renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
-    let app = App::new(workspace);
+    let mut app = App::new(workspace);
+    if let Some(path) = control_argument() {
+        match control::ControlServer::start(path) {
+            Ok((server, _queue)) => app.attach_control(server),
+            Err(error) => {
+                eprintln!("control channel disabled: {error}");
+                app.shell.state.status = format!("control channel disabled: {error}");
+            }
+        }
+    }
     eframe::run_native("Postguy", options, Box::new(move |_cc| Ok(Box::new(app))))
 }
 
@@ -1417,6 +2232,167 @@ mod tests {
         app.apply_environment(first_tab, EnvironmentAction::Delete);
         assert_eq!(engine.environments().expect("environments").len(), 1, "delete removes the file");
         assert!(app.shell.tabs.tabs.iter().all(|tab| tab.id != first_tab), "the editor tab closes");
+    }
+
+    #[test]
+    fn collection_tabs_load_autosave_and_close_the_tab_after_delete() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("Payments").expect("collection");
+        app.refresh();
+        let tab = app.shell.tabs.open(TabDoc::Collection { id: collection.id.0.clone() }, "Payments");
+        app.sync_detail_editors();
+        {
+            let editor = app.detail_editors.get_mut(&tab).expect("detail editor");
+            editor.collection.name = "Billing".into();
+            editor.collection.variables.push(postguy_model::Variable {
+                key: "baseUrl".into(),
+                value: "https://api.test".into(),
+                ..Default::default()
+            });
+        }
+        app.apply_collection(tab, CollectionAction::Save);
+        app.flush_pending_detail(true);
+        let saved = engine.collection(&collection.id).expect("collection");
+        assert_eq!(saved.name, "Billing");
+        assert!(saved.variables.iter().any(|variable| variable.key == "baseUrl"));
+        assert_eq!(app.shell.tabs.tabs.iter().find(|candidate| candidate.id == tab).map(|candidate| candidate.title.as_str()), Some("Billing"));
+        app.apply_collection(tab, CollectionAction::Delete);
+        assert!(engine.collections().expect("collections").iter().all(|candidate| candidate.id != collection.id), "the collection file was trashed");
+        assert!(app.shell.tabs.tabs.iter().all(|candidate| candidate.id != tab));
+    }
+
+    #[test]
+    fn folder_detail_saves_into_its_collection() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("Payments").expect("collection");
+        let folder = engine.create_folder(&collection.id, None, "v1").expect("folder");
+        app.refresh();
+        let tab = app.shell.tabs.open(TabDoc::Folder { collection: collection.id.0.clone(), folder: folder.id.0.clone() }, "v1");
+        app.sync_detail_editors();
+        {
+            let editor = app.detail_editors.get_mut(&tab).expect("detail editor");
+            editor.collection.items.iter_mut().for_each(|item| {
+                if let Item::Folder(folder) = item {
+                    folder.name = "v2".into();
+                }
+            });
+        }
+        app.apply_collection(tab, CollectionAction::Save);
+        app.flush_pending_detail(true);
+        let saved = engine.folder(&collection.id, &folder.id).expect("folder");
+        assert_eq!(saved.name, "v2");
+    }
+
+    #[test]
+    fn undo_and_redo_restore_renames_and_moves() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("Payments").expect("collection");
+        let first = engine.create_request(&collection.id, None, "http", "First").expect("first");
+        let second = engine.create_request(&collection.id, None, "http", "Second").expect("second");
+        app.refresh();
+        app.apply(SidebarAction::Rename { id: collection.id.0.clone(), name: "Billing".into() });
+        assert_eq!(engine.collection(&collection.id).expect("collection").name, "Billing");
+        app.undo();
+        assert_eq!(engine.collection(&collection.id).expect("collection").name, "Payments");
+        app.redo();
+        assert_eq!(engine.collection(&collection.id).expect("collection").name, "Billing");
+
+        app.apply(SidebarAction::Move { id: first.id.0.clone(), parent: None, index: 1, copy: false });
+        let order: Vec<String> = engine.collection(&collection.id).expect("collection").items.iter().map(|item| item.id().0.clone()).collect();
+        assert_eq!(order, vec![second.id.0.clone(), first.id.0.clone()]);
+        app.undo();
+        let order: Vec<String> = engine.collection(&collection.id).expect("collection").items.iter().map(|item| item.id().0.clone()).collect();
+        assert_eq!(order, vec![first.id.0.clone(), second.id.0.clone()], "undo restores the previous order");
+        app.redo();
+        let order: Vec<String> = engine.collection(&collection.id).expect("collection").items.iter().map(|item| item.id().0.clone()).collect();
+        assert_eq!(order, vec![second.id.0, first.id.0], "redo re-applies the move");
+    }
+
+    #[test]
+    fn control_inspect_set_and_commands_drive_the_real_ui_state() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let initial = app.apply_control(control::ControlCommand::Inspect).expect("inspect");
+        assert_eq!(initial["console"], false);
+        app.apply_control(control::ControlCommand::Command("view.console".into())).expect("command");
+        assert!(app.shell.state.console_open, "the registry command toggled the console");
+        app.apply_control(control::ControlCommand::Set("console".into(), serde_json::json!(false))).expect("set");
+        assert!(!app.shell.state.console_open);
+        app.apply_control(control::ControlCommand::Set("tab".into(), serde_json::json!("settings"))).expect("tab");
+        let inspected = app.apply_control(control::ControlCommand::Inspect).expect("inspect");
+        assert_eq!(inspected["panel"], "settings");
+        let unknown = app.apply_control(control::ControlCommand::Command("does.not.exist".into()));
+        assert!(unknown.is_err(), "unknown commands are refused");
+        let click = app.apply_control(control::ControlCommand::Click(10.0, 10.0));
+        assert!(click.is_err(), "synthetic clicks report their unsupported status");
+    }
+
+    #[test]
+    fn control_set_url_edits_the_active_request_draft() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("Control").expect("collection");
+        let request = engine.create_request(&collection.id, None, "http", "Echo").expect("request");
+        let tab = editor_for(&mut app, &collection.id, &request.id);
+        app.apply_control(control::ControlCommand::Set("url".into(), serde_json::json!("https://example.test/control"))).expect("set url");
+        assert_eq!(app.editors.get(&tab).expect("editor").draft.url, "https://example.test/control");
+        assert!(app.editors.get(&tab).expect("editor").dirty);
+    }
+
+    #[test]
+    fn settings_save_persists_theme_and_proxy() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        app.shell.settings_value.theme = postguy_model::Theme::Dark;
+        app.shell.settings_value.proxy.mode = postguy_model::ProxyMode::Custom;
+        app.shell.settings_value.proxy.host = "proxy.local".into();
+        app.apply_settings(SettingsAction::Save);
+        let saved = engine.settings();
+        assert_eq!(saved.theme, postguy_model::Theme::Dark);
+        assert_eq!(saved.proxy.mode, postguy_model::ProxyMode::Custom);
+        assert_eq!(app.shell.state.theme_mode, ThemeMode::Dark);
+        assert_eq!(engine.settings().proxy.host, "proxy.local");
+    }
+
+    #[test]
+    fn cookie_manager_actions_hit_the_jar() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        engine.set_cookie("http://127.0.0.1:9/", "sid=abc; Path=/").expect("cookie");
+        app.refresh();
+        assert_eq!(app.shell.cookie_data.cookies.len(), 1);
+        app.apply_cookie(CookieAction::Delete { domain: "127.0.0.1".into(), path: "/".into(), name: "sid".into() });
+        assert!(engine.cookies().is_empty());
+        engine.set_cookie("http://127.0.0.1:9/", "other=1; Path=/").expect("cookie");
+        app.apply_cookie(CookieAction::Allow("example.com".into()));
+        assert_eq!(engine.cookie_domains(), vec!["example.com".to_string()]);
+        app.apply_cookie(CookieAction::Clear);
+        assert!(engine.cookies().is_empty());
+    }
+
+    #[test]
+    fn trash_lists_deleted_collections_and_restores_them() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("Restore me").expect("collection");
+        app.refresh();
+        let tab = app.shell.tabs.open(TabDoc::Collection { id: collection.id.0.clone() }, "Restore me");
+        app.sync_detail_editors();
+        app.apply_collection(tab, CollectionAction::Delete);
+        assert!(!app.trash_entries.is_empty(), "the delete appears in the trash");
+        let entry = app.trash_entries.first().cloned().expect("trash entry");
+        app.apply_trash(TrashAction::Restore(entry.id));
+        assert!(engine.collections().expect("collections").iter().any(|candidate| candidate.id == collection.id), "restore puts the collection back");
     }
 
     #[test]

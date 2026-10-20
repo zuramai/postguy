@@ -245,6 +245,16 @@ impl Engine {
         Ok(self.inner.workspace.delete_history(id)?)
     }
 
+    /// The workspace trash entries (deleted collections, environments and files).
+    pub fn trash_entries(&self) -> Result<Vec<postguy_store::trash::Entry>> {
+        Ok(self.inner.workspace.trash_entries()?)
+    }
+
+    /// Restore one trash entry by id; returns the restored path when it existed.
+    pub fn restore_trash(&self, id: &str) -> Result<Option<std::path::PathBuf>> {
+        Ok(self.inner.workspace.restore_from_trash(id)?)
+    }
+
     /// Empty the history file atomically.
     pub fn clear_history(&self) -> Result<()> {
         self.inner.workspace.clear_history()?;

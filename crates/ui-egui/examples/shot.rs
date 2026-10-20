@@ -67,6 +67,7 @@ impl DemoState {
                     ("content-type".into(), "application/json".into()),
                     ("set-cookie".into(), "session=abc123; Path=/; HttpOnly; Secure".into()),
                 ],
+                revision: 1,
                 body: br#"{
   "data": [
     {"id": "pay_1", "amount": 2500, "currency": "usd", "status": "settled"},
@@ -172,6 +173,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else if let Some(first) = shell.tabs.tabs.first() {
         shell.tabs.activate(first.id);
     }
+    shell.state.right_panel_open = true;
+    shell.state.console_open = true;
+    shell.snippet_request = Some(HttpRequest {
+        method: HttpMethod::Get,
+        url: "{{baseUrl}}/payments?limit=25".into(),
+        headers: vec![KeyValue { key: "Accept".into(), value: "application/json".into(), ..Default::default() }],
+        ..Default::default()
+    });
+    shell.console_rows = vec![
+        postguy_ui_egui::console::ConsoleRow {
+            id: 1,
+            time_ms: 1_790_000_000_000,
+            level: "info".into(),
+            kind: "request".into(),
+            message: "GET {{baseUrl}}/payments -> 200 OK · 148 ms · 214 B".into(),
+            detail: Some("request headers:\nAccept: application/json\n\nresponse headers:\ncontent-type: application/json".into()),
+        },
+        postguy_ui_egui::console::ConsoleRow {
+            id: 2,
+            time_ms: 1_790_000_000_500,
+            level: "warning".into(),
+            kind: "warning".into(),
+            message: "scripts were skipped: the script sandbox is not built yet".into(),
+            detail: None,
+        },
+    ];
     shell.state.theme_mode = match mode.as_str() {
         "light" => postguy_ui_egui::ThemeMode::Light,
         "system" => postguy_ui_egui::ThemeMode::System,
@@ -192,6 +219,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         variables: &[],
                         sending: None,
                         undo_paste: false,
+                        inherited_auth: Some("basic"),
                     };
                     let total = ui.available_height();
                     let request_height = (total * 0.52).max(170.0);

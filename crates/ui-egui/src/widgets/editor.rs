@@ -190,12 +190,25 @@ fn json_tokens(text: &str, palette: &crate::theme::Palette, font: &FontId, job: 
     flush(job, plain_start, bytes.len());
 }
 
+/// A physical line may be split into several display rows so one minified 10 MB line never
+/// becomes a single galley (the layout cost is what freezes the UI, not the line index).
+const MAX_DISPLAY_BYTES: usize = 4096;
+
+#[derive(Debug, Clone, Copy)]
+struct DisplayLine {
+    start: usize,
+    end: usize,
+    /// 1-based physical line number shown in the gutter.
+    number: usize,
+}
+
 /// A read-only viewer for large bodies. Line starts are computed once in [`LargeTextView::new`];
 /// only the visible rows are materialised each frame.
 #[derive(Debug, Clone)]
 pub struct LargeTextView {
     text: Arc<str>,
     line_starts: Vec<usize>,
+    display: Vec<DisplayLine>,
     pub wrap: bool,
     pub line_numbers: bool,
     pub id: egui::Id,
@@ -210,7 +223,26 @@ impl LargeTextView {
                 line_starts.push(index + 1);
             }
         }
-        LargeTextView { text, line_starts, wrap: false, line_numbers: true, id: egui::Id::new("large-text") }
+        let mut display = Vec::with_capacity(line_starts.len());
+        for (index, start) in line_starts.iter().copied().enumerate() {
+            let end = line_starts.get(index + 1).copied().unwrap_or(text.len());
+            let mut chunk = start;
+            while chunk < end {
+                let mut chunk_end = (chunk + MAX_DISPLAY_BYTES).min(end);
+                while chunk_end > chunk && !text.is_char_boundary(chunk_end) {
+                    chunk_end -= 1;
+                }
+                if chunk_end == chunk {
+                    chunk_end = end;
+                }
+                display.push(DisplayLine { start: chunk, end: chunk_end, number: index + 1 });
+                chunk = chunk_end;
+            }
+            if start == end {
+                display.push(DisplayLine { start, end, number: index + 1 });
+            }
+        }
+        LargeTextView { text, line_starts, display, wrap: false, line_numbers: true, id: egui::Id::new("large-text") }
     }
 
     pub fn id(mut self, id: egui::Id) -> Self {
@@ -239,35 +271,29 @@ impl LargeTextView {
         let digits = self.line_starts.len().max(1).ilog10() as usize + 1;
         let gutter = if self.line_numbers { (digits as f32 + 1.0) * 8.0 } else { 0.0 };
         let mut clicked: Option<Response> = None;
-        ScrollArea::vertical().id_salt((self.id, "scroll")).auto_shrink([false, false]).show_rows(
-            ui,
-            row_height,
-            self.line_starts.len(),
-            |ui, range| {
-                for line in range {
-                    let start = *self.line_starts.get(line).unwrap_or(&0);
-                    let end = self.line_starts.get(line + 1).copied().unwrap_or(self.text.len());
-                    let content = self.text.get(start..end).unwrap_or_default().trim_end_matches('\n');
-                    ui.horizontal(|ui| {
-                        if self.line_numbers {
-                            ui.add_sized(
-                                [gutter, row_height],
-                                egui::Label::new(egui::RichText::new(format!("{:>digits$}", line + 1)).monospace().color(theme.palette.text_muted)),
-                            );
-                        }
-                        let mut job = LayoutJob::default();
-                        job.wrap.max_width = if self.wrap { ui.available_width().max(200.0) } else { f32::INFINITY };
-                        job.append(content, 0.0, TextFormat { font_id: font.clone(), color: theme.palette.text, ..Default::default() });
-                        let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
-                        let label = egui::Label::new(galley).sense(Sense::click()).selectable(true);
-                        let response = ui.add(label);
-                        if response.clicked() {
-                            clicked = Some(response);
-                        }
-                    });
-                }
-            },
-        );
+        ScrollArea::vertical().id_salt((self.id, "scroll")).auto_shrink([false, false]).show_rows(ui, row_height, self.display.len(), |ui, range| {
+            for line in range {
+                let Some(display) = self.display.get(line) else { continue };
+                let content = self.text.get(display.start..display.end).unwrap_or_default().trim_end_matches('\n');
+                ui.horizontal(|ui| {
+                    if self.line_numbers {
+                        ui.add_sized(
+                            [gutter, row_height],
+                            egui::Label::new(egui::RichText::new(format!("{:>digits$}", display.number)).monospace().color(theme.palette.text_muted)),
+                        );
+                    }
+                    let mut job = LayoutJob::default();
+                    job.wrap.max_width = if self.wrap { ui.available_width().max(200.0) } else { f32::INFINITY };
+                    job.append(content, 0.0, TextFormat { font_id: font.clone(), color: theme.palette.text, ..Default::default() });
+                    let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
+                    let label = egui::Label::new(galley).sense(Sense::click()).selectable(true);
+                    let response = ui.add(label);
+                    if response.clicked() {
+                        clicked = Some(response);
+                    }
+                });
+            }
+        });
         clicked.unwrap_or_else(|| ui.label(""))
     }
 }
@@ -275,4 +301,28 @@ impl LargeTextView {
 /// A plain colour on the theme's muted text (helpers for the response viewer's toolbar).
 pub fn muted(text: impl Into<String>, theme: &Theme) -> egui::RichText {
     egui::RichText::new(text.into()).color(theme.palette.text_muted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn long_physical_lines_are_split_into_bounded_display_rows() {
+        let view = LargeTextView::new(Arc::from("x".repeat(9000)));
+        assert_eq!(view.line_count(), 1, "physical lines stay authoritative");
+        assert_eq!(view.display.len(), 3, "9000 bytes split at 4096");
+        assert!(view.display.iter().all(|line| line.end - line.start <= MAX_DISPLAY_BYTES && line.number == 1));
+    }
+
+    #[test]
+    fn splitting_respects_utf8_boundaries() {
+        let view = LargeTextView::new(Arc::from("é".repeat(5000)));
+        assert!(view.display.len() >= 3);
+        for line in &view.display {
+            assert!(view.text.is_char_boundary(line.start));
+            assert!(view.text.is_char_boundary(line.end));
+            assert!(view.text.get(line.start..line.end).is_some());
+        }
+    }
 }

@@ -121,6 +121,28 @@ fn examples_are_created_renamed_duplicated_and_deleted() {
 }
 
 #[test]
+fn inherited_auth_walks_folders_and_the_collection() {
+    let fixture = Fixture::new();
+    let engine = fixture.engine();
+    let mut collection = engine.create_collection("Auth").expect("collection");
+    collection.auth =
+        Some(postguy_model::AuthConfig::Basic(Box::new(postguy_model::auth::BasicAuth { username: "root".into(), ..Default::default() })));
+    engine.save_collection(&collection).expect("save");
+    let folder = engine.create_folder(&collection.id, None, "inner").expect("folder");
+    let mut folder_value = engine.folder(&collection.id, &folder.id).expect("folder read");
+    folder_value.auth =
+        Some(postguy_model::AuthConfig::Bearer(Box::new(postguy_model::auth::BearerAuth { token: "t".into(), ..Default::default() })));
+    engine.save_folder(&collection.id, &folder_value).expect("save folder");
+    let inside = engine.create_request(&collection.id, Some(&folder.id), "http", "Inside").expect("request");
+    let outside = engine.create_request(&collection.id, None, "http", "Outside").expect("request");
+    assert_eq!(engine.inherited_auth_kind(&collection.id, &inside.id).expect("inside"), Some("bearer".into()));
+    assert_eq!(engine.inherited_auth_kind(&collection.id, &outside.id).expect("outside"), Some("basic".into()));
+    folder_value.auth = Some(postguy_model::AuthConfig::NoAuth);
+    engine.save_folder(&collection.id, &folder_value).expect("save folder");
+    assert_eq!(engine.inherited_auth_kind(&collection.id, &inside.id).expect("inside"), Some("noauth".into()));
+}
+
+#[test]
 fn deleting_an_item_parks_it_in_the_trash_then_saves_the_collection() {
     let fixture = Fixture::new();
     let engine = fixture.engine();

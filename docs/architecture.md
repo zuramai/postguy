@@ -1,6 +1,6 @@
 # Architecture
 
-**Status:** bootstrap (written at M0; revise as crates land, with a revision line each time).
+**Status:** M3.10. Revised 2026-10-20: the desktop shell, control channel and screenshot pipeline are in.
 
 ## Layer table (enforced by `cargo xtask layers`; PROMPT.md 4.1)
 
@@ -24,7 +24,7 @@
 | L7 | postguy-platform | OS services: dirs, dialogs, reveal, open URL, clipboard, system proxy, system font fallback. |
 | L7 | postguy-ui-egui | The egui shell (eframe + glow, ADR 0001); widgets and screens. |
 | L7 | postguy-automation | Headless tool table over the engine, CLI backend, opt-in MCP, opt-in UI control channel. |
-| apps | postguy, postguy-cli | Desktop app; headless CLI (`run`, `tools`/`call`, `import`/`export`, `snippet`, `mcp`, `ui`). |
+| apps | postguy, postguy-cli | Desktop app (with the opt-in `--control` server in `apps/postguy/src/control.rs`); headless CLI (`run`, `tools`/`call`, `import`/`export`, `snippet`, `mcp`, `ui`). |
 
 Tooling: `xtask` (build system, gates, fuzz, icons/logo, size) is outside the layer system.
 

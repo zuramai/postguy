@@ -19,6 +19,7 @@ fn data() -> ResponseData {
         http_version: "HTTP/1.1".into(),
         headers: vec![("content-type".into(), "application/json".into()), ("set-cookie".into(), "sid=abc; Path=/; HttpOnly".into())],
         body: b"{\"b\":2,\"a\":1}".to_vec(),
+        revision: 1,
         header_bytes: 120,
         body_encoded_bytes: 13,
         body_decoded_bytes: 13,

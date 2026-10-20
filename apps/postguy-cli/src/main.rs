@@ -1,11 +1,13 @@
 //! Postguy headless CLI: the automation tool table (`tools`, `call`, `run --script`) and the
-//! `fuzz-target` dev verb (PLAN M1.9). MCP and UI control arrive with their milestones.
+//! `fuzz-target` dev verb (PLAN M1.9), and the `ui` client for the app's opt-in control
+//! channel (M3.10). MCP arrives with its milestone.
 //!
 //! `--root DIR` confines every path argument: outside paths get the SAME refusal whether or
 //! not they exist (AGENTS.md 3).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod fuzz_targets;
+mod ui;
 
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -20,6 +22,7 @@ fn main() {
         Some("call") => run_call(&args[1..]),
         Some("run") => run_script(&args[1..]),
         Some("fuzz-target") => run_fuzz(&args[1..]),
+        Some("ui") => ui::run(&args[1..]),
         _ => {
             usage();
             2
@@ -35,7 +38,7 @@ fn out(line: impl std::fmt::Display) {
 
 fn usage() {
     eprintln!(
-        "usage:\n  postguy-cli tools [--json]\n  postguy-cli call <tool> --json '<args>' [--root DIR]\n  postguy-cli run --script FILE [--root DIR]\n  postguy-cli fuzz-target <name> <seed-file>   (dev tooling)\n\nRun `postguy-cli tools` for the tool table."
+        "usage:\n  postguy-cli tools [--json]\n  postguy-cli call <tool> --json '<args>' [--root DIR]\n  postguy-cli run --script FILE [--root DIR]\n  postguy-cli fuzz-target <name> <seed-file>   (dev tooling)\n  postguy-cli ui --control FILE inspect|command ID|set KEY=VALUE|screenshot --out FILE|click X Y|key NAME|type TEXT [--root DIR]\n\nRun `postguy-cli tools` for the tool table; `ui` talks to an app launched with `--control FILE`."
     );
 }
 

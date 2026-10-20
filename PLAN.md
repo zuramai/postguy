@@ -123,12 +123,14 @@ Planned observation requests:
 - [~] M3.4 Request builder (core; header presets/bulk edit pending): breadcrumb, URL field (chips, autocomplete, cURL paste), Params and path variables, Headers (auto-generated rows, presets, bulk edit), Body (all modes, Beautify), Authorization (No Auth, Inherit, Basic, Bearer, API Key), Settings, Docs, Save flows, send/cancel states.
 - [~] M3.5 Response viewer (core; syntax colours/search navigation/file picker pending): header strip with popovers, Pretty/Raw/Preview/Hex, large-body strategy, search, headers/cookies tabs, Save Response, Send and Download. Frame-time and memory checks against section 8.
 - [ ] M3.6 Environment editor, selector, quick-look, Globals; variable hover popover and "Set as variable".
-- [ ] M3.7 Collection and folder detail tabs (Overview, Authorization, Variables, Scripts shell, Runs shell), inheritance display.
-- [ ] M3.8 Command registry, command palette, trash view, tree undo.
-- [ ] M3.9 Console panel, cookies manager, settings tab, bottom bar, right-side code snippet panel (cURL, fetch, requests), two-pane layout.
-- [ ] M3.10 Shortcuts table, `--control` channel, `postguy-cli ui`, headless `shot` example, `xtask screenshots`. Observation request 3 reconciled into PROMPT.md 6.5 and 7.
+- [x] M3.7 Collection and folder detail tabs (Overview, Authorization, Variables, Scripts shell, Runs shell), inheritance display.
+- [x] M3.8 Command registry, command palette, trash view, tree undo.
+- [x] M3.9 Console panel, cookies manager, settings tab, bottom bar, right-side code snippet panel (cURL, fetch, requests), two-pane layout.
+- [~] M3.10 Shortcuts table, `--control` channel, `postguy-cli ui`, headless `shot` example, `xtask screenshots`. Observation request 3 reconciled into PROMPT.md 6.5 and 7. (Control implements inspect/command/set/screenshot; click/key/type refuse synthetic input; see docs/gaps.md.)
 
 **Exit:** layout matches PROMPT.md section 6; budgets measured (cold start, idle CPU, 10 MB response, 10 000-request tree); kittest coverage for tree, tabs, dirty tracking, selector, tables, editors; screenshots reviewed. **REVIEW STOP 2 (owner).**
+
+**Measured 2026-10-20 (release, macOS arm64):** binary 8.31 MiB (<=18); first control `inspect` after launch ~176 ms (<=250); idle CPU 0.2%; empty-workspace RSS 100.7 MiB (over the 90 MiB budget); 10 000-request tree first frame 5.8 ms, filter 10.2 ms; 10 MB Raw first frame 10.3 ms, average 10.1 ms (`cargo xtask bench --check` green). Not yet measured: 10 restored tabs, send overhead, 100 MB body, 50 000 timeline, 10 MB Pretty (Pretty is capped at 5 MB). Control `click`/`key`/`type` are refused (docs/gaps.md).
 
 #### M4 Imports, snippets, exports
 

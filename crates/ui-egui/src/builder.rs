@@ -9,9 +9,7 @@
 use std::collections::BTreeMap;
 
 use egui::{Align, Color32, Layout, RichText, ScrollArea, Ui, vec2};
-use postguy_model::auth::AuthLocation;
-use postguy_model::auth::{ApiKeyAuth, BasicAuth, BearerAuth};
-use postguy_model::{AuthConfig, Body, HttpMethod, HttpRequest, KeyValue, RawLanguage};
+use postguy_model::{Body, HttpMethod, HttpRequest, KeyValue, RawLanguage};
 use postguy_urlkit::{Param, Url, encode_query, params_of_query, path_vars_of, query_of_params};
 
 use crate::theme::Theme;
@@ -81,6 +79,8 @@ pub struct RequestBuilder<'a> {
     pub sending: Option<SendProgress>,
     /// True after a cURL import so the inline "Undo" hint can be offered.
     pub undo_paste: bool,
+    /// The auth kind inherited through the parents (for the Inherit hint).
+    pub inherited_auth: Option<&'a str>,
 }
 
 impl RequestBuilder<'_> {
@@ -325,53 +325,9 @@ impl RequestBuilder<'_> {
         }
     }
 
-    fn authorization(&mut self, ui: &mut Ui, theme: &Theme) {
-        let current = self.draft.auth.kind();
-        let groups = [widgets::SelectGroup {
-            label: Some("P0".into()),
-            items: vec![
-                widgets::SelectItem::new("inherit", "Inherit"),
-                widgets::SelectItem::new("noauth", "No Auth"),
-                widgets::SelectItem { separator_before: true, ..widgets::SelectItem::new("apikey", "API Key") },
-                widgets::SelectItem::new("basic", "Basic Auth"),
-                widgets::SelectItem::new("bearer", "Bearer Token"),
-            ],
-        }];
-        let mut selected = Some(current.clone());
-        if widgets::select(ui, "builder-auth", &mut selected, &groups, "Auth type") {
-            match selected.as_deref() {
-                Some("inherit") => self.draft.auth = AuthConfig::Inherit,
-                Some("noauth") => self.draft.auth = AuthConfig::NoAuth,
-                Some("apikey") => self.draft.auth = AuthConfig::ApiKey(Box::default()),
-                Some("basic") => self.draft.auth = AuthConfig::Basic(Box::default()),
-                Some("bearer") => self.draft.auth = AuthConfig::Bearer(Box::default()),
-                _ => {}
-            }
+    fn authorization(&mut self, ui: &mut Ui, _theme: &Theme) {
+        if crate::auth::auth_editor(ui, &mut self.draft.auth, true, self.inherited_auth) {
             *self.dirty = true;
-        }
-        ui.add_space(8.0);
-        match &mut self.draft.auth {
-            AuthConfig::Inherit => {
-                ui.label(RichText::new("The parent folder or collection's auth is used.").color(theme.palette.text_muted));
-            }
-            AuthConfig::NoAuth => {
-                ui.label(RichText::new("No auth is sent.").color(theme.palette.text_muted));
-            }
-            AuthConfig::Basic(auth) => {
-                basic_fields(ui, auth, self.dirty);
-            }
-            AuthConfig::Bearer(auth) => {
-                bearer_fields(ui, auth, self.dirty);
-            }
-            AuthConfig::ApiKey(auth) => {
-                api_key_fields(ui, auth, self.dirty);
-            }
-            other => {
-                ui.label(
-                    RichText::new(format!("`{}` auth is preserved from the file but cannot be edited in v1.", other.kind()))
-                        .color(theme.palette.warning),
-                );
-            }
         }
     }
 
@@ -598,52 +554,6 @@ impl RequestBuilder<'_> {
             *self.dirty = true;
         }
         let _ = theme;
-    }
-}
-
-fn basic_fields(ui: &mut Ui, auth: &mut BasicAuth, dirty: &mut bool) {
-    ui.label("Username");
-    if widgets::variable_field(ui, egui::Id::new("auth-basic-user"), &mut auth.username, "username").changed() {
-        *dirty = true;
-    }
-    ui.label("Password");
-    if widgets::variable_field(ui, egui::Id::new("auth-basic-pass"), &mut auth.password, "password").changed() {
-        *dirty = true;
-    }
-}
-
-fn bearer_fields(ui: &mut Ui, auth: &mut BearerAuth, dirty: &mut bool) {
-    ui.label("Token");
-    if widgets::variable_field(ui, egui::Id::new("auth-bearer-token"), &mut auth.token, "token").changed() {
-        *dirty = true;
-    }
-    let mut prefix = auth.prefix.clone().unwrap_or_else(|| "Bearer".into());
-    ui.label("Prefix");
-    if widgets::variable_field(ui, egui::Id::new("auth-bearer-prefix"), &mut prefix, "Bearer").changed() {
-        auth.prefix = if prefix.is_empty() { Some(String::new()) } else { Some(prefix) };
-        *dirty = true;
-    }
-}
-
-fn api_key_fields(ui: &mut Ui, auth: &mut ApiKeyAuth, dirty: &mut bool) {
-    ui.label("Key");
-    if widgets::variable_field(ui, egui::Id::new("auth-apikey-key"), &mut auth.key, "X-API-Key").changed() {
-        *dirty = true;
-    }
-    ui.label("Value");
-    if widgets::variable_field(ui, egui::Id::new("auth-apikey-value"), &mut auth.value, "value").changed() {
-        *dirty = true;
-    }
-    let mut choice = match auth.location {
-        AuthLocation::Header => "header".to_string(),
-        AuthLocation::Query => "query".to_string(),
-    };
-    widgets::radio(ui, &mut choice, "header", "Header");
-    widgets::radio(ui, &mut choice, "query", "Query");
-    let location = if choice == "header" { AuthLocation::Header } else { AuthLocation::Query };
-    if location != auth.location {
-        auth.location = location;
-        *dirty = true;
     }
 }
 

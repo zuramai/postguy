@@ -78,36 +78,40 @@ title = "Collection variables applied to all descendants"
 area = "A"
 tier = "P0"
 milestone = "M3.7"
-status = "planned"
-notes = "Resolution rules are 5.2; the Variables tab shows a dot when any exist."
+status = "shipped"
+notes = "Collection variables are offered in the builder chips and resolved by the engine; environment and globals override them, folder scope sits between."
 
+evidence = ["crates/engine/tests/pipeline.rs::a_sent_request_records_history_console_and_resolves_scopes"]
 [[feature]]
 id = "a.collection-auth"
 title = "Collection-level auth inherited by requests and folders"
 area = "A"
 tier = "P0"
 milestone = "M3.7"
-status = "planned"
-notes = "First non-Inherit wins up the chain; request inherits show the resolved parent type."
+status = "shipped"
+notes = "Collection and folder auth chain is walked for each request; the builder shows the inherited kind and the engine applies basic/bearer/noauth."
 
+evidence = ["crates/engine/tests/edits.rs::inherited_auth_walks_folders_and_the_collection", "crates/engine/tests/pipeline.rs::inherited_basic_auth_is_applied_and_secret_values_are_masked"]
 [[feature]]
 id = "a.folder-variables-scripts"
 title = "Folder variables, auth and scripts"
 area = "A"
 tier = "P1"
 milestone = "M3.7"
-status = "planned"
-notes = "Scripts attach in M8; the folder detail tabs ship in M3.7."
+status = "partial"
+notes = "Folder variables resolve in the request scope chain and folder detail edits auth/variables; scripts are still an explicit no-op hook (the sandbox is M6)."
 
+evidence = ["crates/engine/tests/pipeline.rs::a_sent_request_records_history_console_and_resolves_scopes", "crates/ui-egui/tests/collection.rs::folder_detail_has_no_runs_tab_and_edits_the_folder"]
 [[feature]]
 id = "a.overview-tab"
 title = "Collection detail tab: Overview (description, counts, times)"
 area = "A"
 tier = "P1"
 milestone = "M3.7"
-status = "planned"
-notes = "Markdown edit/preview; Run button; `...` menu (rename, duplicate, export, delete)."
+status = "shipped"
+notes = "Collection detail shows description, request/folder/environment counts and timestamps; edits autosave on debounce."
 
+evidence = ["crates/ui-egui/tests/collection.rs::overview_counts_and_description_edit_autosave"]
 [[feature]]
 id = "a.favourites-sort"
 title = "Favourites and A-Z sort"
@@ -329,9 +333,10 @@ title = "Cookies manager UI (manage + domain allowlist)"
 area = "C"
 tier = "P1"
 milestone = "M3.9"
-status = "planned"
-notes = "Add/edit/delete cookies and domains; templates; clear all."
+status = "partial"
+notes = "Lists every jar cookie with flags/path/expiry, search, delete, clear-all and the script domain allowlist. Missing add/edit and the template list."
 
+evidence = ["crates/ui-egui/tests/panels.rs::cookies_delete_clear_and_allowlist", "apps/postguy/src/main.rs::cookie_manager_actions_hit_the_jar"]
 [[feature]]
 id = "c.proxy"
 title = "Proxy: system, custom HTTP/SOCKS5, bypass list, per-request off"
@@ -401,9 +406,10 @@ title = "Save Response: example, file; Send and Download streaming"
 area = "C"
 tier = "P1"
 milestone = "M3.9"
-status = "planned"
-notes = "Example bodies capped at 5 MB; Send and Download never holds the body in memory."
+status = "partial"
+notes = "Save Response writes the body as a workspace file or example; Send and Download streams, then saves. Missing the example picker UI and a 5 MB example cap check."
 
+evidence = ["apps/postguy/src/main.rs::save_and_clear_response_actions_work_from_the_viewer"]
 [[feature]]
 id = "c.examples"
 title = "Examples (saved responses) under a request"
@@ -437,13 +443,14 @@ title = "History sidebar, trash, single undo for tree operations"
 area = "C"
 tier = "P1"
 milestone = "M3.9"
-status = "planned"
-notes = "History from user sends only, grouped by day; runner never writes it; trash retention 30 days."
+status = "partial"
+notes = "History sidebar, 30-day trash with restore and single undo for rename/move. Missing day grouping and runner/history exclusions beyond the engine rule."
 
 # ==================================================================================================
 # D. gRPC (PROMPT.md 5.3.3)
 # ==================================================================================================
 
+evidence = ["apps/postguy/src/main.rs::trash_lists_deleted_collections_and_restores_them", "apps/postguy/src/main.rs::undo_and_redo_restore_renames_and_moves", "crates/engine/tests/edits.rs::history_clear_is_atomic_and_edits_stay_out_of_it"]
 [[feature]]
 id = "d.proto-definitions"
 title = "Service definitions: import .proto files with import paths"
@@ -714,13 +721,14 @@ title = "Opt-in UI control channel (--control) and postguy-cli ui"
 area = "F"
 tier = "P1"
 milestone = "M3.10"
-status = "planned"
-notes = "Loopback, fresh random token per launch in an owner-only file; never on by default; never logged."
+status = "partial"
+notes = "Loopback, fresh token per launch in an owner-only file; inspect/command/set/screenshot work through postguy-cli ui. click/key/type return an actionable refusal (synthetic input is not emulated)."
 
 # ==================================================================================================
 # G. Imports and exports (PROMPT.md 5.7, 5.8)
 # ==================================================================================================
 
+evidence = ["apps/postguy-cli/src/ui.rs::inspect_sends_the_bearer_token_and_prints_the_reply", "apps/postguy/src/main.rs::control_inspect_set_and_commands_drive_the_real_ui_state"]
 [[feature]]
 id = "g.postman-collection"
 title = "Postman Collection v2.1/v2.0 import and export"
@@ -911,36 +919,40 @@ title = "Collection and folder detail tabs"
 area = "H"
 tier = "P1"
 milestone = "M3.7"
-status = "planned"
-notes = "Overview, Authorization (dot), Variables (dot), Scripts shell, Runs shell; inheritance display."
+status = "shipped"
+notes = "Collection and folder detail tabs with Overview, Authorization, Variables and Scripts; a folder has no Runs tab and both autosave."
 
+evidence = ["crates/ui-egui/tests/collection.rs::overview_counts_and_description_edit_autosave", "crates/ui-egui/tests/collection.rs::folder_detail_has_no_runs_tab_and_edits_the_folder"]
 [[feature]]
 id = "h.palette"
 title = "Command registry, command palette, shortcuts table"
 area = "H"
 tier = "P1"
 milestone = "M3.8"
-status = "planned"
-notes = "One registry for menus, palette, control channel; conflictsOS-checked shortcut table."
+status = "partial"
+notes = "One registry drives the palette, keyboard shortcuts, menus and the control channel; the Settings Shortcuts tab lists it. Missing the shortcut-conflict check."
 
+evidence = ["crates/ui-egui/tests/commands.rs::typing_filters_and_enter_runs_a_command", "crates/ui-egui/src/commands.rs::fuzzy_matching_is_subsequence_and_case_insensitive"]
 [[feature]]
 id = "h.console"
 title = "Console panel with filters, masking, ring buffer"
 area = "H"
 tier = "P1"
 milestone = "M3.9"
-status = "planned"
-notes = "5000 entries / 24 h; bodies truncated at 1 MB; secrets masked."
+status = "partial"
+notes = "Filters, search, timestamps and clear; the engine masks secrets and keeps 5000 entries / 24 h. Missing virtualised scrolling and the 1 MB per-body truncation check in the viewer."
 
+evidence = ["crates/ui-egui/tests/panels.rs::console_filters_search_and_clears"]
 [[feature]]
 id = "h.cookies-manager-ui"
 title = "Cookies manager (see c.cookies-manager); bottom bar; settings tab"
 area = "H"
 tier = "P1"
 milestone = "M3.9"
-status = "planned"
-notes = "Settings tab with General/Themes/Data/Certificates/Proxy/About; unknown keys preserved."
+status = "shipped"
+notes = "Cookies opens from the bottom bar, the settings tab keeps unknown keys, and the sections are General/Themes/Shortcuts/Data/Certificates/Proxy/About."
 
+evidence = ["crates/ui-egui/tests/panels.rs::cookies_delete_clear_and_allowlist", "apps/postguy/src/main.rs::settings_save_persists_theme_and_proxy"]
 [[feature]]
 id = "h.themes"
 title = "Theme tokens: light, dark, system (live on macOS/Windows)"
@@ -956,22 +968,24 @@ title = "Two-pane layout and resizable response splitter"
 area = "H"
 tier = "P1"
 milestone = "M3.9"
-status = "planned"
-notes = "Toggle Cmd/Ctrl+Alt+V; splitter position persisted."
+status = "partial"
+notes = "Toggle Cmd/Ctrl+Alt+V and a draggable response splitter; the splitter position and toggle are not yet persisted in the session."
 
+evidence = ["crates/ui-egui/tests/widgets.rs::the_shell_bottom_bar_opens_panels_and_the_snippet_shows_generated_code"]
 [[feature]]
 id = "h.control-channel-ui"
 title = "`--control` channel wired to the running UI"
 area = "H"
 tier = "P1"
 milestone = "M3.10"
-status = "planned"
-notes = "inspect/click/key/type/set/command/screenshot; kittest-based tests in control.rs."
+status = "partial"
+notes = "inspect/command/set/screenshot are wired to the running UI; click/key/type refuse with guidance. Missing a kittest control.rs end-to-end test and synthetic input."
 
 # ==================================================================================================
 # I. Platform, packaging, budgets (PROMPT.md 8, M10)
 # ==================================================================================================
 
+evidence = ["apps/postguy/src/main.rs::control_inspect_set_and_commands_drive_the_real_ui_state", "apps/postguy-cli/src/ui.rs::inspect_sends_the_bearer_token_and_prints_the_reply"]
 [[feature]]
 id = "i.platform-services"
 title = "OS services: dirs, dialogs, reveal, open URL, clipboard, proxy discovery"

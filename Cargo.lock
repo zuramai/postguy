@@ -2824,6 +2824,8 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
+ "fastrand",
+ "image",
  "postguy-engine",
  "postguy-interop",
  "postguy-model",
@@ -2867,6 +2869,7 @@ dependencies = [
  "postguy-urlkit",
  "postguy-util",
  "postguy-vars",
+ "serde",
  "serde_json",
  "tempfile",
 ]
@@ -3000,6 +3003,7 @@ dependencies = [
  "egui",
  "egui_kittest",
  "image",
+ "postguy-interop",
  "postguy-model",
  "postguy-urlkit",
  "serde",

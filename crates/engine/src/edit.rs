@@ -8,6 +8,7 @@
 
 use std::path::PathBuf;
 
+use postguy_model::auth::AuthConfig;
 use postguy_model::{Collection, Environment, Example, Folder, Id, Item, Request, RequestKind};
 use postguy_store::Workspace;
 
@@ -220,6 +221,61 @@ impl Engine {
 
     pub fn collection(&self, id: &Id) -> Result<Collection> {
         self.load_collection(id)
+    }
+
+    /// Save a whole collection (collection/folder detail tabs). Name rules apply.
+    pub fn save_collection(&self, collection: &Collection) -> Result<()> {
+        require_name(&collection.name)?;
+        self.workspace().save_collection(collection)?;
+        Ok(())
+    }
+
+    /// One folder from a collection (for its detail tab).
+    pub fn folder(&self, collection: &Id, folder: &Id) -> Result<Folder> {
+        let collection = self.load_collection(collection)?;
+        match find_item(&collection, folder) {
+            Some(Item::Folder(found)) => Ok((**found).clone()),
+            Some(Item::Request(_)) => Err(EngineError::BadRequest { reason: format!("`{}` is a request, not a folder", folder.0) }),
+            None => Err(EngineError::NotFound { what: "folder".into(), id: folder.0.clone() }),
+        }
+    }
+
+    /// Replace a folder inside its collection (folder detail autosave).
+    pub fn save_folder(&self, collection: &Id, folder: &Folder) -> Result<()> {
+        require_name(&folder.name)?;
+        let mut collection_value = self.load_collection(collection)?;
+        match find_item_mut(&mut collection_value, &folder.id) {
+            Some(Item::Folder(existing)) => {
+                existing.name = folder.name.clone();
+                existing.description = folder.description.clone();
+                existing.variables = folder.variables.clone();
+                existing.auth = folder.auth.clone();
+                existing.scripts = folder.scripts.clone();
+                existing.extras = folder.extras.clone();
+            }
+            Some(Item::Request(_)) => return Err(EngineError::BadRequest { reason: format!("`{}` is a request, not a folder", folder.id.0) }),
+            None => return Err(EngineError::NotFound { what: "folder".into(), id: folder.id.0.clone() }),
+        }
+        self.workspace().save_collection(&collection_value)?;
+        Ok(())
+    }
+
+    /// The auth a request resolves to through folders and the collection (for the Inherit chip).
+    pub fn inherited_auth_kind(&self, collection: &Id, request: &Id) -> Result<Option<String>> {
+        let collection_value = self.load_collection(collection)?;
+        let mut chain: Vec<AuthConfig> = vec![collection_value.auth.clone().unwrap_or(AuthConfig::Inherit)];
+        if let Some(folders) = folder_chain(&collection_value.items, request) {
+            for folder in folders {
+                chain.push(folder.auth.clone().unwrap_or(AuthConfig::Inherit));
+            }
+        }
+        // Innermost first, then collection.
+        for auth in chain.into_iter().rev() {
+            if !matches!(auth, AuthConfig::Inherit) {
+                return Ok(Some(auth.kind()));
+            }
+        }
+        Ok(None)
     }
 
     pub fn rename_item(&self, collection: &Id, id: &Id, name: &str) -> Result<()> {
@@ -519,6 +575,28 @@ fn parent_of(collection: &Collection, id: &Id) -> Option<Option<Id>> {
         None
     }
     walk(&collection.items, id, None)
+}
+
+/// The folder chain from the collection root to the request (outermost first).
+fn folder_chain(items: &[Item], request: &Id) -> Option<Vec<Folder>> {
+    fn walk(items: &[Item], request: &Id, chain: &mut Vec<Folder>) -> bool {
+        for item in items {
+            match item {
+                Item::Folder(folder) => {
+                    chain.push((**folder).clone());
+                    if walk(&folder.items, request, chain) {
+                        return true;
+                    }
+                    chain.pop();
+                }
+                Item::Request(found) if found.id == *request => return true,
+                Item::Request(_) => {}
+            }
+        }
+        false
+    }
+    let mut chain = Vec::new();
+    if walk(items, request, &mut chain) { Some(chain) } else { None }
 }
 
 fn is_descendant(collection: &Collection, ancestor: &Id, candidate: &Id) -> bool {
