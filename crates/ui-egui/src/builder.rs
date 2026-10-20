@@ -15,6 +15,7 @@ use postguy_model::{AuthConfig, Body, HttpMethod, HttpRequest, KeyValue, RawLang
 use postguy_urlkit::{Param, Url, encode_query, params_of_query, path_vars_of, query_of_params};
 
 use crate::theme::Theme;
+use crate::widgets::field::VariableInfo;
 use crate::widgets::{self, CodeEditor, CodeLanguage, TableVariant};
 
 /// One builder tab.
@@ -75,8 +76,8 @@ pub struct RequestBuilder<'a> {
     pub bodies: &'a mut BodyDrafts,
     pub dirty: &'a mut bool,
     pub tab: &'a mut BuilderTab,
-    /// Variable names for the URL autocomplete, already merged from the visible scopes.
-    pub variables: &'a [String],
+    /// Variables for the URL autocomplete and chip popovers, already merged from the scopes.
+    pub variables: &'a [VariableInfo],
     pub sending: Option<SendProgress>,
     /// True after a cURL import so the inline "Undo" hint can be offered.
     pub undo_paste: bool,
@@ -227,7 +228,13 @@ impl RequestBuilder<'_> {
             if tail.contains('}') || tail.contains(' ') { None } else { Some((start, tail.to_ascii_lowercase())) }
         });
         let Some((start, needle)) = open else { return };
-        let matches: Vec<String> = self.variables.iter().filter(|name| name.to_ascii_lowercase().contains(&needle)).take(8).cloned().collect();
+        let matches: Vec<String> = self
+            .variables
+            .iter()
+            .filter(|variable| variable.name.to_ascii_lowercase().contains(&needle))
+            .take(8)
+            .map(|variable| variable.name.clone())
+            .collect();
         if matches.is_empty() {
             return;
         }

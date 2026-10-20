@@ -209,7 +209,7 @@ area = "B"
 tier = "P1"
 milestone = "M3.4"
 status = "partial"
-notes = "`{{var}}` spans are tinted chips in single-line fields; typing `{{` opens a list of scope variable names and inserts the choice. Missing: scope badges, hover popovers with editable values/override warnings, unresolved red tint, and dynamic variables in the list."
+notes = "`{{var}}` spans are tinted chips; typing `{{` opens a scope-variable list; hovering a chip shows its name, scope and value (secrets masked until Cmd/Ctrl) or a red unresolved note. Missing: the hover popover's edit/add-to-scope actions, scope badges inside the list, unresolved chips tinted in the field itself, and dynamic variables in autocomplete."
 evidence = ["crates/ui-egui/tests/builder.rs::autocomplete_inserts_a_variable", "crates/ui-egui/src/widgets/field.rs::spans_are_exact_and_ignore_unterminated_braces"]
 [[feature]]
 id = "b.set-as-variable"
