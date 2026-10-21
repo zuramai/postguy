@@ -2,7 +2,7 @@
 //! performs the token endpoint request over the engine's HTTP client (no history/console entry,
 //! no redirects), returns the parsed token and can persist it in the workspace secrets store.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read as _, Write};
 use std::net::TcpListener;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -193,13 +193,19 @@ fn wait_for_callback(listener: TcpListener, expected_state: &str, stop: &AtomicB
             }
             Err(err) => return Err(format!("OAuth callback connection: {err}")),
         };
-        let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        let _ = stream.set_read_timeout(Some(remaining.min(Duration::from_secs(10))));
         let mut reader = BufReader::new(match stream.try_clone() {
             Ok(clone) => clone,
             Err(err) => return Err(format!("OAuth callback stream: {err}")),
         });
         let mut request_line = String::new();
-        if reader.read_line(&mut request_line).is_err() {
+        // The callback is unauthenticated loopback input: cap the line and refuse one that
+        // never completed, so a trickle or a megabyte header cannot allocate without bound.
+        const MAX_REQUEST_LINE: u64 = 8 * 1024;
+        let read = reader.by_ref().take(MAX_REQUEST_LINE + 1).read_line(&mut request_line);
+        if read.is_err() || request_line.len() as u64 > MAX_REQUEST_LINE || !request_line.ends_with('\n') {
+            let _ = stream.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
             continue;
         }
         let target = request_line.split_whitespace().nth(1).unwrap_or_default();
@@ -271,6 +277,24 @@ mod tests {
     use super::*;
     use postguy_model::auth::{OAuth2Auth, OAuth2ClientAuthentication, OAuth2Grant};
     use postguy_store::StorePaths;
+
+    #[test]
+    fn callback_rejects_an_oversized_line_then_accepts_the_next_request() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener");
+        let addr = listener.local_addr().expect("addr");
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = stop.clone();
+        let worker = std::thread::spawn(move || wait_for_callback(listener, "state", &worker_stop));
+        let mut oversized = std::net::TcpStream::connect(addr).expect("first client");
+        oversized.write_all(&vec![b'A'; 9000]).expect("oversized line");
+        drop(oversized);
+        let mut valid = std::net::TcpStream::connect(addr).expect("second client");
+        valid.write_all(b"GET /callback?code=ok&state=state HTTP/1.1\r\nHost: localhost\r\n\r\n").expect("valid request");
+        let mut response = String::new();
+        valid.read_to_string(&mut response).expect("response");
+        assert!(response.starts_with("HTTP/1.1 200"), "response: {response}");
+        assert_eq!(worker.join().expect("callback thread"), Ok("ok".to_string()));
+    }
 
     fn fixture() -> (tempfile::TempDir, Engine) {
         let dir = tempfile::tempdir().expect("tempdir");

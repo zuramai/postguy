@@ -1504,7 +1504,20 @@ impl App {
                         editor.last_seq = last.seq;
                     }
                     editor.events.extend(events);
-                    while editor.events.len() > 10_000 {
+                    // The engine already ring-buffers its own log, but the UI keeps a clone:
+                    // bound both row count and payload bytes so large messages cannot grow
+                    // this second copy without limit.
+                    const UI_EVENT_BYTES: usize = 64 * 1024 * 1024;
+                    let mut total: usize = editor
+                        .events
+                        .iter()
+                        .map(|event| event.text.as_ref().map_or(0, String::len) + event.detail.as_ref().map_or(0, String::len) + 64)
+                        .sum();
+                    while !editor.events.is_empty() && (editor.events.len() > 10_000 || total > UI_EVENT_BYTES) {
+                        if let Some(removed) = editor.events.first() {
+                            total = total
+                                .saturating_sub(removed.text.as_ref().map_or(0, String::len) + removed.detail.as_ref().map_or(0, String::len) + 64);
+                        }
                         editor.events.remove(0);
                     }
                 }
@@ -1523,15 +1536,7 @@ impl App {
             WsUiAction::Connect => {
                 let Some(editor) = self.ws_editors.get_mut(&tab_id) else { return };
                 editor.error = None;
-                let mut request = editor.request.clone();
-                request.kind = RequestKind::WebSocket(editor.draft.clone());
-                if let Err(err) = engine.save_request(&Id(editor.collection.clone()), &request) {
-                    editor.error = Some(err.to_string());
-                    return;
-                }
-                editor.request = request;
-                editor.dirty = false;
-                match engine.ws_connect_saved(&Id(editor.collection.clone()), &editor.request.id) {
+                match engine.ws_connect_draft(&Id(editor.collection.clone()), &Id(editor.request.id.0.clone()), &editor.draft) {
                     Ok(session) => {
                         editor.session = Some(session);
                         editor.events.clear();
@@ -1541,7 +1546,7 @@ impl App {
                     }
                     Err(err) => editor.error = Some(err.to_string()),
                 }
-                self.shell.tabs.set_dirty(tab_id, false);
+                self.shell.tabs.set_dirty(tab_id, editor.dirty);
             }
             WsUiAction::Disconnect => {
                 if let Some(editor) = self.ws_editors.get_mut(&tab_id)

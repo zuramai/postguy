@@ -27,7 +27,12 @@ The owner reviews at each tag and at the end of M0 and M3.
   fallback, `grpc_describe`/`grpc_example_message`/`grpc_invoke`, and a minimal composer with
   Invoke/Save and a response pane. Testkit now serves unary + reflection. Still open: all
   streaming modes, trailers/details-bin, method selector, completion, saved messages and the
-  grpcurl snippet. Tests: `crates/grpc/tests/unary.rs`, automation `grpc_tools_*`, UI
+  grpcurl snippet. Review hardening: confined proto imports (canonical roots, no symlink
+  escapes, 1 MiB/file, 16 MiB total, 256 files), validated ASCII/binary metadata before
+  connect, native TLS roots, descriptor-guided examples, variable/inherited-auth preparation,
+  safe WS TLS default/draft connect/message and event budgets, binary event round-trip,
+  OS-CSPRNG OAuth nonces and a capped callback line. Tests: `crates/grpc/tests/unary.rs`,
+  automation `grpc_tools_*`/`grpc_proto_paths_*`/`websocket_tools_*`, engine `ws_draft`, UI
   `grpc_editor_invokes_a_unary_method`.
 - **2026-10-20 (M6.1/M6.2, core):** `postguy-ws` connects with custom headers, subprotocols,
   TLS/client certs, handshake timeout, size caps, ping/pong and close codes; the testkit gained

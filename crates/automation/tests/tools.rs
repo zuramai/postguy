@@ -368,6 +368,16 @@ fn websocket_tools_connect_echo_and_close() {
     call(&automation, "ws_send", json!({"session": session, "text": "hello"}));
     let events = wait_ws(&automation, &session, 0, |events| events.iter().any(|event| event["direction"] == "received" && event["text"] == "hello"));
     assert!(events.iter().any(|event| event["direction"] == "sent" && event["text"] == "hello"));
+    call(&automation, "ws_send", json!({"session": session, "binary_base64": "AAECAwQ="}));
+    let binary = wait_ws(&automation, &session, 0, |events| events.iter().any(|event| event["direction"] == "received" && event["kind"] == "binary"));
+    assert!(
+        binary.iter().any(|event| event["direction"] == "sent" && event["kind"] == "binary" && event["dataBase64"] == "AAECAwQ="),
+        "sent binary payload is retained: {binary:?}"
+    );
+    assert!(
+        binary.iter().any(|event| event["direction"] == "received" && event["kind"] == "binary" && event["dataBase64"] == "AAECAwQ="),
+        "received binary payload round-trips: {binary:?}"
+    );
     call(&automation, "ws_disconnect", json!({"session": session, "code": 1000, "reason": "done"}));
 }
 

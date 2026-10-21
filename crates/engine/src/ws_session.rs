@@ -24,6 +24,9 @@ pub struct WsEventView {
     /// `text`, `binary`, `ping`, `pong`, `open`, `close`, `error`.
     pub kind: String,
     pub text: Option<String>,
+    /// Base64 payload for binary/ping/pong frames (capped), so tools and the UI can show and
+    /// round-trip exact bytes instead of only a length.
+    pub data_base64: Option<String>,
     pub bytes: usize,
     pub detail: Option<String>,
 }
@@ -75,6 +78,15 @@ enum WsCommand {
 }
 
 impl Engine {
+    /// Connect using an edited (possibly unsaved) draft. Variables and settings resolve the
+    /// same way as a stored request; nothing is written to the collection.
+    pub fn ws_connect_draft(&self, collection: &Id, request: &Id, draft: &postguy_model::WsRequest) -> Result<String> {
+        let mut model = self.request(collection, request)?;
+        model.kind = postguy_model::RequestKind::WebSocket(draft.clone());
+        let options = self.ws_options_for_request(collection, &model)?;
+        self.ws_connect(options)
+    }
+
     /// Open a WebSocket and return its session id.
     pub fn ws_connect(&self, options: WsOptions) -> Result<String> {
         let id = Id::generate().0;
@@ -88,7 +100,12 @@ impl Engine {
         let handle = WsHandle { sender, state: state.clone() };
         let task_state = state.clone();
         self.inner.runtime.spawn(async move {
-            let push = |direction: &str, kind: &str, text: Option<String>, bytes: usize, detail: Option<String>| {
+            let push = |direction: &str, kind: &str, text: Option<String>, bytes: usize, detail: Option<String>, data: Option<&[u8]>| {
+                const MAX_EVENT_PAYLOAD: usize = 1024 * 1024;
+                let data_base64 = data.filter(|bytes| bytes.len() <= MAX_EVENT_PAYLOAD).map(|bytes| {
+                    use base64::Engine as _;
+                    base64::engine::general_purpose::STANDARD.encode(bytes)
+                });
                 let mut seq = task_state.next_seq.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                 *seq = seq.saturating_add(1);
                 let event = WsEventView {
@@ -97,6 +114,7 @@ impl Engine {
                     direction: direction.into(),
                     kind: kind.into(),
                     text,
+                    data_base64,
                     bytes,
                     detail,
                 };
@@ -117,38 +135,38 @@ impl Engine {
             let mut connection = match WsConnection::connect(&options).await {
                 Ok(connection) => connection,
                 Err(err) => {
-                    push("network", "error", None, 0, Some(err));
+                    push("network", "error", None, 0, Some(err), None);
                     return;
                 }
             };
             task_state.connected.store(true, Ordering::SeqCst);
-            push("network", "open", None, 0, Some(connection.negotiated_protocol.clone().unwrap_or_else(|| "connected".into())));
+            push("network", "open", None, 0, Some(connection.negotiated_protocol.clone().unwrap_or_else(|| "connected".into())), None);
             loop {
                 tokio::select! {
                     command = receiver.recv() => {
                         match command {
                             Some(WsCommand::Text(text)) => {
                                 if let Err(err) = connection.send_text(&text).await {
-                                    push("network", "error", None, 0, Some(err));
+                                    push("network", "error", None, 0, Some(err), None);
                                 } else {
-                                    push("sent", "text", Some(text.clone()), text.len(), None);
+                                    push("sent", "text", Some(text.clone()), text.len(), None, None);
                                 }
                             }
                             Some(WsCommand::Binary(bytes)) => {
                                 if let Err(err) = connection.send_binary(bytes.clone()).await {
-                                    push("network", "error", None, 0, Some(err));
+                                    push("network", "error", None, 0, Some(err), None);
                                 } else {
-                                    push("sent", "binary", None, bytes.len(), None);
+                                    push("sent", "binary", None, bytes.len(), None, Some(&bytes));
                                 }
                             }
                             Some(WsCommand::Ping(bytes)) => {
                                 let _ = connection.ping(bytes.clone()).await;
-                                push("sent", "ping", None, bytes.len(), None);
+                                push("sent", "ping", None, bytes.len(), None, Some(&bytes));
                             }
                             Some(WsCommand::Close(code, reason)) => {
                                 let _ = connection.close(code, &reason).await;
                                 task_state.connected.store(false, Ordering::SeqCst);
-                                push("network", "close", None, 0, Some(format!("{code} {reason}")));
+                                push("network", "close", None, 0, Some(format!("{code} {reason}")), None);
                                 break;
                             }
                             None => break,
@@ -156,23 +174,23 @@ impl Engine {
                     }
                     event = connection.next() => {
                         match event {
-                            Some(WsEvent::Text(text)) => push("received", "text", Some(text.clone()), text.len(), None),
-                            Some(WsEvent::Binary(bytes)) => push("received", "binary", None, bytes.len(), None),
-                            Some(WsEvent::Ping(bytes)) => push("received", "ping", None, bytes.len(), None),
-                            Some(WsEvent::Pong(bytes)) => push("received", "pong", None, bytes.len(), None),
+                            Some(WsEvent::Text(text)) => push("received", "text", Some(text.clone()), text.len(), None, None),
+                            Some(WsEvent::Binary(bytes)) => push("received", "binary", None, bytes.len(), None, Some(&bytes)),
+                            Some(WsEvent::Ping(bytes)) => push("received", "ping", None, bytes.len(), None, Some(&bytes)),
+                            Some(WsEvent::Pong(bytes)) => push("received", "pong", None, bytes.len(), None, Some(&bytes)),
                             Some(WsEvent::Closed { code, reason }) => {
                                 task_state.connected.store(false, Ordering::SeqCst);
-                                push("network", "close", None, 0, Some(format!("{} {}", code.unwrap_or(1005), reason)));
+                                push("network", "close", None, 0, Some(format!("{} {}", code.unwrap_or(1005), reason)), None);
                                 break;
                             }
                             Some(WsEvent::Error(err)) => {
                                 task_state.connected.store(false, Ordering::SeqCst);
-                                push("network", "error", None, 0, Some(err));
+                                push("network", "error", None, 0, Some(err), None);
                                 break;
                             }
                             None => {
                                 task_state.connected.store(false, Ordering::SeqCst);
-                                push("network", "close", None, 0, Some("stream ended".into()));
+                                push("network", "close", None, 0, Some("stream ended".into()), None);
                                 break;
                             }
                         }
@@ -181,9 +199,16 @@ impl Engine {
             }
             task_state.connected.store(false, Ordering::SeqCst);
         });
-        if let Ok(mut sessions) = self.inner.ws_sessions.lock() {
-            sessions.insert(id.clone(), handle);
+        let mut sessions = self.inner.ws_sessions.lock().map_err(|_| EngineError::BadRequest { reason: "WebSocket session lock poisoned".into() })?;
+        const MAX_WS_SESSIONS: usize = 32;
+        if sessions.len() >= MAX_WS_SESSIONS {
+            if let Some(oldest) = sessions.iter().find(|(_, handle)| !handle.connected()).map(|(id, _)| id.clone()) {
+                sessions.remove(&oldest);
+            } else {
+                return Err(EngineError::BadRequest { reason: format!("at most {MAX_WS_SESSIONS} WebSocket sessions can be open; close one first") });
+            }
         }
+        sessions.insert(id.clone(), handle);
         Ok(id)
     }
 
@@ -207,10 +232,10 @@ impl Engine {
     }
 
     pub fn ws_disconnect(&self, session: &str, code: u16, reason: String) -> Result<()> {
-        self.with_ws(session, |handle| {
-            handle.close(code, reason);
-            Ok(())
-        })
+        let mut sessions = self.inner.ws_sessions.lock().map_err(|_| EngineError::BadRequest { reason: "WebSocket session lock poisoned".into() })?;
+        let handle = sessions.remove(session).ok_or_else(|| EngineError::NotFound { what: "WebSocket session".into(), id: session.into() })?;
+        handle.close(code, reason);
+        Ok(())
     }
 
     pub fn ws_connected(&self, session: &str) -> Result<bool> {
@@ -232,8 +257,12 @@ impl Engine {
     /// Build connection options from a stored WebSocket request, resolving URL/header/param
     /// variables against the active environment and the workspace settings.
     pub fn ws_options_for(&self, collection: &Id, request: &Id) -> Result<WsOptions> {
-        let collection_model = self.collection(collection)?;
         let request = self.request(collection, request)?;
+        self.ws_options_for_request(collection, &request)
+    }
+
+    fn ws_options_for_request(&self, collection: &Id, request: &postguy_model::Request) -> Result<WsOptions> {
+        let collection_model = self.collection(collection)?;
         let postguy_model::RequestKind::WebSocket(ws) = &request.kind else {
             return Err(EngineError::BadRequest { reason: "the request is not a WebSocket request".into() });
         };
@@ -275,7 +304,12 @@ impl Engine {
         } else {
             None
         };
-        let max_message_bytes = usize::try_from(ws.settings.max_message_mb.saturating_mul(1024 * 1024)).unwrap_or(usize::MAX);
+        // 0 means "no user limit" in the UI, but the transport still keeps a hard ceiling so a
+        // hostile peer cannot commit unbounded memory with one frame.
+        const MAX_MESSAGE_CEILING: u64 = 64 * 1024 * 1024;
+        let configured = ws.settings.max_message_mb.saturating_mul(1024 * 1024);
+        let max_message_bytes = usize::try_from(if configured == 0 { MAX_MESSAGE_CEILING } else { configured.min(MAX_MESSAGE_CEILING) })
+            .unwrap_or(MAX_MESSAGE_CEILING as usize);
         let _ = collection_model;
         Ok(WsOptions {
             url,
