@@ -630,28 +630,33 @@ fn draw_tab(ui: &mut Ui, theme: &Theme, tab: &Tab, active: bool) -> DrawnTab {
         text.push(' ');
     }
     text.push_str(&tab.title);
-    let width = (text.chars().count() as f32 * 7.2 + 34.0).clamp(90.0, 240.0);
-    let (rect, response) = ui.allocate_exact_size(vec2(width, 28.0), Sense::click_and_drag());
+    let width = (text.chars().count() as f32 * 8.0 + 44.0).clamp(108.0, 260.0);
+    let (rect, response) = ui.allocate_exact_size(vec2(width, 32.0), Sense::click_and_drag());
+    let tab_rounding = egui::CornerRadius::same(theme.metrics.radius as u8);
     if active {
-        ui.painter().rect_filled(rect, egui::CornerRadius { nw: 5, sw: 0, ne: 5, se: 0 }, theme.palette.surface_alt);
+        ui.painter().rect_filled(rect, egui::CornerRadius { nw: tab_rounding.nw, sw: 0, ne: tab_rounding.ne, se: 0 }, theme.palette.surface_alt);
         ui.painter().line_segment(
-            [egui::pos2(rect.left() + 6.0, rect.bottom() - 1.0), egui::pos2(rect.right() - 6.0, rect.bottom() - 1.0)],
+            [egui::pos2(rect.left() + 8.0, rect.bottom() - 1.0), egui::pos2(rect.right() - 8.0, rect.bottom() - 1.0)],
             egui::Stroke::new(2.0, theme.palette.accent),
         );
     } else if response.hovered() {
-        ui.painter().rect_filled(rect, egui::CornerRadius { nw: 5, sw: 0, ne: 5, se: 0 }, theme.palette.surface_alt.gamma_multiply(0.6));
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius { nw: tab_rounding.nw, sw: 0, ne: tab_rounding.ne, se: 0 },
+            theme.palette.surface_alt.gamma_multiply(0.6),
+        );
     }
-    let mut x = rect.left() + 8.0;
+    let mut x = rect.left() + 12.0;
     if let Some((color, badge)) = method {
         ui.painter().text(egui::pos2(x, rect.center().y), egui::Align2::LEFT_CENTER, badge, egui::TextStyle::Small.resolve(ui.style()), color);
-        x += 34.0;
+        x += 40.0;
     }
     let color = if active { theme.palette.text } else { theme.palette.text_muted };
     ui.painter().text(egui::pos2(x, rect.center().y), egui::Align2::LEFT_CENTER, &tab.title, egui::TextStyle::Body.resolve(ui.style()), color);
     if tab.preview {
         // A thin italic-approximation underline keeps preview tabs recognisable in the strip.
         ui.painter().line_segment(
-            [egui::pos2(x, rect.bottom() - 7.0), egui::pos2(x + tab.title.chars().count() as f32 * 6.5, rect.bottom() - 7.0)],
+            [egui::pos2(x, rect.bottom() - 8.0), egui::pos2(x + tab.title.chars().count() as f32 * 7.5, rect.bottom() - 8.0)],
             egui::Stroke::new(1.0, theme.palette.text_muted.gamma_multiply(0.5)),
         );
     }
@@ -678,4 +683,4 @@ fn method_badge(theme: &Theme, doc: &TabDoc) -> Option<(Color32, String)> {
 }
 
 /// The tab strip's fixed height (PROMPT.md 6.2 keeps it compact).
-pub const TAB_STRIP_HEIGHT: f32 = 34.0;
+pub const TAB_STRIP_HEIGHT: f32 = 40.0;

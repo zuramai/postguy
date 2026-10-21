@@ -2533,7 +2533,14 @@ fn grpc_panel(ui: &mut egui::Ui, editor: &mut GrpcEditor) -> Option<GrpcUiAction
     }
     ui.separator();
     ui.label(egui::RichText::new("Request message (JSON)").small().color(theme.palette.text_muted));
-    if ui.add(egui::TextEdit::multiline(&mut editor.draft.message).desired_rows(8).desired_width(f32::INFINITY).code_editor()).changed() {
+    let mut message = std::mem::take(&mut editor.draft.message);
+    let changed = postguy_ui_egui::CodeEditor::new(postguy_ui_egui::CodeLanguage::Json)
+        .rows(8)
+        .id(egui::Id::new(("grpc-msg", &editor.request.id.0)))
+        .show(ui, &mut message)
+        .changed();
+    editor.draft.message = message;
+    if changed {
         editor.dirty = true;
     }
     if let Some(response) = &editor.response {
@@ -2545,11 +2552,15 @@ fn grpc_panel(ui: &mut egui::Ui, editor: &mut GrpcEditor) -> Option<GrpcUiAction
             }
         });
         for (key, value) in &response.metadata {
-            ui.label(egui::RichText::new(format!("{key}: {value}")).monospace().small().color(theme.palette.text_muted));
+            ui.label(egui::RichText::new(format!("{key}: {value}")).small().color(theme.palette.text_muted));
         }
         let pretty = serde_json::to_string_pretty(&response.json).unwrap_or_default();
         egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-            ui.add(egui::Label::new(egui::RichText::new(pretty).monospace().small()).wrap());
+            postguy_ui_egui::LargeTextView::new(std::sync::Arc::from(pretty))
+                .id(egui::Id::new(("grpc-resp", &editor.request.id.0)))
+                .language(postguy_ui_egui::CodeLanguage::Json)
+                .wrap(true)
+                .show(ui);
         });
     }
     ui.label(
@@ -2598,7 +2609,7 @@ fn ws_panel(ui: &mut egui::Ui, editor: &mut WsEditor) -> Option<WsUiAction> {
                 _ => theme.palette.text_muted,
             };
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(format!("{:<8} {:<8}", event.direction, event.kind)).monospace().small().color(color));
+                ui.label(egui::RichText::new(format!("{:<8} {:<8}", event.direction, event.kind)).small().color(color));
                 ui.label(egui::RichText::new(event.seq.to_string()).small().color(theme.palette.text_muted));
                 ui.label(egui::RichText::new(text).monospace().small());
             });

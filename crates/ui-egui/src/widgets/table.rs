@@ -27,7 +27,12 @@ pub struct TableResponse {
     pub removed: bool,
 }
 
-const ROW_HEIGHT: f32 = 28.0;
+const ROW_HEIGHT: f32 = 34.0;
+
+/// One table cell: a body-font edit with comfortable inner padding and the theme's rounding.
+fn cell_text<'t>(text: &'t mut String, hint: &str, width: f32) -> egui::TextEdit<'t> {
+    egui::TextEdit::singleline(text).hint_text(hint).desired_width(width).font(egui::TextStyle::Body).margin(egui::Margin::symmetric(6, 4))
+}
 
 /// A key/value table bound to `rows`. `variant` picks the value cell; `max_height` enables
 /// virtualised scrolling (0 = natural height, for small fixed tables).
@@ -63,7 +68,7 @@ pub fn key_value_table(ui: &mut Ui, rows: &mut Vec<KeyValue>, variant: TableVari
                 }
                 let key_width = (ui.available_width() * 0.26).max(80.0);
                 let value_width = (ui.available_width() * 0.34).max(100.0);
-                let key = ui.add(egui::TextEdit::singleline(&mut row.key).hint_text("Key").desired_width(key_width).frame(egui::Frame::NONE));
+                let key = ui.add(cell_text(&mut row.key, "Key", key_width));
                 if key.changed() {
                     result.changed = true;
                 }
@@ -84,42 +89,32 @@ pub fn key_value_table(ui: &mut Ui, rows: &mut Vec<KeyValue>, variant: TableVari
                             row.kind = kind;
                             result.changed = true;
                         }
-                        let value = ui.add(
-                            egui::TextEdit::singleline(&mut row.value).hint_text("Value or path").desired_width(value_width).frame(egui::Frame::NONE),
-                        );
+                        let value = ui.add(cell_text(&mut row.value, "Value or path", value_width));
                         if value.changed() {
                             result.changed = true;
                         }
                     }
                     TableVariant::Secret => {
-                        let value = ui.add(
-                            egui::TextEdit::singleline(&mut row.value)
-                                .password(true)
-                                .hint_text("Secret value")
-                                .desired_width(value_width)
-                                .frame(egui::Frame::NONE),
-                        );
+                        let value = ui.add(cell_text(&mut row.value, "Secret value", value_width).password(true));
                         if value.changed() {
                             result.changed = true;
                         }
                     }
                     TableVariant::Normal => {
-                        let value =
-                            ui.add(egui::TextEdit::singleline(&mut row.value).hint_text("Value").desired_width(value_width).frame(egui::Frame::NONE));
+                        let value = ui.add(cell_text(&mut row.value, "Value", value_width));
                         if value.changed() {
                             result.changed = true;
                         }
                     }
                 }
                 let remaining = (ui.available_width() - 32.0).max(60.0);
-                let description = ui
-                    .add(egui::TextEdit::singleline(&mut row.description).hint_text("Description").desired_width(remaining).frame(egui::Frame::NONE));
+                let description = ui.add(cell_text(&mut row.description, "Description", remaining));
                 if description.changed() {
                     result.changed = true;
                 }
                 let delete = ui.add(egui::Button::new("x").frame(false).small());
                 if delete.hovered() {
-                    ui.painter().rect_filled(delete.rect, 4.0, theme.palette.surface_sunken);
+                    ui.painter().rect_filled(delete.rect, egui::CornerRadius::same(4), theme.palette.surface_sunken);
                 }
                 if delete.clicked() {
                     remove_index = Some(index);
@@ -129,13 +124,20 @@ pub fn key_value_table(ui: &mut Ui, rows: &mut Vec<KeyValue>, variant: TableVari
         }
     };
 
-    if content_height > max_height {
-        egui::ScrollArea::vertical().max_height(max_height).id_salt("kv-scroll").show_rows(ui, row_height, total, |ui, range| {
-            render_rows(ui, range);
+    egui::Frame::new()
+        .fill(theme.palette.surface)
+        .stroke(egui::Stroke::new(1.0, theme.palette.border))
+        .corner_radius(egui::CornerRadius::same(theme.metrics.radius as u8))
+        .inner_margin(egui::Margin::symmetric(8, 4))
+        .show(ui, |ui| {
+            if content_height > max_height {
+                egui::ScrollArea::vertical().max_height(max_height).id_salt("kv-scroll").show_rows(ui, row_height, total, |ui, range| {
+                    render_rows(ui, range);
+                });
+            } else {
+                render_rows(ui, 0..total);
+            }
         });
-    } else {
-        render_rows(ui, 0..total);
-    }
     if let Some(index) = remove_index
         && index < rows.len()
     {
@@ -157,8 +159,9 @@ pub fn automatic_rows(ui: &mut Ui, rows: &[(String, String)], tooltip: &str) -> 
     let mut response = ui.label(egui::RichText::new("Auto-generated").small().color(theme.palette.text_muted));
     for (name, value) in rows {
         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
             ui.add_space(24.0);
-            ui.label(egui::RichText::new(name).color(theme.palette.text_muted).monospace());
+            ui.label(egui::RichText::new(name).color(theme.palette.text_muted).strong());
             ui.label(egui::RichText::new(value).color(theme.palette.text_muted));
             ui.label(egui::RichText::new("ⓘ").small().color(theme.palette.text_muted)).on_hover_text(tooltip);
         });

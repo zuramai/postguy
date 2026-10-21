@@ -155,13 +155,15 @@ impl RequestBuilder<'_> {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             let methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
-            let method = ui.add(egui::Button::new(
-                RichText::new(method_label(self.draft.method)).color(theme.method_color(method_label(self.draft.method))).strong(),
-            ));
+            let method = ui.add(
+                egui::Button::new(RichText::new(method_label(self.draft.method)).color(theme.method_color(method_label(self.draft.method))).strong())
+                    .min_size(vec2(76.0, theme.metrics.control_height))
+                    .corner_radius(egui::CornerRadius::same(theme.metrics.radius as u8)),
+            );
             egui::Popup::menu(&method).close_behavior(egui::PopupCloseBehavior::CloseOnClick).show(|ui| {
                 for candidate in methods {
                     if ui
-                        .add(egui::Button::new(RichText::new(candidate).color(theme.method_color(candidate))).frame(false).min_size(vec2(90.0, 24.0)))
+                        .add(egui::Button::new(RichText::new(candidate).color(theme.method_color(candidate))).frame(false).min_size(vec2(90.0, 28.0)))
                         .clicked()
                     {
                         if let Some(parsed) = method_from_label(candidate) {
@@ -176,12 +178,13 @@ impl RequestBuilder<'_> {
             let before = self.draft.url.clone();
             let url_width = (ui.available_width() - 160.0).max(120.0);
             let response = ui
-                .allocate_ui(vec2(url_width, ui.spacing().interact_size.y), |ui| {
-                    widgets::variable_field(
+                .allocate_ui(vec2(url_width, theme.metrics.control_height), |ui| {
+                    widgets::variable_field_with(
                         ui,
                         egui::Id::new(("builder-url", self.name.as_str())),
                         &mut self.draft.url,
                         "https://api.example.com/users",
+                        self.variables,
                     )
                 })
                 .inner;
@@ -285,32 +288,15 @@ impl RequestBuilder<'_> {
                 (BuilderTab::Docs, "Docs", !self.description.is_empty(), None),
             ] {
                 let selected = *self.tab == tab;
-                let text = match count {
-                    Some(count) if count > 0 => format!("{label} {count}"),
-                    _ => label.to_string(),
-                };
-                let mut rich = RichText::new(text).color(if selected { theme.palette.text } else { theme.palette.text_muted });
-                if selected {
-                    rich = rich.strong();
-                }
-                let response = ui.add(egui::Button::new(rich).frame(false));
-                if response.clicked() {
+                if sub_tab(ui, theme, label, count, selected, dot).clicked() {
                     *self.tab = tab;
                 }
-                if dot {
-                    let dot_pos = response.rect.right_center() - vec2(2.0, 6.0);
-                    ui.painter().circle_filled(dot_pos, 2.5, theme.palette.success);
-                }
-                if selected {
-                    ui.painter().line_segment(
-                        [egui::pos2(response.rect.left(), response.rect.bottom()), egui::pos2(response.rect.right(), response.rect.bottom())],
-                        egui::Stroke::new(2.0, theme.palette.accent),
-                    );
-                }
             }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(RichText::new("Cookies").small().color(theme.palette.accent));
-            });
+            if ui.available_width() > 96.0 {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(RichText::new("Cookies").small().color(theme.palette.accent));
+                });
+            }
         });
     }
 
@@ -455,7 +441,7 @@ impl RequestBuilder<'_> {
                 let editor = CodeEditor::new(match language {
                     RawLanguage::Json => CodeLanguage::Json,
                     RawLanguage::Xml => CodeLanguage::Xml,
-                    RawLanguage::Html => CodeLanguage::Plain,
+                    RawLanguage::Html => CodeLanguage::Html,
                     RawLanguage::JavaScript => CodeLanguage::JavaScript,
                     RawLanguage::Text => CodeLanguage::Plain,
                 })
@@ -773,6 +759,59 @@ fn bulk_edit(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debug, rows: &mut
         return true;
     }
     false
+}
+
+/// One request sub-tab: sans-serif label, an optional rounded count pill and a "has content"
+/// dot. The accessible label keeps the count (`Headers 3`) so tests and screen readers read the
+/// same string the old text button exposed.
+fn sub_tab(ui: &mut Ui, theme: &Theme, label: &str, count: Option<usize>, selected: bool, dot: bool) -> egui::Response {
+    let text_style = egui::TextStyle::Body.resolve(ui.style());
+    let small_style = egui::TextStyle::Small.resolve(ui.style());
+    let color = if selected { theme.palette.text } else { theme.palette.text_muted };
+    let label_galley = ui.painter().layout_no_wrap(label.to_owned(), text_style, color);
+    let counted = count.filter(|count| *count > 0);
+    let count_galley = counted.map(|count| ui.painter().layout_no_wrap(count.to_string(), small_style, theme.palette.text_muted));
+    let pill = count_galley.as_ref().map_or(0.0, |galley| galley.size().x + 12.0);
+    let pill_gap = if count_galley.is_some() { 6.0 } else { 0.0 };
+    let dot_slot = if dot { 8.0 } else { 0.0 };
+    let width = 16.0 + label_galley.size().x + pill_gap + pill + dot_slot;
+    let (rect, response) = ui.allocate_exact_size(vec2(width, 30.0), egui::Sense::click());
+    let rounding = egui::CornerRadius::same(theme.metrics.radius as u8);
+    if selected {
+        ui.painter().rect_filled(rect, rounding, theme.palette.surface_alt);
+    } else if response.hovered() {
+        ui.painter().rect_filled(rect, rounding, theme.palette.surface_alt.gamma_multiply(0.6));
+    }
+    let mut x = rect.left() + 8.0;
+    let label_height = label_galley.size().y;
+    ui.painter().galley(egui::pos2(x, rect.center().y - label_height / 2.0), label_galley.clone(), color);
+    x += label_galley.size().x + pill_gap;
+    if let Some(galley) = count_galley {
+        let pill_rect =
+            egui::Rect::from_center_size(egui::pos2(x + (galley.size().x + 12.0) / 2.0, rect.center().y), vec2(galley.size().x + 12.0, 18.0));
+        ui.painter().rect_filled(pill_rect, egui::CornerRadius::same(5), theme.palette.surface_sunken);
+        ui.painter().galley(
+            egui::pos2(pill_rect.center().x - galley.size().x / 2.0, rect.center().y - galley.size().y / 2.0),
+            galley,
+            theme.palette.text_muted,
+        );
+        x += pill;
+    }
+    if dot {
+        ui.painter().circle_filled(egui::pos2(x + 3.0, rect.center().y - 6.0), 2.5, theme.palette.success);
+    }
+    if selected {
+        ui.painter().line_segment(
+            [egui::pos2(rect.left() + 6.0, rect.bottom()), egui::pos2(rect.right() - 6.0, rect.bottom())],
+            egui::Stroke::new(2.0, theme.palette.accent),
+        );
+    }
+    let accessible = match counted {
+        Some(count) => format!("{label} {count}"),
+        None => label.to_string(),
+    };
+    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), selected, &accessible));
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 fn rows_to_bulk(rows: &[KeyValue]) -> String {

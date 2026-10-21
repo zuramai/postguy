@@ -31,6 +31,9 @@ struct DemoState {
     viewer: ResponseViewerState,
     import: ImportState,
     export: ExportState,
+    variables: Vec<postguy_ui_egui::widgets::field::VariableInfo>,
+    /// Share of the central panel the request builder gets (1.0 hides the response).
+    builder_share: f32,
 }
 
 impl DemoState {
@@ -67,6 +70,27 @@ impl DemoState {
             tab: BuilderTab::Params,
             import: ImportState::default(),
             export: ExportState::default(),
+            builder_share: 0.46,
+            variables: vec![
+                postguy_ui_egui::widgets::field::VariableInfo {
+                    name: "baseUrl".into(),
+                    value: "https://staging.example.com".into(),
+                    secret: false,
+                    scope: "Environment · Staging".into(),
+                },
+                postguy_ui_egui::widgets::field::VariableInfo {
+                    name: "token".into(),
+                    value: "secret-token-value".into(),
+                    secret: true,
+                    scope: "Environment · Staging".into(),
+                },
+                postguy_ui_egui::widgets::field::VariableInfo {
+                    name: "jwtSecret".into(),
+                    value: "demo-jwt-secret".into(),
+                    secret: true,
+                    scope: "Environment · Staging".into(),
+                },
+            ],
             response: ResponseData {
                 status: 200,
                 status_text: "OK".into(),
@@ -95,7 +119,12 @@ impl DemoState {
                 redirects: 0,
                 proxy: None,
             },
-            viewer: ResponseViewerState::default(),
+            viewer: {
+                let mut viewer = ResponseViewerState::default();
+                // Demonstrate the search-match tint over the syntax-coloured body.
+                viewer.search = "pay_".into();
+                viewer
+            },
         }
     }
 }
@@ -159,6 +188,9 @@ fn demo_data() -> SidebarData {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let out = std::env::args().nth(1).unwrap_or_else(|| "postguy-shell.png".to_string());
     let mode = std::env::args().nth(2).unwrap_or_else(|| "dark".to_string());
+    // `<scene>-light` renders the same scene with the light palette (the plan asks for both).
+    let base = mode.strip_suffix("-light").unwrap_or(mode.as_str()).to_string();
+    let light = mode == "light" || mode.ends_with("-light");
     let mut shell = PostguyShell::new("demo-workspace");
     shell.sidebar_data = demo_data();
     shell.sidebar_state.selected.insert("demo-get".into());
@@ -174,7 +206,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(tab) = shell.tabs.tabs.last_mut() {
         tab.preview = true;
     }
-    if mode == "env" {
+    if base == "env" {
         if let Some(environment) = shell.tabs.tabs.iter().find(|tab| matches!(tab.doc, TabDoc::Environment { .. })) {
             shell.tabs.activate(environment.id);
         }
@@ -207,12 +239,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             detail: None,
         },
     ];
-    shell.state.theme_mode = match mode.as_str() {
-        "light" => postguy_ui_egui::ThemeMode::Light,
-        "system" => postguy_ui_egui::ThemeMode::System,
-        _ => postguy_ui_egui::ThemeMode::Dark,
+    shell.state.theme_mode = if light {
+        postguy_ui_egui::ThemeMode::Light
+    } else if mode == "system" {
+        postguy_ui_egui::ThemeMode::System
+    } else {
+        postguy_ui_egui::ThemeMode::Dark
     };
-    let mut harness = Harness::builder().with_size(egui::vec2(1280.0, 800.0)).wgpu().build_ui_state(
+    let mut harness = Harness::builder().with_size(egui::vec2(1360.0, 900.0)).wgpu().build_ui_state(
         |ui, state: &mut DemoState| {
             let mut panel = |ui: &mut egui::Ui, doc: &TabDoc| match doc {
                 TabDoc::Request { .. } => {
@@ -225,7 +259,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         bodies: &mut state.bodies,
                         dirty: &mut state.dirty,
                         tab: &mut state.tab,
-                        variables: &[],
+                        variables: &state.variables,
                         sending: None,
                         undo_paste: false,
                         inherited_auth: Some("basic"),
@@ -233,14 +267,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         graphql_schema: None,
                     };
                     let total = ui.available_height();
-                    let request_height = (total * 0.52).max(170.0);
+                    let request_height = (total * state.builder_share).max(170.0);
                     let action = ui
                         .allocate_ui_with_layout(egui::vec2(ui.available_width(), request_height), egui::Layout::top_down(egui::Align::Min), |ui| {
                             builder.show(ui)
                         })
                         .inner;
-                    ui.separator();
-                    let _ = response_view(ui, &mut state.response, &mut state.viewer);
+                    if state.builder_share < 0.99 {
+                        ui.separator();
+                        let _ = response_view(ui, &mut state.response, &mut state.viewer);
+                    }
                     action.map(PanelAction::Builder)
                 }
                 TabDoc::Environment { .. } | TabDoc::Globals => {
@@ -265,11 +301,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         {
             let mut demo = DemoState::new(shell);
-            if mode == "export" {
+            if base == "export" {
                 export::open(&mut demo.export, ExportTarget::Collection { id: "demo-collection".into(), name: "Payments API".into() });
             }
-            if mode == "auth" {
+            if base == "auth" {
                 demo.tab = BuilderTab::Authorization;
+                demo.builder_share = 1.0;
                 demo.draft.auth = AuthConfig::Jwt(Box::new(JwtAuth {
                     algorithm: JwtAlgorithm::Hs256,
                     secret: "{{jwtSecret}}".into(),
@@ -277,12 +314,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ..JwtAuth::default()
                 }));
             }
-            if mode == "snippet" {
+            if base == "snippet" {
                 demo.shell.state.right_panel_open = true;
                 demo.shell.snippet.language = Language::Rust;
                 demo.shell.snippet.indent = 4;
             }
-            if mode == "import" {
+            if base == "import" {
                 import::open(&mut demo.import);
                 demo.import.text =
                     "curl -X POST 'https://staging.example.com/payments' -H 'Content-Type: application/json' -d '{\"amount\":2500}'".into();

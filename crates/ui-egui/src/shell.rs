@@ -126,7 +126,7 @@ impl PostguyShell {
     /// globals editor). Returns the panel's action so the app can save/send.
     pub fn ui_with(&mut self, ui: &mut egui::Ui, mut content_panel: Option<ContentPanel<'_>>) -> Option<PanelAction> {
         let ctx = ui.ctx().clone();
-        let theme = Theme::from_context(&ctx, self.state.theme_mode);
+        let theme = Theme::from_context(&ctx, self.state.theme_mode).with_code_font(self.settings_value.editor_font_size);
         theme.install(&ctx);
         let metrics = theme.metrics;
 
@@ -206,18 +206,21 @@ impl PostguyShell {
         }
         if self.state.right_panel_open {
             egui::Panel::right("snippet-panel").exact_size(metrics.right_panel).resizable(true).show(ui, |ui| {
-                if let Some(request) = self.snippet_request.clone() {
-                    snippet_panel(ui, &request, &mut self.snippet);
-                } else {
-                    ui.heading("Code snippet");
-                    ui.separator();
-                    ui.label(RichText::new("Open a request to see its generated code.").color(theme.palette.text_muted));
-                }
+                egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(12, 10)).show(ui, |ui| {
+                    if let Some(request) = self.snippet_request.clone() {
+                        snippet_panel(ui, &request, &mut self.snippet);
+                    } else {
+                        ui.heading("Code snippet");
+                        ui.separator();
+                        ui.label(RichText::new("Open a request to see its generated code.").color(theme.palette.text_muted));
+                    }
+                });
             });
         }
         let active = self.tabs.active_tab().cloned();
         let mut builder_action = None;
-        egui::CentralPanel::default().show(ui, |ui| match active {
+        let central = egui::CentralPanel::default().frame(egui::Frame::central_panel(ui.style()).inner_margin(egui::Margin::symmetric(16, 12)));
+        central.show(ui, |ui| match active {
             None => self.welcome(ui, &theme),
             Some(tab) => match &tab.doc {
                 TabDoc::Welcome => self.welcome(ui, &theme),
@@ -268,28 +271,33 @@ impl PostguyShell {
 
     fn header(&mut self, ui: &mut egui::Ui, theme: &Theme) {
         egui::Panel::top("header").exact_size(theme.metrics.header_height).show(ui, |ui| {
-            ui.horizontal_centered(|ui| {
-                ui.spacing_mut().item_spacing.x = 6.0;
-                ui.add_enabled_ui(false, |ui| {
-                    widgets::icon_button(ui, "arrow-left", "Back");
-                    widgets::icon_button(ui, "arrow-right", "Forward");
-                });
-                ui.separator();
-                let workspace = ui.add(egui::Button::new(RichText::new(&self.workspace_label).strong()).frame(false));
-                workspace.on_hover_text("Open Workspace… (M3.2)");
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let settings = widgets::icon_button(ui, "settings", "Settings");
-                    if settings.clicked() {
-                        self.tabs.open(TabDoc::Settings, "Settings");
-                    }
-                    let search = ui.add_sized(
-                        [260.0, 22.0],
-                        egui::Button::new(RichText::new("Search or run a command…").color(theme.palette.text_muted)).frame(true),
-                    );
-                    if search.clicked() {
-                        self.palette.open = true;
-                    }
-                    search.on_hover_text("Command palette (Cmd/Ctrl+K)");
+            egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(12, 6)).show(ui, |ui| {
+                ui.horizontal_centered(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    ui.add_enabled_ui(false, |ui| {
+                        widgets::icon_button(ui, "arrow-left", "Back");
+                        widgets::icon_button(ui, "arrow-right", "Forward");
+                    });
+                    ui.separator();
+                    let workspace = ui.add(egui::Button::new(RichText::new(&self.workspace_label).strong()).frame(false));
+                    workspace.on_hover_text("Open Workspace… (M3.2)");
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        let settings = widgets::icon_button(ui, "settings", "Settings");
+                        if settings.clicked() {
+                            self.tabs.open(TabDoc::Settings, "Settings");
+                        }
+                        let search = ui.add_sized(
+                            [320.0, 28.0],
+                            egui::Button::new(RichText::new("Search or run a command…").color(theme.palette.text_muted))
+                                .frame(true)
+                                .fill(theme.palette.surface_sunken)
+                                .corner_radius(egui::CornerRadius::same(theme.metrics.radius as u8)),
+                        );
+                        if search.clicked() {
+                            self.palette.open = true;
+                        }
+                        search.on_hover_text("Command palette (Cmd/Ctrl+K)");
+                    });
                 });
             });
         });
@@ -297,8 +305,10 @@ impl PostguyShell {
 
     fn sidebar(&mut self, ui: &mut egui::Ui, theme: &Theme) {
         egui::Panel::left("sidebar").default_size(theme.metrics.sidebar_default).resizable(true).show(ui, |ui| {
-            let data = &self.sidebar_data;
-            self.action = self.sidebar.show(ui, &mut self.sidebar_state, data);
+            egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
+                let data = &self.sidebar_data;
+                self.action = self.sidebar.show(ui, &mut self.sidebar_state, data);
+            });
         });
     }
 
@@ -310,31 +320,34 @@ impl PostguyShell {
 
     fn bottom_bar(&mut self, ui: &mut egui::Ui, theme: &Theme) {
         egui::Panel::bottom("bottom-bar").exact_size(theme.metrics.bottom_bar_height).show(ui, |ui| {
-            ui.horizontal_centered(|ui| {
-                if ui.add(egui::Button::new("Sidebar").frame(false)).clicked() {
-                    self.state.sidebar_open = !self.state.sidebar_open;
-                }
-                if ui.add(egui::Button::new("Console").frame(false)).clicked() {
-                    self.state.console_open = !self.state.console_open;
-                }
-                if ui.add(egui::Button::new("Cookies").frame(false)).clicked() {
-                    self.tabs.open(TabDoc::Cookies, "Cookies");
-                }
-                if ui.add(egui::Button::new("Globals").frame(false)).clicked() {
-                    self.tabs.open(TabDoc::Globals, "Globals");
-                }
-                if ui.add(egui::Button::new("Trash").frame(false)).clicked() {
-                    self.tabs.open(TabDoc::Trash, "Trash");
-                }
-                ui.label("Runner");
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label(RichText::new(&self.state.status).small().color(theme.palette.text_muted));
-                    if ui.add(egui::Button::new("Right").frame(false).selected(self.state.right_panel_open)).clicked() {
-                        self.state.right_panel_open = !self.state.right_panel_open;
+            egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(12, 2)).show(ui, |ui| {
+                ui.horizontal_centered(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    if ui.add(egui::Button::new("Sidebar").frame(false)).clicked() {
+                        self.state.sidebar_open = !self.state.sidebar_open;
                     }
-                    if ui.add(egui::Button::new("Two-pane").frame(false).selected(self.state.two_pane)).clicked() {
-                        self.state.two_pane = !self.state.two_pane;
+                    if ui.add(egui::Button::new("Console").frame(false)).clicked() {
+                        self.state.console_open = !self.state.console_open;
                     }
+                    if ui.add(egui::Button::new("Cookies").frame(false)).clicked() {
+                        self.tabs.open(TabDoc::Cookies, "Cookies");
+                    }
+                    if ui.add(egui::Button::new("Globals").frame(false)).clicked() {
+                        self.tabs.open(TabDoc::Globals, "Globals");
+                    }
+                    if ui.add(egui::Button::new("Trash").frame(false)).clicked() {
+                        self.tabs.open(TabDoc::Trash, "Trash");
+                    }
+                    ui.label("Runner");
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(RichText::new(&self.state.status).small().color(theme.palette.text_muted));
+                        if ui.add(egui::Button::new("Right").frame(false).selected(self.state.right_panel_open)).clicked() {
+                            self.state.right_panel_open = !self.state.right_panel_open;
+                        }
+                        if ui.add(egui::Button::new("Two-pane").frame(false).selected(self.state.two_pane)).clicked() {
+                            self.state.two_pane = !self.state.two_pane;
+                        }
+                    });
                 });
             });
         });

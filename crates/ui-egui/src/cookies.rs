@@ -70,12 +70,9 @@ pub fn cookie_manager(ui: &mut Ui, data: &CookieData, state: &mut CookieState) -
             needle.is_empty() || cookie.domain.to_ascii_lowercase().contains(&needle) || cookie.name.to_ascii_lowercase().contains(&needle)
         }) {
             ui.horizontal(|ui| {
-                ui.add_sized([150.0, 20.0], egui::Label::new(RichText::new(&cookie.domain).monospace().color(theme.palette.text)));
-                ui.add_sized([150.0, 20.0], egui::Label::new(RichText::new(&cookie.name).monospace().color(theme.palette.text)));
-                ui.add_sized(
-                    [220.0, 20.0],
-                    egui::Label::new(RichText::new(&cookie.value).monospace().small().color(theme.palette.text_muted)).truncate(),
-                );
+                ui.add_sized([150.0, 20.0], egui::Label::new(RichText::new(&cookie.domain).strong().color(theme.palette.text)));
+                ui.add_sized([150.0, 20.0], egui::Label::new(RichText::new(&cookie.name).strong().color(theme.palette.text)));
+                ui.add_sized([220.0, 20.0], egui::Label::new(RichText::new(&cookie.value).small().color(theme.palette.text_muted)).truncate());
                 let flags = format!(
                     "{}{}{}",
                     if cookie.secure { "S" } else { "-" },
@@ -85,7 +82,7 @@ pub fn cookie_manager(ui: &mut Ui, data: &CookieData, state: &mut CookieState) -
                         None => "-",
                     }
                 );
-                ui.add_sized([90.0, 20.0], egui::Label::new(RichText::new(flags).monospace().small().color(theme.palette.text_muted)))
+                ui.add_sized([90.0, 20.0], egui::Label::new(RichText::new(flags).small().color(theme.palette.text_muted)))
                     .on_hover_text("S = Secure · H = HttpOnly · T = expires · S(session)");
                 ui.label(RichText::new(&cookie.path).small().color(theme.palette.text_muted));
                 if widgets::icon_button(ui, "x", "Delete cookie").clicked() {
@@ -115,7 +112,7 @@ pub fn cookie_manager(ui: &mut Ui, data: &CookieData, state: &mut CookieState) -
     });
     for domain in &data.allowlist {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(domain).monospace());
+            ui.label(RichText::new(domain));
             if ui.add(egui::Button::new("x").frame(false).small()).clicked() {
                 action = Some(CookieAction::Disallow(domain.clone()));
             }

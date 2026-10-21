@@ -39,12 +39,25 @@ impl EnvironmentEditor<'_> {
         let mut changed = false;
         ui.horizontal(|ui| {
             self.color_dot(ui, &theme, &mut changed);
-            let name = ui.add(egui::TextEdit::singleline(&mut self.environment.name).frame(egui::Frame::NONE).font(egui::TextStyle::Heading));
+            let name = ui.add(
+                egui::TextEdit::singleline(&mut self.environment.name).frame(egui::Frame::NONE).font(egui::TextStyle::Heading).desired_width(240.0),
+            );
             name.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Environment name"));
             if name.changed() {
                 changed = true;
             }
-            ui.add_sized([220.0, 22.0], egui::TextEdit::singleline(self.search).hint_text("Search variables…"));
+        });
+        // The search and the view toggles get their own row so neither can overlap the name when
+        // the panel is narrow (a single row overlapped at the default width).
+        ui.horizontal(|ui| {
+            ui.add_sized([190.0, 26.0], egui::TextEdit::singleline(self.search).hint_text("Search variables…"));
+            let mut show = *self.show_description;
+            if widgets::checkbox(ui, &mut show, "Description").changed() {
+                *self.show_description = show;
+            }
+            if ui.add(egui::Button::new("Reveal secrets").selected(*self.reveal)).clicked() {
+                *self.reveal = !*self.reveal;
+            }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if self.globals {
                     ui.label(RichText::new("Globals").small().color(theme.palette.text_muted));
@@ -63,13 +76,6 @@ impl EnvironmentEditor<'_> {
                             action = Some(EnvironmentAction::Delete);
                         }
                     });
-                }
-                if ui.add(egui::Button::new("Reveal secrets").selected(*self.reveal)).clicked() {
-                    *self.reveal = !*self.reveal;
-                }
-                let mut show = *self.show_description;
-                if widgets::checkbox(ui, &mut show, "Description").changed() {
-                    *self.show_description = show;
                 }
             });
         });
@@ -281,7 +287,8 @@ pub fn variable_quick_look(ui: &mut Ui, groups: &[VariableGroup]) {
             ui.label(RichText::new(&group.title).small().color(theme.palette.text_muted));
             for (name, value, secret) in &group.variables {
                 ui.horizontal(|ui| {
-                    ui.add_sized([140.0, 20.0], egui::Label::new(RichText::new(name).monospace().color(theme.palette.text)));
+                    ui.set_height(32.0);
+                    ui.add_sized([140.0, 24.0], egui::Label::new(RichText::new(name).strong().color(theme.palette.text)));
                     let shown = if *secret && !reveal { "••••••".to_string() } else { value.clone() };
                     let label = ui.add(egui::Label::new(RichText::new(&shown).small().color(theme.palette.text_muted)).truncate());
                     label.clone().on_hover_text("Click to copy");

@@ -33,15 +33,15 @@ impl SnippetPanelState {
     }
 }
 
-/// The right-panel widget: language menu, options, copy button and generated text.
+/// The right-panel widget: language menu, options, copy button and the syntax-coloured text.
 pub fn snippet_panel(ui: &mut Ui, request: &HttpRequest, state: &mut SnippetPanelState) {
     let theme = Theme::current(ui.ctx());
+    let text = generate(state.language, request, state.options());
     ui.heading("Code snippet");
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let text = generate(state.language, request, state.options());
             if ui.button("Copy").clicked() {
-                ui.ctx().copy_text(text);
+                ui.ctx().copy_text(text.clone());
             }
             let mut chosen = Some(state.language.label().to_string());
             let groups = [widgets::SelectGroup {
@@ -70,7 +70,21 @@ pub fn snippet_panel(ui: &mut Ui, request: &HttpRequest, state: &mut SnippetPane
     });
     ui.separator();
     let mut text = generate(state.language, request, state.options());
-    let response = ui.add(egui::TextEdit::multiline(&mut text).code_editor().desired_width(f32::INFINITY).desired_rows(24).interactive(false));
+    let editor = widgets::CodeEditor::new(code_language(state.language)).rows(20).read_only(true).id(egui::Id::new("snippet-editor"));
+    let response = editor.show(ui, &mut text);
     response.on_hover_text("Variables are shown unresolved here; the Console shows the resolved URL.");
     ui.label(RichText::new(state.language.label()).small().color(theme.palette.text_muted));
+}
+
+/// Which token rules a generated snippet gets.
+fn code_language(language: Language) -> widgets::CodeLanguage {
+    match language {
+        Language::Curl => widgets::CodeLanguage::Shell,
+        Language::RawHttp => widgets::CodeLanguage::Http,
+        Language::Fetch | Language::NodeAxios => widgets::CodeLanguage::JavaScript,
+        Language::PythonRequests => widgets::CodeLanguage::Python,
+        Language::Go => widgets::CodeLanguage::Go,
+        Language::Rust => widgets::CodeLanguage::Rust,
+        Language::PowerShell => widgets::CodeLanguage::PowerShell,
+    }
 }

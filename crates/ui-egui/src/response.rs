@@ -11,7 +11,7 @@ use std::sync::Arc;
 use egui::{Align, Layout, RichText, ScrollArea, Ui};
 
 use crate::theme::Theme;
-use crate::widgets::{self, LargeTextView, menu_item};
+use crate::widgets::{self, CodeLanguage, LargeTextView, menu_item};
 
 /// Everything the viewer shows for one finished response (mapped by the app from the engine's
 /// cached send; this crate does not depend on the engine).
@@ -69,11 +69,22 @@ pub struct ResponseViewerState {
     /// Cache of the UTF-8 body for Raw/Preview, keyed by the response revision so a new send
     /// invalidates it without hashing 10 MB every frame.
     raw: Option<(u64, Arc<str>)>,
+    /// The virtualised viewer for (revision, mode, language). Rebuilding it rescans the whole
+    /// body for line starts, so it is kept until the body or the mode changes.
+    view_cache: Option<(u64, BodyMode, CodeLanguage, LargeTextView)>,
 }
 
 impl Default for ResponseViewerState {
     fn default() -> Self {
-        ResponseViewerState { tab: ResponseTab::Body, mode: BodyMode::Pretty, search: String::new(), wrap: false, pretty: None, raw: None }
+        ResponseViewerState {
+            tab: ResponseTab::Body,
+            mode: BodyMode::Pretty,
+            search: String::new(),
+            wrap: false,
+            pretty: None,
+            raw: None,
+            view_cache: None,
+        }
     }
 }
 
@@ -216,7 +227,10 @@ pub fn response_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseV
                 ui.label(format!("Download: {}", data.download_ms));
                 ui.label(format!("Total: {}", data.total_ms));
             });
-            let status = ui.label(RichText::new(format!("{} {}", data.status, data.status_text)).color(theme.status_color(data.status)).strong());
+            let status_color = theme.status_color(data.status);
+            let status_text =
+                if data.status_text.trim().is_empty() { data.status.to_string() } else { format!("{} {}", data.status, data.status_text.trim()) };
+            let status = widgets::badge(ui, &status_text, status_color, status_color.gamma_multiply(0.16));
             status.on_hover_ui(|ui| {
                 ui.label(format!("{} · {} redirect(s)", data.http_version, data.redirects));
                 if let Some(proxy) = &data.proxy {
@@ -298,8 +312,24 @@ fn body_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseViewerSta
     }
     match rendered {
         Some(text) => {
-            let view = LargeTextView::new(text).id(egui::Id::new(("response-body", state.mode as u8))).wrap(state.wrap);
-            let _ = view.show(ui);
+            let language = detected_language(data);
+            let cached = matches!(
+                &state.view_cache,
+                Some((revision, mode, cached_language, _))
+                    if *revision == data.revision && *mode == state.mode && *cached_language == language
+            );
+            if !cached {
+                state.view_cache = Some((data.revision, state.mode, language, LargeTextView::new(text.clone())));
+            }
+            let shown = if state.mode == BodyMode::Raw && data.body.len() > PRETTY_CAP { CodeLanguage::Plain } else { language };
+            let (id, wrap, search) = (egui::Id::new(("response-body", state.mode as u8)), state.wrap, state.search.clone());
+            if let Some((_, _, _, view)) = state.view_cache.as_mut() {
+                view.id = id;
+                view.wrap = wrap;
+                view.language = shown;
+                view.search = search;
+                let _ = view.show(ui);
+            }
         }
         None => {
             ui.add_space(12.0);
@@ -319,9 +349,11 @@ fn body_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseViewerSta
 fn headers_view(ui: &mut Ui, data: &ResponseData, theme: &Theme) {
     ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         for (name, value) in &data.headers {
-            ui.horizontal(|ui| {
-                ui.add_sized([180.0, 20.0], egui::Label::new(RichText::new(name).monospace().color(theme.palette.text_muted)));
-                ui.add(egui::Label::new(RichText::new(value).monospace().color(theme.palette.text)).selectable(true));
+            egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add_sized([180.0, 20.0], egui::Label::new(RichText::new(name).strong().color(theme.palette.text_muted)));
+                    ui.add(egui::Label::new(RichText::new(value).color(theme.palette.text)).selectable(true));
+                });
             });
         }
     });
@@ -336,10 +368,12 @@ fn cookies_view(ui: &mut Ui, data: &ResponseData, theme: &Theme) {
     }
     ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         for row in rows {
-            ui.horizontal(|ui| {
-                ui.add_sized([160.0, 20.0], egui::Label::new(RichText::new(row.name).monospace().color(theme.palette.text)));
-                ui.add_sized([220.0, 20.0], egui::Label::new(RichText::new(row.value).monospace().color(theme.palette.text)).truncate());
-                ui.label(RichText::new(row.attributes).small().color(theme.palette.text_muted));
+            egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add_sized([160.0, 20.0], egui::Label::new(RichText::new(row.name).strong().color(theme.palette.text)));
+                    ui.add_sized([220.0, 20.0], egui::Label::new(RichText::new(row.value).color(theme.palette.text)).truncate());
+                    ui.label(RichText::new(row.attributes).small().color(theme.palette.text_muted));
+                });
             });
         }
     });
@@ -390,16 +424,27 @@ fn text_for_search(data: &ResponseData, state: &ResponseViewerState) -> Option<S
     }
 }
 
-fn language_label(data: &ResponseData) -> &'static str {
+/// The syntax the body should be coloured with, from the content type and the first byte.
+fn detected_language(data: &ResponseData) -> CodeLanguage {
+    let content_type = data.content_type().unwrap_or_default();
     if data.looks_json() {
-        "JSON"
-    } else if data.content_type().is_some_and(|value| value.contains("xml")) {
-        "XML"
-    } else if data.content_type().is_some_and(|value| value.contains("html")) {
-        "HTML"
+        CodeLanguage::Json
+    } else if content_type.contains("xml") {
+        CodeLanguage::Xml
+    } else if content_type.contains("html") {
+        CodeLanguage::Html
+    } else if content_type.contains("javascript") {
+        CodeLanguage::JavaScript
+    } else if content_type.contains("yaml") {
+        CodeLanguage::Yaml
     } else {
-        "Text"
+        CodeLanguage::Plain
     }
+}
+
+/// The language chip label in the body toolbar.
+fn language_label(data: &ResponseData) -> &'static str {
+    detected_language(data).label()
 }
 
 fn is_image(content_type: &str) -> bool {
@@ -527,25 +572,30 @@ pub fn error_view(ui: &mut Ui, error: &SendErrorView) -> bool {
     let theme = Theme::current(ui.ctx());
     let mut retry = false;
     ui.add_space(12.0);
-    egui::Frame::new().fill(theme.palette.surface_alt).stroke(egui::Stroke::new(1.0, theme.palette.border)).inner_margin(12).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Could not send request").color(theme.palette.danger).strong());
-            ui.label(RichText::new(error.kind()).small().color(theme.palette.danger));
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(RichText::new(format!("{} ms", error.elapsed_ms)).small().color(theme.palette.text_muted));
-                if ui.add(egui::Button::new("Copy error").frame(false)).clicked() {
-                    ui.ctx().copy_text(format!("{}: {}", error.kind(), error.message));
-                }
+    egui::Frame::new()
+        .fill(theme.palette.surface_alt)
+        .stroke(egui::Stroke::new(1.0, theme.palette.border))
+        .corner_radius(egui::CornerRadius::same(theme.metrics.card_radius as u8))
+        .inner_margin(16)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Could not send request").color(theme.palette.danger).strong());
+                ui.label(RichText::new(error.kind()).small().color(theme.palette.danger));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(RichText::new(format!("{} ms", error.elapsed_ms)).small().color(theme.palette.text_muted));
+                    if ui.add(egui::Button::new("Copy error").frame(false)).clicked() {
+                        ui.ctx().copy_text(format!("{}: {}", error.kind(), error.message));
+                    }
+                });
             });
+            ui.add_space(6.0);
+            ui.add(egui::Label::new(RichText::new(&error.message).monospace().color(theme.palette.text)).selectable(true).wrap());
+            ui.add_space(8.0);
+            ui.label(RichText::new("Check the URL, network connection, proxy and TLS settings, then retry.").small().color(theme.palette.text_muted));
+            ui.add_space(6.0);
+            if ui.add(egui::Button::new("Retry")).clicked() {
+                retry = true;
+            }
         });
-        ui.add_space(6.0);
-        ui.add(egui::Label::new(RichText::new(&error.message).monospace().color(theme.palette.text)).selectable(true).wrap());
-        ui.add_space(8.0);
-        ui.label(RichText::new("Check the URL, network connection, proxy and TLS settings, then retry.").small().color(theme.palette.text_muted));
-        ui.add_space(6.0);
-        if ui.add(egui::Button::new("Retry")).clicked() {
-            retry = true;
-        }
-    });
     retry
 }

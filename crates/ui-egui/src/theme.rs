@@ -100,7 +100,10 @@ pub struct Metrics {
     pub row_height: f32,
     pub control_height: f32,
     pub radius: f32,
+    pub card_radius: f32,
     pub ui_font: f32,
+    pub small_font: f32,
+    pub heading_font: f32,
     pub code_font: f32,
     pub stroke: f32,
     pub icon: f32,
@@ -109,17 +112,20 @@ pub struct Metrics {
 impl Default for Metrics {
     fn default() -> Self {
         Metrics {
-            header_height: 32.0,
-            bottom_bar_height: 26.0,
-            sidebar_default: 260.0,
-            right_panel: 320.0,
-            row_height: 26.0,
-            control_height: 26.0,
+            header_height: 46.0,
+            bottom_bar_height: 36.0,
+            sidebar_default: 300.0,
+            right_panel: 340.0,
+            row_height: 32.0,
+            control_height: 32.0,
             radius: 6.0,
-            ui_font: 13.0,
-            code_font: 12.5,
+            card_radius: 8.0,
+            ui_font: 14.5,
+            small_font: 12.5,
+            heading_font: 20.0,
+            code_font: 13.5,
             stroke: 1.5,
-            icon: 15.0,
+            icon: 16.0,
         }
     }
 }
@@ -185,6 +191,8 @@ impl Theme {
     pub fn apply(&self, ctx: &Context) {
         let palette = self.palette;
         let metrics = self.metrics;
+        let control_rounding = egui::CornerRadius::same(metrics.radius as u8);
+        let card_rounding = egui::CornerRadius::same(metrics.card_radius as u8);
         let egui_theme = if self.dark { egui::Theme::Dark } else { egui::Theme::Light };
         let mut style = (*ctx.style_of(egui_theme)).clone();
         let mut visuals = if self.dark { Visuals::dark() } else { Visuals::light() };
@@ -196,33 +204,48 @@ impl Theme {
         visuals.window_stroke = Stroke::new(1.0, palette.border);
         visuals.widgets.noninteractive.bg_fill = palette.surface;
         visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, palette.border);
+        visuals.widgets.noninteractive.corner_radius = control_rounding;
         visuals.widgets.inactive.bg_fill = palette.surface_alt;
         visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, palette.border);
+        visuals.widgets.inactive.corner_radius = control_rounding;
         visuals.widgets.hovered.bg_fill = palette.surface_sunken;
         visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, palette.border);
+        visuals.widgets.hovered.corner_radius = control_rounding;
         visuals.widgets.active.bg_fill = palette.surface_sunken;
         visuals.widgets.active.bg_stroke = Stroke::new(1.0, palette.accent);
+        visuals.widgets.active.corner_radius = control_rounding;
+        visuals.widgets.open.bg_fill = palette.surface_sunken;
+        visuals.widgets.open.bg_stroke = Stroke::new(1.0, palette.accent);
+        visuals.widgets.open.corner_radius = control_rounding;
         visuals.selection.bg_fill = palette.accent.gamma_multiply(0.22);
         visuals.selection.stroke = Stroke::new(1.0, palette.accent);
         visuals.hyperlink_color = palette.accent;
         visuals.warn_fg_color = palette.warning;
         visuals.error_fg_color = palette.danger;
-        visuals.window_corner_radius = egui::CornerRadius::same(metrics.radius as u8);
-        visuals.menu_corner_radius = egui::CornerRadius::same(metrics.radius as u8);
+        visuals.window_corner_radius = card_rounding;
+        visuals.menu_corner_radius = card_rounding;
         style.visuals = visuals;
-        style.spacing.item_spacing = egui::vec2(8.0, 6.0);
-        style.spacing.button_padding = egui::vec2(10.0, 4.0);
-        style.spacing.interact_size.y = metrics.control_height;
+        style.spacing.item_spacing = egui::vec2(10.0, 8.0);
+        style.spacing.button_padding = egui::vec2(12.0, 6.0);
+        style.spacing.window_margin = egui::Margin::same(14);
+        style.spacing.menu_margin = egui::Margin::same(6);
+        style.spacing.interact_size = egui::vec2(44.0, metrics.control_height);
         style.spacing.scroll.bar_width = 8.0;
         style.text_styles = [
-            (TextStyle::Heading, FontId::new(18.0, FontFamily::Proportional)),
+            (TextStyle::Heading, FontId::new(metrics.heading_font, FontFamily::Proportional)),
             (TextStyle::Body, FontId::new(metrics.ui_font, FontFamily::Proportional)),
             (TextStyle::Button, FontId::new(metrics.ui_font, FontFamily::Proportional)),
-            (TextStyle::Small, FontId::new(11.0, FontFamily::Proportional)),
+            (TextStyle::Small, FontId::new(metrics.small_font, FontFamily::Proportional)),
             (TextStyle::Monospace, FontId::new(metrics.code_font, FontFamily::Monospace)),
         ]
         .into();
         ctx.set_style_of(egui_theme, style);
+    }
+
+    /// Use the user's editor font size for code surfaces (settings > editor font size).
+    pub fn with_code_font(mut self, size: f32) -> Self {
+        self.metrics.code_font = size.clamp(9.0, 24.0);
+        self
     }
 
     /// Method text colour (universal REST conventions, PROMPT.md 6.7).
@@ -312,5 +335,35 @@ mod tests {
         assert_eq!(theme.status_color(302), theme.palette.info);
         assert_eq!(theme.status_color(404), theme.palette.danger);
         assert_eq!(theme.status_color(503), theme.palette.danger);
+    }
+
+    #[test]
+    fn both_modes_install_a_larger_sans_serif_type_scale_and_rounded_controls() {
+        for mode in [ThemeMode::Light, ThemeMode::Dark] {
+            let context = egui::Context::default();
+            Theme::resolve(mode).install(&context);
+            let dark = mode == ThemeMode::Dark;
+            let style = context.style_of(if dark { egui::Theme::Dark } else { egui::Theme::Light });
+            for text_style in [TextStyle::Heading, TextStyle::Body, TextStyle::Button, TextStyle::Small] {
+                let font = style.text_styles.get(&text_style).cloned().unwrap_or_else(|| panic!("{text_style:?} is installed"));
+                assert_eq!(font.family, FontFamily::Proportional, "{text_style:?} is sans-serif in {mode:?}");
+                assert!(font.size >= 12.0, "{text_style:?} is at least 12 px in {mode:?}");
+            }
+            let body = style.text_styles.get(&TextStyle::Body).cloned().unwrap_or_else(|| panic!("body is installed"));
+            assert!(body.size >= 14.0, "body is at least 14 px in {mode:?}");
+            let mono = style.text_styles.get(&TextStyle::Monospace).cloned().unwrap_or_else(|| panic!("monospace is installed"));
+            assert_eq!(mono.family, FontFamily::Monospace, "code stays monospace in {mode:?}");
+            assert!(style.spacing.interact_size.y >= 32.0, "controls are at least 32 px tall in {mode:?}");
+            assert!(style.visuals.widgets.inactive.corner_radius.nw > 0, "controls are rounded in {mode:?}");
+            assert!(style.visuals.window_corner_radius.nw > 0, "windows are rounded in {mode:?}");
+        }
+    }
+
+    #[test]
+    fn the_editor_font_size_overrides_the_code_scale_within_bounds() {
+        let theme = Theme::resolve(ThemeMode::Dark).with_code_font(18.0);
+        assert!((theme.metrics.code_font - 18.0).abs() < f32::EPSILON);
+        assert!((theme.clone().with_code_font(1.0).metrics.code_font - 9.0).abs() < f32::EPSILON);
+        assert!((theme.with_code_font(999.0).metrics.code_font - 24.0).abs() < f32::EPSILON);
     }
 }

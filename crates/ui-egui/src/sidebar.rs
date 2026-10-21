@@ -488,11 +488,11 @@ impl Sidebar {
         let hovered = response.hovered();
         let selected = state.selected.contains(&row.id);
         if selected {
-            ui.painter().rect_filled(rect, 4.0, theme.palette.accent.gamma_multiply(0.16));
+            ui.painter().rect_filled(rect, egui::CornerRadius::same(theme.metrics.radius as u8), theme.palette.accent.gamma_multiply(0.16));
         } else if hovered {
-            ui.painter().rect_filled(rect, 4.0, theme.palette.surface_alt);
+            ui.painter().rect_filled(rect, egui::CornerRadius::same(theme.metrics.radius as u8), theme.palette.surface_alt);
         }
-        let mut x = rect.left() + 4.0 + row.depth as f32 * 12.0;
+        let mut x = rect.left() + 8.0 + row.depth as f32 * 14.0;
 
         // Caret (collections, folders, requests with examples).
         if row.has_children {
@@ -525,7 +525,7 @@ impl Sidebar {
                 egui::TextStyle::Small.resolve(ui.style()),
                 theme.method_color(method),
             );
-            x += 34.0;
+            x += 42.0;
         } else {
             let icon_rect = egui::Rect::from_center_size(egui::pos2(x + 6.0, rect.center().y), egui::Vec2::splat(13.0));
             icons::paint(ui.painter(), icon_rect, row.kind.icon(), theme.palette.text_muted, 1.4);
@@ -533,8 +533,8 @@ impl Sidebar {
         }
 
         let label_color = if row.active { theme.palette.accent } else { theme.palette.text };
-        let available_label = (rect.right() - x - 56.0).max(20.0);
-        let clipped = truncate(&row.label, available_label, 6.5);
+        let available_label = (rect.right() - x - 44.0).max(20.0);
+        let clipped = truncate(&row.label, available_label, 7.5);
         paint_highlighted_name(ui, egui::pos2(x, rect.center().y), &clipped, label_color, &state.filter, theme);
         if row.active {
             ui.painter().circle_filled(egui::pos2(rect.right() - 10.0, rect.center().y), 3.0, theme.palette.accent);
@@ -983,7 +983,7 @@ fn rename_item(ui: &mut Ui, state: &mut SidebarState, row: &SidebarRow, action: 
 }
 
 /// Row height (PROMPT.md 5.1: ~26 px).
-pub const ROW_HEIGHT: f32 = 26.0;
+pub const ROW_HEIGHT: f32 = 30.0;
 
 /// Flatten the workspace into visible rows in tree order. Filtering keeps parents of matches
 /// visible and expands nothing on its own (the caller can expand matches).

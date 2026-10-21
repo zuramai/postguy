@@ -85,7 +85,7 @@ impl Default for Settings {
             two_pane_layout: false,
             variable_autocomplete: true,
             autosave: false,
-            editor_font_size: 12.5,
+            editor_font_size: 13.5,
             editor_indent_json: 2,
             editor_indent_other: 4,
             editor_spaces: true,
@@ -315,7 +315,7 @@ fn four_value() -> u32 {
 }
 
 fn editor_font_size() -> f32 {
-    12.5
+    13.5
 }
 
 fn history_cap() -> usize {
@@ -335,7 +335,7 @@ mod tests {
         assert!(settings.send_no_cache_header);
         assert!(!settings.autosave);
         assert!(!settings.allow_files_outside_working_directory);
-        assert_eq!(settings.editor_font_size, 12.5);
+        assert_eq!(settings.editor_font_size, 13.5);
         assert_eq!(settings.history_cap, 5000);
         assert_eq!(settings.theme, Theme::System);
     }

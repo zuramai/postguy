@@ -47,12 +47,26 @@ pub fn variable_field(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str) 
     variable_field_with(ui, id, text, hint, &[])
 }
 
+/// The colours a `{{var}}` chip is painted with: resolved names take the accent tint, dynamic
+/// `$names` the patch tint, and anything not in a visible scope the danger tint (so a broken URL
+/// reads as broken before Send).
+pub fn chip_tint(name: &str, variables: &[VariableInfo], palette: &crate::theme::Palette) -> (egui::Color32, egui::Color32) {
+    if variables.iter().any(|variable| variable.name == name) {
+        (palette.accent, palette.accent.gamma_multiply(0.15))
+    } else if name.starts_with('$') {
+        (palette.patch, palette.patch.gamma_multiply(0.15))
+    } else {
+        (palette.danger, palette.danger.gamma_multiply(0.15))
+    }
+}
+
 /// The same field with variable metadata: hovering a `{{chip}}` explains its scope and value
 /// (secrets masked unless Cmd/Ctrl is held).
 pub fn variable_field_with(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str, variables: &[VariableInfo]) -> Response {
     let theme = Theme::current(ui.ctx());
     let palette = theme.palette;
     let font = FontId::proportional(theme.metrics.ui_font);
+    let scoped: Vec<VariableInfo> = variables.to_vec();
     let mut layouter = move |ui: &Ui, buffer: &dyn egui::TextBuffer, wrap_width: f32| {
         let text = buffer.as_str();
         let mut job = LayoutJob::default();
@@ -63,11 +77,9 @@ pub fn variable_field_with(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &
             if start > cursor {
                 job.append(&text[cursor..start], 0.0, TextFormat { font_id: font.clone(), color: palette.text, ..Default::default() });
             }
-            job.append(
-                text.get(start..end).unwrap_or_default(),
-                0.0,
-                TextFormat { font_id: font.clone(), color: palette.accent, background: palette.accent.gamma_multiply(0.12), ..Default::default() },
-            );
+            let name = text.get(start + 2..end.saturating_sub(2)).unwrap_or_default().trim();
+            let (color, background) = chip_tint(name, &scoped, &palette);
+            job.append(text.get(start..end).unwrap_or_default(), 0.0, TextFormat { font_id: font.clone(), color, background, ..Default::default() });
             cursor = end;
         }
         if cursor < text.len() {
@@ -75,7 +87,13 @@ pub fn variable_field_with(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &
         }
         ui.fonts_mut(|fonts| fonts.layout_job(job))
     };
-    let output = TextEdit::singleline(text).id(id).hint_text(hint).desired_width(f32::INFINITY).layouter(&mut layouter).show(ui);
+    let output = TextEdit::singleline(text)
+        .id(id)
+        .hint_text(hint)
+        .margin(egui::Margin::symmetric(10, 6))
+        .desired_width(f32::INFINITY)
+        .layouter(&mut layouter)
+        .show(ui);
     let response = output.response.response.clone();
     if response.hovered()
         && let Some(pointer) = ui.input(|input| input.pointer.hover_pos())
@@ -90,7 +108,7 @@ pub fn variable_field_with(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &
                 match info {
                     Some(info) => {
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(format!("{{{{{}}}}}", info.name)).monospace().strong());
+                            ui.label(egui::RichText::new(format!("{{{{{}}}}}", info.name)).strong());
                             ui.label(egui::RichText::new(&info.scope).small().color(theme.palette.text_muted));
                         });
                         let value =
@@ -101,7 +119,7 @@ pub fn variable_field_with(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &
                         }
                     }
                     None => {
-                        ui.label(egui::RichText::new(format!("{{{{{name}}}}}")).monospace().color(theme.palette.danger));
+                        ui.label(egui::RichText::new(format!("{{{{{name}}}}}")).color(theme.palette.danger).strong());
                         ui.label(egui::RichText::new("Unresolved in the visible scopes").small().color(theme.palette.text_muted));
                     }
                 }
@@ -125,7 +143,22 @@ fn variable_at_char(text: &str, index: usize) -> Option<(String, (usize, usize))
 
 #[cfg(test)]
 mod tests {
-    use super::{variable_at_char, variable_spans};
+    use super::{VariableInfo, chip_tint, variable_at_char, variable_spans};
+    use crate::theme::Palette;
+
+    fn info(name: &str) -> VariableInfo {
+        VariableInfo { name: name.to_string(), value: "v".into(), secret: false, scope: "Environment".into() }
+    }
+
+    #[test]
+    fn chips_tint_by_whether_they_resolve() {
+        let palette = Palette::LIGHT;
+        let variables = vec![info("baseUrl")];
+        assert_eq!(chip_tint("baseUrl", &variables, &palette).0, palette.accent, "a resolvable name is the accent chip");
+        assert_eq!(chip_tint("$guid", &variables, &palette).0, palette.patch, "a dynamic name is the patch chip");
+        assert_eq!(chip_tint("missing", &variables, &palette).0, palette.danger, "an unknown name is the danger chip");
+        assert_eq!(chip_tint("missing", &variables, &palette).1, palette.danger.gamma_multiply(0.15), "the chip background matches its tint");
+    }
 
     #[test]
     fn the_hover_lookup_finds_the_variable_under_the_cursor() {

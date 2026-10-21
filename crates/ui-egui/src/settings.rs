@@ -141,8 +141,8 @@ fn shortcuts(ui: &mut Ui) {
     for command in registry.commands() {
         if let Some(shortcut) = command.shortcut {
             ui.horizontal(|ui| {
-                ui.add_sized([240.0, 20.0], egui::Label::new(RichText::new(command.label)));
-                ui.add_sized([130.0, 20.0], egui::Label::new(RichText::new(shortcut).monospace()));
+                ui.add_sized([240.0, 26.0], egui::Label::new(RichText::new(command.label)));
+                ui.add_sized([130.0, 26.0], egui::Label::new(RichText::new(shortcut).strong().color(UiTheme::current(ui.ctx()).palette.text_muted)));
                 ui.label(RichText::new(command.group).small().color(UiTheme::current(ui.ctx()).palette.text_muted));
             });
         }

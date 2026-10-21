@@ -43,7 +43,7 @@ pub fn trash_view(ui: &mut Ui, entries: &[TrashEntryView]) -> Option<TrashAction
         for entry in entries {
             ui.horizontal(|ui| {
                 ui.add_sized([100.0, 20.0], egui::Label::new(RichText::new(&entry.kind).color(theme.palette.text_muted)));
-                ui.add_sized([320.0, 20.0], egui::Label::new(RichText::new(&entry.original).monospace().color(theme.palette.text)).truncate());
+                ui.add_sized([320.0, 20.0], egui::Label::new(RichText::new(&entry.original).color(theme.palette.text)).truncate());
                 ui.add_sized(
                     [180.0, 20.0],
                     egui::Label::new(RichText::new(format_time(entry.deleted_at_ms)).small().color(theme.palette.text_muted)),

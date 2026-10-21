@@ -25,7 +25,7 @@ area = "A"
 tier = "P0"
 milestone = "M3.2"
 status = "shipped"
-notes = "26 px rows, painted chevrons, method labels and colours, examples collapsed until the request caret is used, inline rename, preview-open intents. Favourite star (P1) is not drawn."
+notes = "30 px rows with rounded hover/selection fills, painted chevrons, method labels and colours in a 42 px column, examples collapsed until the request caret is used, inline rename, preview-open intents. Favourite star (P1) is not drawn."
 evidence = ["crates/ui-egui/tests/sidebar.rs::flatten_orders_collections_folders_requests_examples_and_history", "crates/ui-egui/tests/sidebar.rs::caret_collapses_a_folder_and_expands_request_examples", "crates/ui-egui/tests/sidebar.rs::clicking_a_request_opens_it_as_a_preview"]
 [[feature]]
 id = "a.create-organise"
@@ -185,8 +185,9 @@ title = "Secret variables: masked, stored in the secrets file only"
 area = "B"
 tier = "P0"
 milestone = "M1.5"
-status = "planned"
-notes = "Never written into collection/environment/export files; `.postguy/secrets.json` 0600."
+status = "shipped"
+notes = "Secret values live in `.postguy/secrets.json` (0600) and are never written into collection, environment or export files; they are masked in history, the console and logs, and rehydrate on load. OAuth 2.0 tokens follow the same rule."
+evidence = ["crates/engine/tests/edits.rs::oauth2_tokens_stay_out_of_collection_files_and_rehydrate", "crates/engine/tests/pipeline.rs::inherited_basic_auth_is_applied_and_secret_values_are_masked"]
 
 [[feature]]
 id = "b.resolution"
@@ -194,8 +195,9 @@ title = "{{var}} resolution: scopes, recursion depth 10, cycle guard"
 area = "B"
 tier = "P0"
 milestone = "M1.4"
-status = "planned"
-notes = "Precedence global < collection < folder < environment < data < local; unresolved stay literal; unresolved scheme/host blocks Send."
+status = "shipped"
+notes = "Precedence global < collection < folder < environment < data < local; recursive resolution is depth-capped with a cycle guard; unresolved names stay literal and mask secrets in the recorded scopes."
+evidence = ["crates/engine/tests/pipeline.rs::a_sent_request_records_history_console_and_resolves_scopes", "crates/vars/src/resolver.rs::a_two_var_cycle_leaves_the_innermost_literal_and_warns", "crates/vars/src/resolver.rs::deep_chain_hits_the_depth_cap_without_hanging"]
 
 [[feature]]
 id = "b.dynamic-variables"
@@ -203,8 +205,9 @@ title = "Dynamic variables (Appendix A, ~40) fresh per occurrence"
 area = "B"
 tier = "P0"
 milestone = "M1.4"
-status = "planned"
-notes = "Word lists written for this project; shapes and ranges, not other tools' exact values."
+status = "shipped"
+notes = "Every documented `{{$name}}` generates a fresh value per occurrence from word lists written for this project; unknown `$` names stay literal and are reported. Shapes and ranges only, never another tool's exact values."
+evidence = ["crates/vars/src/dynamic.rs::every_known_name_generates_runnable_values", "crates/vars/src/dynamic.rs::shapes_match_the_appendix", "crates/vars/src/resolver.rs::dynamic_variables_resolve_fresh_per_occurrence"]
 
 [[feature]]
 id = "b.chips-and-autocomplete"
@@ -213,7 +216,7 @@ area = "B"
 tier = "P1"
 milestone = "M3.4"
 status = "partial"
-notes = "`{{var}}` spans are tinted chips; typing `{{` opens a scope-variable list; hovering a chip shows its name, scope and value (secrets masked until Cmd/Ctrl) or a red unresolved note. Missing: the hover popover's edit/add-to-scope actions, scope badges inside the list, unresolved chips tinted in the field itself, and dynamic variables in autocomplete."
+notes = "`{{var}}` spans are tinted chips: resolved names carry the accent tint, dynamic `$names` the patch tint, and unresolved names the danger tint in the field itself. Typing `{{` opens a scope-variable list; hovering a chip shows its name, scope and value in sans-serif (secrets masked until Cmd/Ctrl) or a red unresolved note. Missing: the hover popover's edit/add-to-scope actions, scope badges inside the list, dynamic variables in autocomplete and Set as variable."
 evidence = ["crates/ui-egui/tests/builder.rs::autocomplete_inserts_a_variable", "crates/ui-egui/src/widgets/field.rs::spans_are_exact_and_ignore_unterminated_braces"]
 [[feature]]
 id = "b.set-as-variable"
@@ -253,7 +256,7 @@ area = "C"
 tier = "P0"
 milestone = "M3.4"
 status = "partial"
-notes = "Method menu with REST colours, URL field with {{var}} chips and variable autocomplete, cURL paste detection (the app imports through interop), Enter sends, split Send with Send and Download deferred to M3.5, Cancel with elapsed timer, dirty dot/Save. Missing: the inline post-paste undo hint and a visible resolved-URL preview."
+notes = "Method menu with REST colours in a 76x32 rounded button, a padded URL field with {{var}} chips (unresolved names tinted danger) and variable autocomplete, cURL paste detection (the app imports through interop), Enter sends, split Send with Send and Download, Cancel with elapsed timer, dirty dot/Save. Missing: the inline post-paste undo hint and a visible resolved-URL preview."
 evidence = ["crates/ui-egui/tests/builder.rs::send_and_save_emit_their_intents", "crates/ui-egui/tests/builder.rs::enter_in_the_url_sends", "crates/ui-egui/tests/builder.rs::pasting_a_curl_command_emits_the_parse_intent", "crates/ui-egui/tests/builder.rs::autocomplete_inserts_a_variable"]
 [[feature]]
 id = "c.params-tab"
@@ -374,7 +377,7 @@ area = "C"
 tier = "P0"
 milestone = "M3.5"
 status = "partial"
-notes = "Status/time/size chips with phase and size popovers, Body/Cookies/Headers tabs, Pretty/Raw/Preview/Hex, wrap toggle, a search box with a match count, Save Response (workspace file) and Copy/Clear menus. Missing: syntax colours in Pretty, image previews, search navigation/regex/whole-word, clickable URLs and a file-picker save dialog."
+notes = "Status/time/size chips with phase and size popovers (the status is a rounded tinted badge), Body/Cookies/Headers tabs in sans-serif rows, Pretty/Raw/Preview/Hex, wrap toggle, a search box with a match count that also tints matches in the body, and Save Response/Copy/Clear. Pretty and Raw are syntax-coloured by detected language (JSON/XML/HTML/JavaScript/YAML) through a cached virtualised viewer. Missing: image previews, search navigation/regex/whole-word, clickable URLs and a file-picker save dialog."
 evidence = ["crates/ui-egui/tests/response.rs::the_strip_shows_status_time_size_and_the_json_pretty_view", "crates/ui-egui/tests/response.rs::raw_hex_headers_and_cookies_are_reachable", "crates/ui-egui/tests/response.rs::the_menu_saves_and_clears_and_the_popovers_explain_the_numbers", "apps/postguy/src/main.rs::sending_runs_off_the_ui_thread_and_reports_the_status"]
 [[feature]]
 id = "c.large-bodies"
@@ -428,8 +431,9 @@ title = "Cancellation and per-request timeouts"
 area = "C"
 tier = "P0"
 milestone = "M2.2"
-status = "planned"
-notes = "Esc or Cancel aborts cleanly with partial data discarded; 0 = no timeout."
+status = "shipped"
+notes = "Cancel aborts an in-flight request through the connector's cancellation token and reports the phase it stopped in; a per-request timeout aborts and names the phase. 0 = no timeout; partial bytes are discarded."
+evidence = ["crates/http/tests/connector.rs::cancellation_aborts_an_in_flight_request", "crates/http/tests/connector.rs::a_timeout_aborts_and_reports_the_request_phase"]
 
 [[feature]]
 id = "c.response-filter"
@@ -873,7 +877,7 @@ area = "H"
 tier = "P0"
 milestone = "M3.1"
 status = "partial"
-notes = "32 px header with back/forward, workspace name, search field and settings gear; min 900x560, default 1280x800. Missing here: remembered geometry and the real command palette (M3.3/M3.8)."
+notes = "46 px header (back/forward, workspace name, a 320 px rounded search button and the settings gear) over padded sidebar, tab strip and central panels with 16/12 px outer margins; min 900x560, default 1280x800. Missing here: remembered geometry and the real command palette (M3.3/M3.8)."
 evidence = ["crates/ui-egui/tests/widgets.rs::the_shell_draws_its_regions_and_opens_settings"]
 [[feature]]
 id = "h.widgets"
@@ -891,8 +895,8 @@ area = "H"
 tier = "P0"
 milestone = "M3.1"
 status = "partial"
-notes = "KeyValueTable (virtualised, variants), CodeEditor (line numbers, JSON colour, soft highlight cap), LargeTextView (precomputed line starts, virtualised) and Timeline (virtualised, reversible) exist. Tree arrives with M3.2; code-editor highlight caching by revision and find/autocomplete are M3.4/M3.5."
-evidence = ["crates/ui-egui/tests/widgets.rs::key_value_table_adds_and_deletes_rows", "crates/ui-egui/tests/widgets.rs::code_editor_has_a_gutter_and_accepts_edits", "crates/ui-egui/tests/widgets.rs::large_text_view_virtualises_many_lines", "crates/ui-egui/tests/widgets.rs::timeline_shows_newest_first_and_expands_a_row"]
+notes = "KeyValueTable (virtualised, variants, body-font cells inside a rounded frame), CodeEditor (line numbers, per-language syntax colours with a soft highlight cap, monospace in a rounded sunken frame), LargeTextView (precomputed line starts, virtualised, syntax colours plus search-match tinting) and Timeline (virtualised, reversible) exist. Highlighting covers JSON/XML/HTML/JavaScript/GraphQL/YAML/Shell/HTTP/Python/Go/Rust/PowerShell with `{{var}}` chips; tokenization is a pure, total function with unit tests. Missing: highlighting above the soft cap, engine-side pre-rendering of huge bodies and the shared cache for the editor."
+evidence = ["crates/ui-egui/tests/widgets.rs::key_value_table_adds_and_deletes_rows", "crates/ui-egui/tests/widgets.rs::code_editor_has_a_gutter_and_accepts_edits", "crates/ui-egui/tests/widgets.rs::large_text_view_virtualises_many_lines", "crates/ui-egui/tests/widgets.rs::timeline_shows_newest_first_and_expands_a_row", "crates/ui-egui/src/widgets/editor.rs::every_markup_and_code_language_produces_more_than_one_colour", "crates/ui-egui/src/widgets/editor.rs::malformed_and_truncated_input_never_panics"]
 [[feature]]
 id = "h.sidebar"
 title = "Sidebar sections COLLECTIONS / ENVIRONMENTS / HISTORY"
@@ -927,7 +931,7 @@ area = "H"
 tier = "P0"
 milestone = "M3.4"
 status = "partial"
-notes = "Breadcrumb, editable name, method+URL, Send/Cancel with timer, Params/Auth/Headers/Body/Scripts/Settings/Docs tabs with counts and dots, Save and dirty tracking, cURL paste. Missing: Save dropdown (duplicate/close), header presets/bulk edit, the response splitter (M3.5) and the code snippet panel (M3.9)."
+notes = "Breadcrumb, editable name, method+URL in 32 px rounded controls, Send/Cancel with timer, Params/Auth/Headers/Body/Scripts/Settings/Docs tab pills with count chips and content dots, Save and dirty tracking, cURL paste, and the URL field chip-resolves its variables (unresolved names tinted danger). Missing: Save dropdown (duplicate/close), custom header presets, the response splitter (M3.5) and the inline post-paste undo hint."
 evidence = ["crates/ui-egui/tests/builder.rs::send_and_save_emit_their_intents", "crates/ui-egui/tests/builder.rs::authorization_switches_to_basic_and_shows_fields", "crates/ui-egui/tests/builder.rs::body_mode_switches_and_keeps_the_raw_text_available", "crates/ui-egui/tests/builder.rs::settings_toggles_persist_into_the_request_settings"]
 [[feature]]
 id = "h.env-editor"
@@ -985,8 +989,8 @@ area = "H"
 tier = "P0"
 milestone = "M3.1"
 status = "shipped"
-notes = "Semantic light/dark tokens from PROMPT.md 6.7 with every text token at >= 4.5:1 (tested); System/Light/Dark preference through egui's OS theme signal; type scale 13/12.5 px. Live OS theme switching is egui's macOS/Windows signal; Linux falls back to light per the brief."
-evidence = ["crates/ui-egui/src/theme.rs::every_text_token_meets_wcag_aa_on_its_surface", "crates/ui-egui/tests/widgets.rs::the_shell_draws_its_regions_and_opens_settings"]
+notes = "Semantic light/dark tokens from PROMPT.md 6.7 with every text token at >= 4.5:1 (tested); System/Light/Dark preference through egui's OS theme signal. Postman-style scale in both modes: the proportional (sans-serif) family for every UI text style at 20/14.5/12.5 px, monospace reserved for code at the user's editor font size, 32 px control heights, 10x8 spacing, 12x6 button padding and 6/8 px corner radii on widgets, windows and menus. Live OS theme switching is egui's macOS/Windows signal; Linux falls back to light per the brief."
+evidence = ["crates/ui-egui/src/theme.rs::every_text_token_meets_wcag_aa_on_its_surface", "crates/ui-egui/src/theme.rs::both_modes_install_a_larger_sans_serif_type_scale_and_rounded_controls", "crates/ui-egui/tests/widgets.rs::the_shell_draws_its_regions_and_opens_settings"]
 [[feature]]
 id = "h.two-pane"
 title = "Two-pane layout and resizable response splitter"
@@ -1026,8 +1030,9 @@ title = "Workspace folder handling, lock file, config dir layout"
 area = "I"
 tier = "P0"
 milestone = "M1.5"
-status = "planned"
-notes = "postguy.json, collections/, environments/, history, trash, secrets, cookies, responses."
+status = "shipped"
+notes = "`postguy.json` plus collections/, environments/, history/, trash/, responses and the hidden `.postguy/` state (secrets, cookies, cache, lock, .bak) as PROMPT.md lays them out; `--root` confines every path."
+evidence = ["crates/engine/tests/edits.rs::collections_folders_and_requests_round_trip_and_rename", "apps/postguy/src/main.rs::the_session_round_trips_across_an_app_restart"]
 
 [[feature]]
 id = "i.atomic-saves"
@@ -1035,8 +1040,9 @@ title = "Atomic writes with .bak, corrupt-file handling, change detection"
 area = "I"
 tier = "P0"
 milestone = "M1.5"
-status = "planned"
-notes = "Debounced autosave writes only the changed file; failed saves keep dirty state; watcher reloads."
+status = "shipped"
+notes = "Every document write goes through a temp file + rename with a `.bak` of the previous version; a failed save leaves the old file intact and the in-memory state dirty; debounced autosave writes only the changed file; corrupt files report an actionable error instead of being silently dropped."
+evidence = ["crates/engine/tests/edits.rs::collections_folders_and_requests_round_trip_and_rename", "apps/postguy/src/main.rs::the_session_round_trips_across_an_app_restart"]
 
 [[feature]]
 id = "i.session-restore"

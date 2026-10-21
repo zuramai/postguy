@@ -14,10 +14,13 @@ const SETS: &[(&str, &str)] = &[
     ("dark", "shell-dark.png"),
     ("light", "shell-light.png"),
     ("env", "environment-dark.png"),
+    ("env-light", "environment-light.png"),
     ("import", "import-dialog-dark.png"),
     ("export", "export-dialog-dark.png"),
     ("snippet", "snippet-rust-dark.png"),
+    ("snippet-light", "snippet-rust-light.png"),
     ("auth", "auth-jwt-dark.png"),
+    ("auth-light", "auth-jwt-light.png"),
 ];
 
 pub fn run(args: &[String]) -> Result<()> {

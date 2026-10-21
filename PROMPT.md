@@ -235,7 +235,7 @@ A collection is a project: it holds nestable folders and requests. (Original req
 
 Required details beyond that:
 
-**Tree rows.** Height ~26 px. Caret (collections, folders), folder/collection icon, name, truncated with ellipsis, full name in a tooltip. Requests show a short coloured method label (GET, POST, PUT, PATCH, DEL, HEAD, OPT; `gRPC`, `WS` for the other protocols) and the name. Examples (saved responses) appear nested under their request with a small icon, collapsed by default. Hovering a row reveals a `...` button (same menu as right-click) and, on collections, a `+` button (Add request) and a favourite star. Selected row has a subtle fill; the active tab's item is also marked in the tree ("Reveal in sidebar" does this).
+**Tree rows.** Height ~30 px. Caret (collections, folders), folder/collection icon, name, truncated with ellipsis, full name in a tooltip. Requests show a short coloured method label (GET, POST, PUT, PATCH, DEL, HEAD, OPT; `gRPC`, `WS` for the other protocols) and the name. Examples (saved responses) appear nested under their request with a small icon, collapsed by default. Hovering a row reveals a `...` button (same menu as right-click) and, on collections, a `+` button (Add request) and a favourite star. Selected row has a subtle fill; the active tab's item is also marked in the tree ("Reveal in sidebar" does this).
 
 **Clicks and keys.**
 - Caret click toggles only. Name click opens the detail tab as a *preview tab* (italic title, replaced by the next preview). Double-click, editing or sending makes it permanent. A setting "always open in a new tab" turns preview off.
@@ -496,7 +496,7 @@ Right sidebar panel (toggle in the bottom bar, Cmd/Ctrl+Alt+K) for HTTP and gRPC
 
 ### 6.1 Principles
 
-Look: calm, flat, compact. 1 px hairline separators, few boxes, no drop shadows except popups, 4 px spacing grid, row height 26 px (tree/tables), tab bar 36 px, bottom bar 24 px, control radius 4-6 px, light grey sidebar on white content (dark theme: layered charcoal). Hover reveals secondary actions. Section labels are muted small caps. No banners, no promotional text, no emoji, no illustrations (empty states are one line of muted text plus one primary action).
+Look: calm, flat, breathable. 1 px hairline separators, few boxes, no drop shadows except popups, 8 px spacing grid, row height 30 px (tree) and 34 px (tables), tab strip 40 px, bottom bar 36 px, control radius 6 px (cards 8 px), sans-serif UI text at 14.5 px with 12.5 px small text and 20 px headings, light grey sidebar on white content (dark theme: layered charcoal). Hover reveals secondary actions. Section labels are muted small caps. No banners, no promotional text, no emoji, no illustrations (empty states are one line of muted text plus one primary action).
 
 Do not reuse Postman's brand orange, artwork, icons, fonts, copy or layout pixel values. Use our own semantic tokens (below) and Lucide icons. Method colours follow universal REST conventions (green GET, amber POST, blue PUT, violet PATCH, red DELETE) as text colours in our own palette, tuned for contrast in both themes.
 
@@ -506,7 +506,7 @@ Do not reuse Postman's brand orange, artwork, icons, fonts, copy or layout pixel
 +------------------------------------------------------------------------------------------+
 | header: [<][>]  workspace-name v      [ search / command palette  Cmd+K ]         [gear]  |
 +--------------------+---------------------------------------------------+-----------------+
-| sidebar (280px)    | tab strip: [POST Face Live*][v1][Runner][+][v]  [env v][vars]       |
+| sidebar (300px)    | tab strip: [POST Face Live*][v1][Runner][+][v]  [env v][vars]       |
 | [filter__][+][imp][...]  +---------------------------------------------+-----------------+
 | COLLECTIONS  v     | breadcrumb ................................. [Save v]  | right panel     |
 |  > Face Service Go | [METHOD v][ url ..................... ][Send v]       | (optional)      |
@@ -522,10 +522,10 @@ Do not reuse Postman's brand orange, artwork, icons, fonts, copy or layout pixel
 ```
 
 - Native window decorations. Min size 900x560, default 1280x800, remembered per session (position clamped to visible monitors). Splitters are draggable and persisted; double-click resets.
-- **Header (32 px):** back/forward (tab history), workspace label (click: Open Workspace..., Recent, Reveal in file manager), centred search field that opens the command palette overlay, settings gear. Nothing else.
+- **Header (46 px):** back/forward (tab history), workspace label (click: Open Workspace..., Recent, Reveal in file manager), centred search field that opens the command palette overlay, settings gear. Nothing else.
 - **Sidebar:** top row: filter field with filter icon, `+` (New menu: HTTP Request, gRPC Request, WebSocket Request, Collection, Environment), Import button, `...` menu (Collapse all, Sort, Show/hide History section). Then stacked sections **COLLECTIONS**, **ENVIRONMENTS**, **HISTORY**, each with a collapsible header (chevron + small caps label), a splitter between sections, independent scrolling and persisted open/closed state. No other sections ever (no APIs, Specs, Mocks, Datasets, Flows, Toolsets, Documents).
 - **Tab strip:** tabs for requests (method label or protocol badge + name + close/dirty dot), collections, folders, environments, globals, runner, runner results, settings, cookies, trash. Preview tab is italic. Unsaved dot replaces the close button until hover. Drag to reorder, middle-click closes, overflow chevron opens "Search tabs" (open and recently closed, Cmd/Ctrl+Shift+A). Context menu: New Request, Duplicate Tab, Close Tab, Force Close Tab, Close Other Tabs, Close All Tabs, Force Close All Tabs, Reveal in Sidebar. Closing a dirty tab asks Save / Don't save / Cancel (setting "always ask", default on). Cmd/Ctrl+Shift+T reopens the last closed tab. At the right end of the strip: environment selector and variables quick-look (5.2).
-- **Right panel (optional, 320 px):** Code snippet (5.8). Toggle from the bottom bar. Hidden by default.
+- **Right panel (optional, 340 px):** Code snippet (5.8). Toggle from the bottom bar. Hidden by default.
 - **Bottom bar:** left: sidebar toggle, Console, Cookies, Runner; right: Globals, Trash, two-pane toggle, right-panel toggle. A small status string on the far right (workspace saved/saving state). No version/marketing text.
 - **Request/response layout:** response below the request (default) or side by side (two-pane toggle, Cmd/Ctrl+Alt+V). A request in flight shows a thin indeterminate bar under the request line, not a spinner overlay.
 
@@ -589,7 +589,7 @@ Light, Dark and System (follow the OS live on macOS and Windows; XDG portal on L
 
 ### 6.7 Typography and icons
 
-egui default fonts for v1 (UI 13 px, code 12.5 px, scaled by the UI scale), system font fallback at runtime for missing glyphs, right-to-left and bidi-safe file names where cheap (as pdfcraft does with unicode-bidi, optional). Icons: Lucide, converted at build time to path data, drawn at 14-16 px with 1.5 px strokes, one `icons.rs` with an enum, all attributed. Method labels and status chips are text, not icons.
+egui default fonts for v1 (UI 14.5 px sans-serif, 12.5 px small, 20 px headings; code 13.5 px from the editor-font-size setting; all scaled by the UI scale), system font fallback at runtime for missing glyphs, right-to-left and bidi-safe file names where cheap (as pdfcraft does with unicode-bidi, optional). Icons: Lucide, converted at build time to path data, drawn at 14-16 px with 1.5 px strokes, one `icons.rs` with an enum, all attributed. Method labels and status chips are text, not icons.
 
 ---
 
@@ -597,7 +597,7 @@ egui default fonts for v1 (UI 13 px, code 12.5 px, scaled by the UI scale), syst
 
 A Settings **tab** (Cmd/Ctrl+,) with a left list: General, Themes, Shortcuts (P2), Data, Certificates, Proxy, About. All changes apply immediately and persist to `settings.json` (unknown keys preserved; corrupt file falls back to defaults).
 
-**General** (defaults in parentheses): HTTP version (Auto); Request timeout ms (0 = none); Max response size MB (50, 0 = unlimited); SSL certificate verification (on); Disable cookies (off); Automatically follow redirects (on); Send no-cache header (on); Trim keys and values in tables (off); Response format detection (Auto); Working directory (`<workspace>/files`); Allow reading files outside the working directory (off); Always open sidebar items in a new tab (off); Always ask when closing unsaved tabs (on); Show icons with tab names (on); Two-pane layout (off); Variable autocomplete (on); Autosave (off); Editor: font size (12.5), indent size (2 for JSON, 4 else) and type (spaces), auto-close brackets and quotes (on), word wrap in editors (off); History: keep entries (5000), save responses (off); Trash retention days (30); Disable scripts (off); Script timeout s (5); UI scale (100%).
+**General** (defaults in parentheses): HTTP version (Auto); Request timeout ms (0 = none); Max response size MB (50, 0 = unlimited); SSL certificate verification (on); Disable cookies (off); Automatically follow redirects (on); Send no-cache header (on); Trim keys and values in tables (off); Response format detection (Auto); Working directory (`<workspace>/files`); Allow reading files outside the working directory (off); Always open sidebar items in a new tab (off); Always ask when closing unsaved tabs (on); Show icons with tab names (on); Two-pane layout (off); Variable autocomplete (on); Autosave (off); Editor: font size (13.5), indent size (2 for JSON, 4 else) and type (spaces), auto-close brackets and quotes (on), word wrap in editors (off); History: keep entries (5000), save responses (off); Trash retention days (30); Disable scripts (off); Script timeout s (5); UI scale (100%).
 **Themes:** System / Light / Dark.
 **Data:** open workspace folder location, Export all data (zip), Import data (zip or folder), Reveal in file manager, Reset settings (not data).
 **Certificates:** CA bundle (toggle + PEM path), client certificates list with add/remove.

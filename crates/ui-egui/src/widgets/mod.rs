@@ -10,7 +10,7 @@ pub mod table;
 pub mod timeline;
 
 pub use editor::{CodeEditor, CodeLanguage, LargeTextView};
-pub use field::{variable_field, variable_spans};
+pub use field::{variable_field, variable_field_with, variable_spans};
 pub use table::{TableResponse, TableVariant, automatic_rows, key_value_table};
 pub use timeline::{MessageDirection, Timeline, TimelineEntry};
 
@@ -22,7 +22,7 @@ use egui::{
 use crate::icons;
 
 /// Vertical rhythm of one control row (checkbox/radio/switch).
-const CONTROL_ROW: f32 = 22.0;
+const CONTROL_ROW: f32 = 28.0;
 const BOX: f32 = 16.0;
 
 /// A square checkbox: an outlined square that fills with the accent and draws a check when on.
@@ -38,7 +38,15 @@ pub fn compact_checkbox(ui: &mut Ui, checked: &mut bool) -> Response {
 
 fn checkbox_impl(ui: &mut Ui, checked: &mut bool, label: &str, fill_width: bool) -> Response {
     let theme = crate::theme::Theme::current(ui.ctx());
-    let width = if fill_width { ui.available_width() } else { BOX + 6.0 };
+    // A labelled checkbox hugs its content so it can sit in a row beside other controls; the
+    // box-only variant takes a fixed 16 px slot for dense tables.
+    let width = if fill_width {
+        BOX + 10.0
+            + ui.fonts_mut(|fonts| fonts.layout_no_wrap(label.to_owned(), TextStyle::Body.resolve(ui.style()), theme.palette.text).size().x)
+            + 4.0
+    } else {
+        BOX + 6.0
+    };
     let (rect, mut response) = ui.allocate_exact_size(vec2(width, CONTROL_ROW), Sense::click());
     if response.clicked() {
         *checked = !*checked;
@@ -52,7 +60,7 @@ fn checkbox_impl(ui: &mut Ui, checked: &mut bool, label: &str, fill_width: bool)
     let hovered = response.hovered() || response.has_focus();
     let border = if hovered { theme.palette.accent } else { theme.palette.border };
     let fill = if *checked { theme.palette.accent } else { theme.palette.surface };
-    ui.painter().rect(box_rect, theme.metrics.radius - 2.0, fill, Stroke::new(1.0, border), StrokeKind::Inside);
+    ui.painter().rect(box_rect, egui::CornerRadius::same(4), fill, Stroke::new(1.0, border), StrokeKind::Inside);
     if *checked {
         let stroke = Stroke::new(2.0, contrast_on(theme.palette.accent));
         let painter = ui.painter();
@@ -112,11 +120,11 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
         *on = !*on;
         response.mark_changed();
     }
-    let track = Rect::from_min_size(pos2(rect.left(), rect.center().y - 8.0), vec2(30.0, 16.0));
+    let track = Rect::from_min_size(pos2(rect.left(), rect.center().y - 9.0), vec2(34.0, 18.0));
     let track_fill = if *on { theme.palette.accent } else { theme.palette.surface_sunken };
-    ui.painter().rect(track, 8.0, track_fill, Stroke::new(1.0, theme.palette.border), StrokeKind::Inside);
-    let knob_x = if *on { track.right() - 8.0 } else { track.left() + 8.0 };
-    ui.painter().circle_filled(pos2(knob_x, track.center().y), 6.0, contrast_on(track_fill));
+    ui.painter().rect(track, egui::CornerRadius::same(9), track_fill, Stroke::new(1.0, theme.palette.border), StrokeKind::Inside);
+    let knob_x = if *on { track.right() - 9.0 } else { track.left() + 9.0 };
+    ui.painter().circle_filled(pos2(knob_x, track.center().y), 7.0, contrast_on(track_fill));
     ui.painter().text(
         pos2(track.right() + 8.0, rect.center().y),
         Align2::LEFT_CENTER,
@@ -165,8 +173,11 @@ pub fn select(
         .as_ref()
         .and_then(|value| groups.iter().flat_map(|group| group.items.iter()).find(|item| item.value == *value).map(|item| item.label.clone()))
         .unwrap_or_else(|| placeholder.to_string());
-    let response = ui
-        .add(egui::Button::new(RichText::new(format!("{display}  v")).color(theme.palette.text)).min_size(vec2(120.0, theme.metrics.control_height)));
+    let response = ui.add(
+        egui::Button::new(RichText::new(format!("{display}  v")).color(theme.palette.text))
+            .min_size(vec2(128.0, theme.metrics.control_height))
+            .corner_radius(egui::CornerRadius::same(theme.metrics.radius as u8)),
+    );
     let mut changed = false;
     Popup::menu(&response).id(Id::new((id, "select"))).close_behavior(egui::PopupCloseBehavior::CloseOnClick).show(|ui| {
         ui.set_min_width(response.rect.width().max(180.0));
@@ -182,7 +193,7 @@ pub fn select(
                 let label = if is_selected { format!("✓  {}", item.label) } else { format!("    {}", item.label) };
                 let row = ui.add_enabled(
                     item.enabled,
-                    egui::Button::new(label).selected(is_selected).frame(false).min_size(vec2(ui.available_width(), 24.0)),
+                    egui::Button::new(label).selected(is_selected).frame(false).min_size(vec2(ui.available_width(), 28.0)),
                 );
                 if row.clicked() && !is_selected {
                     *selected = Some(item.value.clone());
@@ -204,15 +215,18 @@ pub fn split_button(ui: &mut Ui, main_label: &str, on_main: impl FnOnce(), menu:
         let main = ui.add(
             egui::Button::new(RichText::new(main_label).color(contrast_on(theme.palette.accent)).strong())
                 .fill(theme.palette.accent)
+                .min_size(vec2(68.0, theme.metrics.control_height))
                 .corner_radius(egui::CornerRadius { nw: theme.metrics.radius as u8, sw: theme.metrics.radius as u8, ne: 0, se: 0 }),
         );
         if main.clicked() {
             on_main();
             clicked = true;
         }
+        ui.add_space(1.0);
         let caret = ui.add(
             egui::Button::new(RichText::new("v").color(contrast_on(theme.palette.accent)))
                 .fill(theme.palette.accent)
+                .min_size(vec2(28.0, theme.metrics.control_height))
                 .corner_radius(egui::CornerRadius { nw: 0, sw: 0, ne: theme.metrics.radius as u8, se: theme.metrics.radius as u8 }),
         );
         Popup::menu(&caret).close_behavior(egui::PopupCloseBehavior::CloseOnClick).show(|ui| {
@@ -237,7 +251,7 @@ pub fn searchable_popup(
     let mut filter = ui.data(|data| data.get_temp::<String>(Id::new((base_id, "filter")))).unwrap_or_default();
     let mut changed = false;
     Popup::menu(&response).id(Id::new((base_id, "popup"))).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
-        ui.set_min_width(220.0);
+        ui.set_min_width(240.0);
         let search = ui.add(TextEdit::singleline(&mut filter).hint_text("Search…"));
         if search.changed() {
             ui.data_mut(|data| data.insert_temp(Id::new((base_id, "filter")), filter.clone()));
@@ -248,7 +262,7 @@ pub fn searchable_popup(
             for item in items.iter().filter(|item| needle.is_empty() || item.to_ascii_lowercase().contains(&needle)) {
                 let is_selected = selected.as_deref() == Some(item.as_str());
                 let label = if is_selected { format!("✓  {item}") } else { format!("    {item}") };
-                if ui.add(egui::Button::new(label).selected(is_selected).frame(false).min_size(vec2(ui.available_width(), 24.0))).clicked() {
+                if ui.add(egui::Button::new(label).selected(is_selected).frame(false).min_size(vec2(ui.available_width(), 28.0))).clicked() {
                     *selected = Some(item.clone());
                     changed = true;
                     ui.close();
@@ -273,23 +287,23 @@ pub fn context_menu(response: &Response, contents: impl FnOnce(&mut Ui)) {
 /// when clicked. Returns the row response (`enabled` false rows do nothing).
 pub fn menu_item(ui: &mut Ui, icon: Option<&str>, label: &str, shortcut: Option<&str>, enabled: bool) -> Response {
     let theme = crate::theme::Theme::current(ui.ctx());
-    let height = 24.0;
+    let height = 28.0;
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), height), if enabled { Sense::click() } else { Sense::hover() });
     let hovered = enabled && (response.hovered() || response.has_focus());
     if hovered {
-        ui.painter().rect_filled(rect, 4.0, theme.palette.surface_sunken);
+        ui.painter().rect_filled(rect, egui::CornerRadius::same(theme.metrics.radius as u8), theme.palette.surface_sunken);
     }
     let color = if enabled { theme.palette.text } else { theme.palette.text_muted };
-    let mut x = rect.left() + 8.0;
+    let mut x = rect.left() + 10.0;
     if let Some(icon_name) = icon {
-        let icon_rect = Rect::from_center_size(pos2(x + 7.0, rect.center().y), Vec2::splat(14.0));
+        let icon_rect = Rect::from_center_size(pos2(x + 7.5, rect.center().y), Vec2::splat(15.0));
         icons::paint(ui.painter(), icon_rect, icon_name, color, 1.5);
-        x += 22.0;
+        x += 24.0;
     }
     ui.painter().text(pos2(x, rect.center().y), Align2::LEFT_CENTER, label, TextStyle::Body.resolve(ui.style()), color);
     if let Some(shortcut) = shortcut {
         ui.painter().text(
-            pos2(rect.right() - 8.0, rect.center().y),
+            pos2(rect.right() - 10.0, rect.center().y),
             Align2::RIGHT_CENTER,
             shortcut,
             TextStyle::Small.resolve(ui.style()),
@@ -300,6 +314,20 @@ pub fn menu_item(ui: &mut Ui, icon: Option<&str>, label: &str, shortcut: Option<
         ui.close_kind(UiKind::Menu);
     }
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, label));
+    response
+}
+
+/// A rounded pill for a short label: HTTP status, method tag, protocol or count chip. `fg` is
+/// the text colour; the caller supplies the (usually tinted) `bg`.
+pub fn badge(ui: &mut Ui, text: &str, fg: Color32, bg: Color32) -> Response {
+    let font = TextStyle::Small.resolve(ui.style());
+    let galley = ui.painter().layout_no_wrap(text.to_owned(), font.clone(), fg);
+    let padding = Vec2::new(16.0, 8.0);
+    let size = galley.size() + padding;
+    let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+    ui.painter().rect_filled(rect, egui::CornerRadius::same(6), bg);
+    ui.painter().galley(rect.min + padding * 0.5, galley, fg);
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, ui.is_enabled(), text));
     response
 }
 

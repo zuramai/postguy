@@ -21,6 +21,25 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-22 (UI parity polish + Postman v12 feature audit):** Postman-style scale in both
+  themes: sans-serif (proportional) text for every UI style at 20/14.5/12.5 px with monospace
+  reserved for code, 32 px controls, 46 px header, 300 px sidebar, 40 px tab strip, 10x8
+  spacing, 12x6 button padding and 6/8 px corner radii on widgets, windows and menus
+  (`Theme::apply`, `Metrics`). Widgets follow: rounded selects/split buttons/menu rows, a
+  `badge` pill for status/method/count chips, a checkbox that hugs its label, padded rounded
+  table cells in a framed key/value table, `{{var}}` chips tinted accent/patch/danger by
+  whether they resolve (a pure `chip_tint` with a test), and 30 px tree rows with rounded
+  selection. Editors gained a multi-language tokenizer (JSON with key-vs-value, XML/HTML,
+  GraphQL, YAML, Shell, HTTP, JavaScript, Python, Go, Rust, PowerShell, and `{{var}}`/URL
+  tinting in plain text) shared by `CodeEditor` and the virtualised `LargeTextView`, which now
+  also tints search matches; the response viewer caches its viewer per (revision, mode,
+  language) and detects JSON/XML/HTML/JS/YAML, snippets and the gRPC message/response panes
+  are syntax-coloured. `docs/gaps.md` gained the Postman v12 feature investigation matrix and
+  `parity/` moved secrets, variable resolution, dynamic variables, cancellation/timeouts,
+  workspaces and atomic saves to `shipped` with cited tests. Verified: fmt, clippy
+  (`-D warnings`), the model/ui/app suites, `xtask layers/assets/parity`, `xtask bench
+  --check` (tree 5.5 ms, 10 MB Raw 2.0 ms) and the ten 1360x900 headless screenshots in both
+  themes.
 - **2026-10-21 (M7.1/M7.2/M7.4/M7.5/M7.6 partial):** gRPC unary works end to end:
   protox descriptor pools from workspace proto sets/inline files, prost-reflect dynamic JSON
   codec over tonic, metadata/TLS/client certs, status errors, reflection v1 with v1alpha
