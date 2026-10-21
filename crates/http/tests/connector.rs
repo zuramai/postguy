@@ -50,6 +50,9 @@ fn a_tls_request_verifies_against_the_user_ca() {
             .expect("client");
     let response = runtime.block_on(client.send(RequestSpec::get(format!("{}/echo", server.base_url())), &Cancel::new())).expect("tls send");
     assert_eq!(response.status, 200);
+    // The testkit advertises h2 first; the client must tell hyper-util that ALPN selected h2,
+    // otherwise it writes HTTP/1.1 onto an h2 connection and fails with SendRequest.
+    assert_eq!(response.version, hyper::Version::HTTP_2, "ALPN h2 is spoken as HTTP/2");
     assert!(response.timings.connect.tls_ms > 0, "TLS phase measured: {:?}", response.timings.connect);
 
     // WITHOUT the CA: the self-signed certificate is refused with a TLS-phase error.

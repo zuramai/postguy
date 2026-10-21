@@ -34,6 +34,10 @@ The owner reviews at each tag and at the end of M0 and M3.
   OS-CSPRNG OAuth nonces and a capped callback line. Tests: `crates/grpc/tests/unary.rs`,
   automation `grpc_tools_*`/`grpc_proto_paths_*`/`websocket_tools_*`, engine `ws_draft`, UI
   `grpc_editor_invokes_a_unary_method`.
+- **2026-10-21 (HTTPS send fix):** `TimedStream::connected()` now reports ALPN h2 to
+  hyper-util. Without it, HTTPS servers that selected HTTP/2 received HTTP/1.1 and failed with
+  `client: client error (SendRequest)` (reproduced against jsonplaceholder; now 200). The TLS
+  connector test asserts `HTTP_2`; verified failing before the fix.
 - **2026-10-20 (M6.1/M6.2, core):** `postguy-ws` connects with custom headers, subprotocols,
   TLS/client certs, handshake timeout, size caps, ping/pong and close codes; the testkit gained
   a loopback WebSocket echo server. Engine sessions keep a bounded event log and accept

@@ -108,7 +108,11 @@ impl std::fmt::Debug for TimedStream {
 
 impl Connection for TimedStream {
     fn connected(&self) -> Connected {
-        Connected::new().proxy(self.proxied)
+        let connected = Connected::new().proxy(self.proxied);
+        // Tell hyper-util which protocol ALPN selected. Without this it always speaks
+        // HTTP/1.1, so an HTTPS server that picked h2 closes the connection and the send
+        // fails with the opaque `client error (SendRequest)`.
+        if self.http2 { connected.negotiated_h2() } else { connected }
     }
 }
 
