@@ -1,6 +1,6 @@
-//! The client: one request, phase timings, cancellation and the body cap. Redirects (M2.5),
-//! compression decode (M2.4) and cookies (M2.6) are deliberately NOT here yet; the caller
-//! sees exactly what the server sent.
+//! The client: one request, phase timings, cancellation and the body cap. Redirects,
+//! compression decode and cookies live in sibling modules (`redirect`, `decode`, `jar`); the
+//! client itself returns exactly what the server sent.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -21,7 +21,7 @@ use crate::error::{HttpError, Result};
 use crate::proxy::{ProxyPolicy, ProxyRoute};
 use crate::tls::TlsMode;
 
-/// HTTP version preference (PROMPT.md 5.3.2: Auto, HTTP/1.x, HTTP/2).
+/// HTTP version preference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum HttpVersionPreference {
     #[default]
@@ -81,7 +81,7 @@ pub struct RequestSpec {
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
-    /// 0 = no whole-request timeout (PROMPT.md 5.3.2).
+    /// 0 = no whole-request timeout.
     pub timeout_ms: u64,
     /// Response body cap; exceeding it is an error with the partial body dropped.
     pub max_body_bytes: usize,
@@ -110,7 +110,7 @@ pub struct ClientConfig {
     pub client_identity: Option<crate::tls::ClientIdentity>,
     pub version: HttpVersionPreference,
     pub connect_timeout: Duration,
-    /// Proxy settings (PROMPT.md 5.5); the environment is read once here.
+    /// Proxy settings; the environment is read once here.
     pub proxy: postguy_model::ProxySettings,
 }
 
@@ -137,7 +137,7 @@ pub struct ResponseData {
     /// DECODED body bytes (wire bytes when decoding is off or no encoding was present).
     pub body: Vec<u8>,
     pub timings: ResponseTimings,
-    /// Hover numbers: headers vs body, encoded vs decoded (PROMPT.md 5.4).
+    /// Hover numbers: headers vs body, encoded vs decoded.
     pub size: ResponseSize,
 }
 
@@ -215,8 +215,8 @@ impl Client {
     }
 
     /// Per-request proxy preparation: plain HTTP through an HTTP proxy uses absolute-form
-    /// requests, which cannot be HTTP/2 (PROMPT.md 5.5: "a proxy forces HTTP/1.x for plain
-    /// HTTP"); the proxy's basic auth rides the request, never the tunneled HTTPS request.
+    /// requests, which cannot be HTTP/2; the proxy's basic auth
+    /// rides the request, never the tunneled HTTPS request.
     fn prepare_for_proxy(&self, mut spec: RequestSpec) -> Result<RequestSpec> {
         let Some(route) = self.proxy.route_for(&spec.url) else { return Ok(spec) };
         let scheme = postguy_urlkit::Url::parse(&spec.url).scheme.unwrap_or_default().to_ascii_lowercase();
@@ -340,7 +340,7 @@ impl Client {
         })
     }
 
-    /// Send and Download (PROMPT.md 5.4): stream the body straight to a file, never holding it
+    /// Send and Download: stream the body straight to a file, never holding it
     /// in memory. The file receives the WIRE bytes (decoding for a saved file is a follow-up;
     /// the viewer shows decoded bytes). Returns the metadata the response strip needs.
     pub async fn send_to_file(&self, spec: RequestSpec, cancel: &Cancel, file_path: &std::path::Path) -> Result<StreamedResponse> {

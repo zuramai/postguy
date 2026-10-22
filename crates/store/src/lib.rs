@@ -1,4 +1,4 @@
-//! Postguy store (L2): the workspace on disk (PROMPT.md 4.4) and the config-dir files.
+//! Postguy store (L2): the workspace on disk and the config-dir files.
 //!
 //! Layout (one folder = one workspace):
 //!

@@ -1,7 +1,6 @@
 # postguy-ws
 
-- **Layer:** L3 (PROMPT.md 4.1; enforced by `cargo xtask layers`)
-- **Status:** skeleton, planned for M6.1
+- **Layer:** L3 (enforced by `cargo xtask layers`)
 
 WebSocket client: handshake with custom headers, TLS, frames, ping/pong, reconnect policy, message log.
 

@@ -1,4 +1,4 @@
-//! Auth configurations (PROMPT.md 4.5, Appendix E). Typed structs per auth type; every field
+//! Auth configurations. Typed structs per auth type; every field
 //! holds raw strings (`{{variables}}` unresolved — resolution is the send pipeline's job).
 //! Unknown keys inside each config are preserved in `extras`; auth types an import could not
 //! map land in [`AuthConfig::Unknown`] with everything they carried.
@@ -15,7 +15,7 @@ pub enum AuthLocation {
     Query,
 }
 
-/// Where OAuth 2.0 puts the token pair (PROMPT.md Appendix E: headers | url).
+/// Where OAuth 2.0 puts the token pair.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum OAuth2Location {
@@ -182,7 +182,7 @@ impl<'de> Deserialize<'de> for AuthConfig {
     }
 }
 
-/// API Key (Appendix E): key, value, header or query.
+/// API Key: key, value, header or query.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiKeyAuth {
@@ -196,7 +196,7 @@ pub struct ApiKeyAuth {
     pub extras: Extras,
 }
 
-/// Basic (Appendix E): username, password.
+/// Basic: username, password.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct BasicAuth {
@@ -208,7 +208,7 @@ pub struct BasicAuth {
     pub extras: Extras,
 }
 
-/// Bearer (Appendix E): token, optional prefix.
+/// Bearer: token, optional prefix.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct BearerAuth {
@@ -220,7 +220,7 @@ pub struct BearerAuth {
     pub extras: Extras,
 }
 
-/// Digest (Appendix E): username, password, realm, nonce, nonceCount, algorithm, qop, opaque,
+/// Digest: username, password, realm, nonce, nonceCount, algorithm, qop, opaque,
 /// clientNonce, disableRetryRequest.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -249,7 +249,7 @@ pub struct DigestAuth {
     pub extras: Extras,
 }
 
-/// The hash family the response challenge named (Appendix E list).
+/// The hash family the response challenge named.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum DigestAlgorithm {
@@ -261,7 +261,7 @@ pub enum DigestAlgorithm {
     Sha512256,
 }
 
-/// Hawk (Appendix C keys): authId, authKey, algorithm, user, nonce, ext, app, dlg, timestamp.
+/// Hawk: authId, authKey, algorithm, user, nonce, ext, app, dlg, timestamp.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct HawkAuth {
@@ -297,7 +297,7 @@ pub enum HawkAlgorithm {
     Sha1,
 }
 
-/// JWT Bearer (Appendix E): header/query, algorithm, secret or private key, payload, prefix.
+/// JWT Bearer: header/query, algorithm, secret or private key, payload, prefix.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct JwtAuth {
@@ -311,7 +311,7 @@ pub struct JwtAuth {
     pub secret_is_base64: bool,
     #[serde(default)]
     pub private_key: String,
-    /// The claims JSON the user types; `iat` is added at send unless present (PROMPT.md App E).
+    /// The claims JSON the user types; `iat` is added at send unless present.
     pub payload: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prefix: Option<String>,
@@ -350,13 +350,13 @@ pub enum JwtAlgorithm {
     Ps512,
 }
 
-/// OAuth 1.0 (Appendix C keys): consumerKey, consumerSecret, token, tokenSecret,
+/// OAuth 1.0: consumerKey, consumerSecret, token, tokenSecret,
 /// signatureMethod, timestamp, nonce, version, realm, addParamsToHeader, includeBodyHash,
 /// addEmptyParamsToSign.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct OAuth1Auth {
-    /// Appendix E "Add to": request headers or request body/URL.
+    /// "Add to": request headers or request body/URL.
     #[serde(default)]
     pub add_params_to_header: bool,
     #[serde(default)]
@@ -404,7 +404,7 @@ pub enum OAuth1SignatureMethod {
     Plaintext,
 }
 
-/// Per-parameter delivery choice for OAuth 2.0 extra params (Appendix E).
+/// Per-parameter delivery choice for OAuth 2.0 extra params.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum OAuth2ParamDelivery {
@@ -414,7 +414,7 @@ pub enum OAuth2ParamDelivery {
     Headers,
 }
 
-/// OAuth 2.0 (PROMPT.md 5.3.2 flow + Appendix E fields). Grant-selective fields stay optional;
+/// OAuth 2.0. Grant-selective fields stay optional;
 /// the token flow logic lives in `http` (M5), this is the stored config.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -470,7 +470,7 @@ pub struct OAuth2Auth {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum OAuth2Grant {
-    /// Authorization Code with browser + loopback listener (PROMPT.md M5).
+    /// Authorization Code with browser + loopback listener.
     #[default]
     AuthorizationCode,
     AuthorizationCodeWithPkce,
@@ -520,7 +520,7 @@ pub struct OAuth2Param {
     pub extras: Extras,
 }
 
-/// AWS Signature v4 (Appendix C/E): accessKey, secretKey, region, service, sessionToken.
+/// AWS Signature v4: accessKey, secretKey, region, service, sessionToken.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AwsV4Auth {

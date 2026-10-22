@@ -1,6 +1,6 @@
-//! Postguy headless CLI: the automation tool table (`tools`, `call`, `run --script`) and the
-//! `fuzz-target` dev verb (PLAN M1.9), and the `ui` client for the app's opt-in control
-//! channel (M3.10). MCP arrives with its milestone.
+//! Postguy headless CLI: the automation tool table (`tools`, `call`, `run --script`), the
+//! `fuzz-target` dev verb and the `ui` client for the app's opt-in control channel. MCP is
+//! not implemented yet.
 //!
 //! `--root DIR` confines every path argument: outside paths get the SAME refusal whether or
 //! not they exist (AGENTS.md 3).

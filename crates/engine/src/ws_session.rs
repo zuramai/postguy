@@ -1,4 +1,4 @@
-//! WebSocket sessions (M6.2): one background task per connection, an event log for tools/UI and
+//! WebSocket sessions: one background task per connection, an event log for tools/UI and
 //! commands for sending text/binary/ping and closing. Reconnection/UI live above this module.
 
 use std::collections::VecDeque;

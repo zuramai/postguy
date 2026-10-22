@@ -1,5 +1,4 @@
-//! Shared authorization editor for requests, collections and folders (PROMPT.md 5.3.2,
-//! Appendix E): Inherit/No Auth/Basic/Bearer/API key in v1, with the same field widgets the
+//! Shared authorization editor for requests, collections and folders: Inherit/No Auth/Basic/Bearer/API key, with the same field widgets the
 //! request builder uses. Unsupported but modelled kinds are preserved with a note.
 
 use egui::{RichText, Ui};

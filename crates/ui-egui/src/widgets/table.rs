@@ -1,4 +1,4 @@
-//! Key/value tables (PROMPT.md 6.3): enabled square checkbox, key, value, description, a
+//! Key/value tables: enabled square checkbox, key, value, description, a
 //! trailing placeholder row, per-row delete on hover, and variants for secret rows and
 //! file-or-text form-data rows. Rows are virtualised above the visible-height threshold via
 //! `ScrollArea::show_rows`; a 10 000-row table paints only its window.

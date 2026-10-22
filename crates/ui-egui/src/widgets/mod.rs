@@ -1,4 +1,4 @@
-//! Custom widgets (PROMPT.md 6.3): square checkbox, outlined radio, toggle switch, select with
+//! Custom widgets: square checkbox, outlined radio, toggle switch, select with
 //! groups and checks, split button, searchable popup, context menu with icons and shortcut
 //! hints, modal and typed-confirm dialogs, inline rename. egui's stock checkbox/radio draw
 //! poorly on light themes, so every control here paints with [`Theme`] tokens and reports
@@ -154,7 +154,7 @@ impl SelectItem {
     }
 }
 
-/// A group with an optional muted header (PROMPT.md 6.3: grouped headers and separators).
+/// A group with an optional muted header (grouped headers and separators).
 #[derive(Debug, Clone, Default)]
 pub struct SelectGroup {
     pub label: Option<String>,
@@ -443,7 +443,7 @@ pub enum ConfirmOutcome {
     Cancelled,
 }
 
-/// A destructive-action confirmation that requires typing the exact name (PROMPT.md 6.3). The
+/// A destructive-action confirmation that requires typing the exact name. The
 /// destructive button stays disabled until the text matches; Escape cancels.
 pub fn typed_confirm(
     ctx: &Context,

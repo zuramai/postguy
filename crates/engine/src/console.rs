@@ -1,4 +1,4 @@
-//! The Console model (PROMPT.md 5.5): a bounded, local ring buffer of sends, log lines, warnings
+//! The Console model: a bounded, local ring buffer of sends, log lines, warnings
 //! and errors. Secrets are masked before the entry exists, so no later consumer can leak them.
 //! Bodies are truncated for the log with a note; the Response viewer keeps the full body.
 
@@ -17,7 +17,7 @@ pub enum ConsoleLevel {
     Error,
 }
 
-/// What produced the entry (the toolbar's filter chips, PROMPT.md 5.5).
+/// What produced the entry (the toolbar's filter chips).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ConsoleKind {
@@ -42,11 +42,11 @@ pub struct ConsoleEntry {
     pub detail: Option<String>,
 }
 
-/// Ring buffer: 5000 entries / 24 hours (PROMPT.md 5.5), oldest dropped first.
+/// Ring buffer: 5000 entries / 24 hours, oldest dropped first.
 pub const CONSOLE_CAP: usize = 5000;
 /// Age cap in milliseconds.
 pub const CONSOLE_MAX_AGE_MS: i64 = 24 * 60 * 60 * 1000;
-/// What the log keeps of one body (PROMPT.md 5.5).
+/// What the log keeps of one body.
 pub const LOG_BODY_CAP: usize = 1 << 20;
 
 /// Thread-safe console shared by the engine and every frontend.

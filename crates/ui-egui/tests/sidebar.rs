@@ -1,4 +1,4 @@
-//! kittest coverage for the M3.2 sidebar: flatten/filter, preview-open, caret collapse, example
+//! kittest coverage for the sidebar: flatten/filter, preview-open, caret collapse, example
 //! expansion, keyboard navigation, multi-select, context-menu rename, drag-and-drop and the
 //! section headers. All actions are asserted as emitted intents; the app applies them.
 

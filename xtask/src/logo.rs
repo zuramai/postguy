@@ -9,7 +9,7 @@ use kurbo::ParamCurve;
 /// The package/icon sizes the mark is needed at (M10.3 packaging grows this list).
 const SIZES: &[u32] = &[16, 32, 64, 128, 256, 512];
 const STROKE_WIDTH: f32 = 2.0;
-/// Logo colour: the palette's ink (`--text`) from PROMPT.md 6.6, monochrome so the mark works
+/// Logo colour: the palette's ink (`--text`), monochrome so the mark works
 /// on light and dark. Coloured variants can be generated later from the same source.
 const INK: [u8; 4] = [0x1F, 0x23, 0x28, 0xFF];
 

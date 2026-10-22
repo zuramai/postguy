@@ -1,6 +1,6 @@
-//! History (`history.jsonl`, PROMPT.md 4.4): append-only, capped by ROTATION — when the file
+//! History (`history.jsonl`): append-only, capped by ROTATION — when the file
 //! reaches the cap, it is rewritten keeping the newest entries. Entries come from USER sends
-//! only; the runner never writes history (PROMPT.md 5.5).
+//! only; the runner never writes history.
 
 use postguy_util::{Result, atomic_write};
 use serde::{Deserialize, Serialize};

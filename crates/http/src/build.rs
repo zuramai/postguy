@@ -1,4 +1,4 @@
-//! Request building (PROMPT.md 5.3.2 step 6): body bytes for every mode, the automatic header
+//! Request building: body bytes for every mode, the automatic header
 //! set in a documented order, and the rule that a user header always wins over an automatic
 //! one with the same name (case-insensitive). No I/O except the file callback for `binary` and
 //! `form-data` file rows, which the caller bounds by the working-directory rule.
@@ -29,7 +29,7 @@ pub struct BuildInput<'a> {
     /// File loader for `binary` / form-data file rows; `None` refuses file bodies with a
     /// readable error instead of guessing a path.
     pub load_file: Option<LoadFile<'a>>,
-    /// The "Send no-cache header" setting (PROMPT.md 5.3.2, default on).
+    /// The "Send no-cache header" setting.
     pub send_no_cache: bool,
 }
 
@@ -104,8 +104,7 @@ impl BuiltRequest {
     }
 }
 
-/// The automatic header set and its order (PROMPT.md 5.3.2; Cookie arrives with the jar in
-/// M2.6; auth-generated headers are appended by the auth layer before this builder runs).
+/// The automatic header set and its order.
 pub fn automatic_headers(host: &str, send_no_cache: bool) -> Vec<(String, String)> {
     let mut headers = vec![
         ("Host".to_string(), host.to_string()),
@@ -160,7 +159,7 @@ fn build_body(body: &Body, load_file: Option<LoadFile<'_>>, warnings: &mut Vec<S
             let mut encoded = String::new();
             for row in rows.iter().filter(|row| row.enabled) {
                 if row.key.is_empty() && row.value.is_empty() {
-                    continue; // the kept-but-ignored empty row (PROMPT.md 5.3.2)
+                    continue; // the kept-but-ignored empty row
                 }
                 if !encoded.is_empty() {
                     encoded.push('&');
@@ -244,7 +243,7 @@ fn build_body(body: &Body, load_file: Option<LoadFile<'_>>, warnings: &mut Vec<S
 }
 
 /// GraphQL `variables`: a JSON object ships as-is; empty or invalid text becomes `{}` with a
-/// console warning (the editor only hints, it never blocks a send — PROMPT.md 5.3.2).
+/// console warning (the editor only hints, it never blocks a send).
 fn parse_graphql_variables(text: &str, warnings: &mut Vec<String>) -> Value {
     if text.trim().is_empty() {
         return Value::Object(serde_json::Map::new());

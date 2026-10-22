@@ -1,8 +1,6 @@
 # Architecture
 
-**Status:** M6 core. Revised 2026-10-20: OAuth2/PKCE/refresh, PEM client certs + CA, GraphQL introspection, and WebSocket client/sessions/tools/panel are in. gRPC is next.
-
-## Layer table (enforced by `cargo xtask layers`; PROMPT.md 4.1)
+## Layer table (enforced by `cargo xtask layers`)
 
 | Layer | Crate | Role |
 |---|---|---|
@@ -13,16 +11,16 @@
 | L2 | postguy-auth | Pure signing and credential algorithms; a canonical request in, headers/params out; no sockets. |
 | L2 | postguy-interop | Import/export (Postman v2.0/v2.1, environments, cURL, OpenAPI, HAR) with `ImportReport`; bounded sizes and nesting. |
 | L2 | postguy-store | Workspace on disk: atomic writes with `.bak`, lock file, trash, history, session, settings, secrets split. |
-| L3 | postguy-http | hyper-direct connector: connect/TLS/timing, redirects, compression, cookie jar, proxy, auth retries, streaming, cancellation (ADR 0003). |
+| L3 | postguy-http | hyper-direct connector: connect/TLS/timing, redirects, compression, cookie jar, proxy, auth retries, streaming, cancellation. |
 | L3 | postguy-grpc | protox compile, descriptor pool, reflection, dynamic invoke, examples, status/trailers. |
 | L3 | postguy-ws | tokio-tungstenite WebSocket client: handshake, TLS, frames, reconnect policy, message log. |
-| L3 | postguy-script | boa_engine sandbox with the `pm` API and limits (ADR 0004; `scripting` feature). |
+| L3 | postguy-script | boa_engine sandbox with the `pm` API and limits (`scripting` feature). |
 | L3 | postguy-snippets | Code generation (cURL, fetch, requests, Go, reqwest, PowerShell, axios, grpcurl). Pure. |
 | L3 | postguy-testkit | Loopback servers for tests only; dev-dependency, never shipped. |
 | L4 | postguy-runner | Collection runs: ordering, iterations, data files, stop-on-error, results model, reporters. |
 | L6 | postguy-engine | Façade and session: workspace handle, edits/undo, send pipeline (12 steps), command registry, console, history, runtime. |
 | L7 | postguy-platform | OS services: dirs, dialogs, reveal, open URL, clipboard, system proxy, system font fallback. |
-| L7 | postguy-ui-egui | The egui shell (eframe + glow, ADR 0001); widgets and screens. |
+| L7 | postguy-ui-egui | The egui shell (eframe + glow); widgets and screens. |
 | L7 | postguy-automation | Headless tool table over the engine, CLI backend, opt-in MCP, opt-in UI control channel. |
 | apps | postguy, postguy-cli | Desktop app (with the opt-in `--control` server in `apps/postguy/src/control.rs`); headless CLI (`run`, `tools`/`call`, `import`/`export`, `snippet`, `mcp`, `ui`). |
 
@@ -35,19 +33,19 @@ Tooling: `xtask` (build system, gates, fuzz, icons/logo, size) is outside the la
   allocations, `catch_unwind` at import/script/command entry points, `panic = "unwind"`.
 - **Layering:** a crate may depend only on lower layers; nothing below L7 reaches egui/winit/
   eframe/rfd (the layers gate walks the normal-dependency closure over `cargo metadata`).
-- **Concurrency** (PROMPT.md 4.3): `engine` owns one tokio runtime on dedicated threads; UI
+- **Concurrency:** `engine` owns one tokio runtime on dedicated threads; UI
   receives events and repaints once per batch; every long operation takes a cancellation token
   and wraps panics into error rows.
-- **Workspace on disk** (PROMPT.md 4.4): one folder; `postguy.json`, `collections/<id>.json`,
+- **Workspace on disk:** one folder; `postguy.json`, `collections/<id>.json`,
   `environments/`, `globals.json`, `protos/`, `files/`, `history.jsonl`, `.trash/`,
   `.postguy/{secrets,cookies,responses,lock}`; atomic writes, `.bak`, corrupt-file recovery.
 
-## Decisions made with measurements (ADR index in `plan/adr/`, local-only)
+## Decisions made with measurements
 
-1. ADR 0001: eframe glow renderer (smaller, faster warm start than wgpu).
-2. ADR 0002: response bodies as bytes + off-thread line index + `show_rows` virtualisation.
-3. ADR 0003: hyper-direct connector (timings, redirects, header order, cancellation, tonic
+1. Renderer: eframe glow renderer (smaller, faster warm start than wgpu).
+2. Response bodies: response bodies as bytes + off-thread line index + `show_rows` virtualisation.
+3. HTTP stack: hyper-direct connector (timings, redirects, header order, cancellation, tonic
    shares the same hyper stack).
-4. ADR 0004: boa_engine scripting (loop/recursion/stack limits; wall-clock and memory gaps
+4. Scripting: boa_engine scripting (loop/recursion/stack limits; wall-clock and memory gaps
    escalated to the owner) — rquickjs recorded as the approvable alternative.
-5. ADR 0005: icons and logo as build-time path data + painter strokes; no SVG renderer shipped.
+5. Icons and logo: icons and logo as build-time path data + painter strokes; no SVG renderer shipped.

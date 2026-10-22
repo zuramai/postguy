@@ -1,4 +1,4 @@
-//! Tab-strip tests (M3.3): preview replacement and promotion, close/reopen, dirty-close choices,
+//! Tab-strip tests: preview replacement and promotion, close/reopen, dirty-close choices,
 //! drag reorder, retention after a workspace change, session serialisation and the real strip UI
 //! (middle-click, close button, context menu, overflow search, environment activation).
 

@@ -21,4 +21,4 @@ LICENSE-APACHE file and required here by reference:
 
 Note (clean-room boundary, AGENTS.md §2): the schema files describe the FILE FORMAT, not
 behavior. Behaviour sources for the mapper are this schema plus the Postman public
-documentation and black-box observation with synthetic data only (PLAN.md §2).
+documentation and black-box observation with synthetic data only (see AGENTS.md section 2).

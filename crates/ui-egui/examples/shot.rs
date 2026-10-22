@@ -1,5 +1,5 @@
 //! Headless screenshot of the real shell (`cargo run -p postguy-ui-egui --example shot -- out.png`).
-//! This is the M3.10 `shot` example started early so the shell can be reviewed without a display:
+//! It lets the shell be reviewed without a display:
 //! it renders the SAME `PostguyShell` through egui's wgpu test renderer, not a mock-up.
 
 use egui_kittest::Harness;

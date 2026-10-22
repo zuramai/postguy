@@ -1,4 +1,4 @@
-//! All-data workspace zip export and reading a zip back through the importers (M4.3).
+//! All-data workspace zip export and reading a zip back through the importers.
 //!
 //! Export walks the workspace itself (collections, environments, globals, protos, files,
 //! history/meta) and deliberately skips `.postguy/` (secrets, cookies, response cache, lock) and

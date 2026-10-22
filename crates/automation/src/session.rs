@@ -1,7 +1,7 @@
 //! The session behind the tool table: the open engine (which owns the workspace, runtime, jar,
 //! console and history), root confinement, and the shared tree and file helpers every tool
-//! calls. The tool surface is unchanged from the store-only skeleton; sends go through the
-//! engine pipeline (PROMPT.md 5.3.2) exactly as the UI's do.
+//! calls. Sends go through the
+//! engine pipeline exactly as the UI's do.
 
 use std::path::{Path, PathBuf};
 

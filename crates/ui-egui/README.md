@@ -1,7 +1,6 @@
 # postguy-ui-egui
 
-- **Layer:** L7 (PROMPT.md 4.1; enforced by `cargo xtask layers`)
-- **Status:** theme, icon renderer, widget kit and app shell (M3.1); screens follow in M3.2-M3.9
+- **Layer:** L7, the only crate that depends on egui (enforced by `cargo xtask layers`)
 
 The egui shell: theme, widgets and all screens.
 
@@ -13,7 +12,7 @@ The egui shell: theme, widgets and all screens.
   select, split button, context menu rows, modal, typed confirm, inline rename), the
   KeyValueTable, the `{{var}}` field, CodeEditor, LargeTextView and Timeline. Every control
   reports AccessKit state and has a kittest.
-- `shell` — header, sidebar, tab-strip placeholder, central panel, optional right panel and
+- `shell` — header, sidebar, tab strip, central panel, optional right panel and
   bottom bar; `apps/postguy` hosts it with eframe/glow.
 - `sidebar` — the data-in/actions-out tree: COLLECTIONS/ENVIRONMENTS/HISTORY sections, a
   10k-row cached flattening (release: 3.8 ms cold, 3.4 ms filtered), name/URL filter with match
@@ -33,7 +32,13 @@ The egui shell: theme, widgets and all screens.
 - `response` — the response pane: strip chips with phase/size popovers, Body/Cookies/Headers,
   Pretty/Raw/Preview/Hex (virtualised text and hex), wrap and search, Save/Copy/Clear actions.
 - `examples/shot.rs` — headless wgpu render of the real shell (`cargo run -p postguy-ui-egui
-  --example shot -- out.png light|dark`), the start of the M3.10 shot harness.
+  --example shot -- out.png light|dark`), also used by `cargo xtask screenshots`.
+
+- `commands`, `menu`, `window` — the command registry (one table behind the palette,
+  shortcuts and menus), the File/Edit/View/Window/Help menu model with its in-app egui bar,
+  and window placement math (halves, quarters, thirds, fill, center).
+- `auth`, `collection`, `console`, `cookies`, `export`, `import`, `settings`, `snippet`,
+  `trash` — the remaining screens and dialogs, all data-in/actions-out.
 
 Conventions (AGENTS.md): `Result` everywhere, no panic paths, no `unsafe`, checked
 arithmetic and capped allocations on anything input-sized; errors are actionable.

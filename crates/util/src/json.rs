@@ -1,7 +1,7 @@
 //! Nesting-capped JSON parsing into `serde_json::Value` and an iterative walker.
 //!
-//! serde_json's own recursion limit (128) is stricter than the product's requirement
-//! (PROMPT.md 5.7: max nesting 256), and its default path deep-recurses before reporting. This
+//! serde_json's own recursion limit (128) is stricter than the product's requirement,
+//! and its default path deep-recurses before reporting. This
 //! module parses with a depth-counting seed instead, so the cap is enforced *during* parsing by
 //! the same single pass, and no recursion beyond the cap ever starts.
 
@@ -15,7 +15,7 @@ use crate::error::{DEPTH_MARKER, Error, Result};
 #[derive(Debug, Clone, Copy)]
 pub struct Caps {
     /// Maximum nesting depth of containers (the root is depth 0; a `[[ ]]]` chain of 256 is
-    /// allowed at most). PROMPT.md 5.7 caps hostile input at 256.
+    /// allowed at most). The default caps hostile input at 256.
     pub max_depth: usize,
 }
 

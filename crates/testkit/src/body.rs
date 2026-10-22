@@ -1,5 +1,4 @@
-//! Response body fixtures: deterministic bytes, compression (pure-Rust encoders only per
-//! PROMPT.md 4.2) and the streaming chunks. The zstd fixture is a hand-written single-frame
+//! Response body fixtures: deterministic bytes, compression (pure-Rust encoders only) and the streaming chunks. The zstd fixture is a hand-written single-frame
 //! encoder using RAW blocks: valid zstd a decoder accepts, no C dependency.
 
 use std::io::Write as _;

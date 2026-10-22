@@ -1,7 +1,6 @@
 //! Postguy automation (L7, headless): the JSON tool table every frontend shares (AGENTS.md 3).
-//! The engine façade arrives with M2.8; until then this crate speaks `store` + `interop`
-//! directly through [`session`], and every tool stays callable from `postguy-cli tools|call|run
-//! --script`. M2.8 retargets [`session`] at the engine, not the tools' external shape.
+//! Tools run over the engine façade through [`session`], and every tool stays callable from
+//! `postguy-cli tools|call|run --script`.
 //!
 //! Safety rules enforced here, not by callers:
 //! - every path argument resolves through [`root::Root`]; a path outside the allowed directory

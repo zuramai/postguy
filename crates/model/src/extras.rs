@@ -1,4 +1,4 @@
-//! `extras`: every model struct keeps its unknown JSON fields (PROMPT.md 4.5, AGENTS fidelity
+//! `extras`: every model struct keeps its unknown JSON fields (AGENTS fidelity
 //! rule) and writes them back on export, so a file written by a newer Postguy import stays a
 //! file by a newer Postguy.
 

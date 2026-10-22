@@ -48,8 +48,8 @@ const ASSET_EXTENSIONS: &[&str] = &[
 /// Kinds where Postman authorship would breach AGENTS.md 1.1 (no Postman visual design at all).
 const VISUAL_KINDS: &[&str] = &["icon", "image", "font", "logo", "screenshot", "illustration"];
 
-/// Directories never entered by the scan (build outputs and local-only planning; AGENTS.md keeps
-/// `plan/` uncommitted).
+/// Directories never entered by the scan (build outputs and local-only notes; the local
+/// `plan/` folder stays uncommitted).
 const SKIPPED_DIRS: &[&str] = &[".git", "target", "dist", "plan", "fuzz-out", "node_modules"];
 
 #[derive(Deserialize, Default)]

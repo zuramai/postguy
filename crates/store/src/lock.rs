@@ -1,4 +1,4 @@
-//! The workspace lock file (PROMPT.md 4.4): one process per workspace. A lock holds the pid
+//! The workspace lock file: one process per workspace. A lock holds the pid
 //! and a creation time; `acquire` takes over a stale lock (known-dead pid or older than the
 //! takeover age) and refuses a live one with a readable error.
 

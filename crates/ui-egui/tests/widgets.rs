@@ -1,4 +1,4 @@
-//! kittest coverage for the M3.1 widget kit: every custom control is reachable through
+//! kittest coverage for the widget kit: every custom control is reachable through
 //! AccessKit, responds to a real click, and reports state the caller can assert. The shell test
 //! exercises the frame (header/sidebar/bottom bar/settings tab) end to end.
 

@@ -1,4 +1,4 @@
-//! Proxy resolution (PROMPT.md 5.5): the environment (`HTTP_PROXY`, `HTTPS_PROXY`,
+//! Proxy resolution: the environment (`HTTP_PROXY`, `HTTPS_PROXY`,
 //! `ALL_PROXY`, `NO_PROXY`, case-insensitive) or the custom Settings > Proxy block, which wins.
 //! This module decides the route for one URL; the connector performs HTTP CONNECT tunnels and
 //! SOCKS5 handshakes itself (no extra dependency).
@@ -24,7 +24,7 @@ pub struct ProxyRoute {
 }
 
 impl std::fmt::Debug for ProxyRoute {
-    /// Credentials never reach a log line (PROMPT.md 9).
+    /// Credentials never reach a log line.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ProxyRoute")
             .field("protocol", &self.protocol)
@@ -206,7 +206,7 @@ fn parse_proxy_url(raw: &str) -> Option<ProxyRoute> {
     Some(ProxyRoute { protocol, host, port, username, password, from_environment: false })
 }
 
-/// NO_PROXY semantics (PROMPT.md 5.5: comma-separated, wildcard hosts): `*` disables
+/// NO_PROXY semantics: `*` disables
 /// proxying entirely; `host`, `host:port`, `.suffix`, `*.suffix` and glob patterns match.
 pub fn bypass_matches(list: &str, host: &str, port: u16) -> bool {
     let host = host.trim_end_matches('.').to_ascii_lowercase();

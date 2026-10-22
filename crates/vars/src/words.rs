@@ -2,7 +2,7 @@
 //! as such). Volume kept small on purpose: these exist for the dynamic variables, not for
 //! realism at scale.
 //!
-//! Compile-checked against the shapes the Appendix A variables need: every list is
+//! Compile-checked against the shapes the dynamic variables need: every list is
 //! non-empty, and `COUNTRIES`/`CURRENCIES` tuples pair (name/code)/(code/name/symbol).
 
 pub const FIRST_NAMES: &[&str] = &[

@@ -1,4 +1,4 @@
-//! Import entry points shared by the UI and the automation tools (M4.1): auto-detect Postman
+//! Import entry points shared by the UI and the automation tools: auto-detect Postman
 //! collection/environment/globals JSON or cURL text, keep the import report, and never
 //! overwrite silently. Name clashes get a numeric suffix and a fresh id unless the caller
 //! explicitly asks to replace a same-id collection/environment.
@@ -17,7 +17,7 @@ use serde::Serialize;
 use crate::Engine;
 use crate::error::{EngineError, Result};
 
-/// Maximum bytes read for one import file (PROMPT.md 5.7 default 100 MB).
+/// Maximum bytes read for one import file.
 pub const IMPORT_FILE_CAP: usize = 100 << 20;
 /// Maximum files walked for one folder import; beyond this the report names the cap.
 pub const IMPORT_FILE_COUNT_CAP: usize = 2_000;
@@ -93,7 +93,7 @@ impl Engine {
                 Err(EngineError::Import { message: "URL imports are not fetched automatically; download the file and drop it here".into() })
             }
             Detected::Yaml => Err(EngineError::Import {
-                message: "OpenAPI/Swagger YAML import arrives with M9.4; export JSON or paste a Postman collection for now".into(),
+                message: "OpenAPI/Swagger YAML import is not implemented yet; export JSON or paste a Postman collection for now".into(),
             }),
             Detected::Json => self.import_json(text, options),
             Detected::Curl => self.import_curl(text, options),

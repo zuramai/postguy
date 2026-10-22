@@ -33,7 +33,7 @@ wildcards = "deny"
 allow-wildcard-paths = true
 
 [bans.workspaces]
-# Internal dependencies of another team (PROMPT.md 4.2); a dependency on them is a rules breach.
+# Internal dependencies of another team; a dependency on them is a rules breach.
 deny = [
     { name = "craft-ui" },
     { name = "craft-libs" },

@@ -1,6 +1,6 @@
 //! The timed connector: DNS → TCP → TLS, each phase measured, ALPN agreed, cancellation and
 //! connect timeouts honoured. It plugs into hyper-util's legacy client as a tower `Service`
-//! (ADR 0003), so one connection stack serves HTTP/1.1 and HTTP/2.
+//!, so one connection stack serves HTTP/1.1 and HTTP/2.
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -45,7 +45,7 @@ pub struct ConnectorConfig {
     pub connect_timeout: Duration,
     /// ALPN preference for HTTPS connections.
     pub alpn: Vec<Vec<u8>>,
-    /// Proxy resolution (environment or custom; PROMPT.md 5.5).
+    /// Proxy resolution.
     pub proxy: ProxyPolicy,
 }
 
@@ -89,7 +89,7 @@ pub struct TimedStream {
     inner: StreamKind,
     http2: bool,
     /// The connection is to an HTTP proxy in absolute-form mode (plain HTTP through a proxy):
-    /// hyper-util then writes absolute-form request targets (PROMPT.md 5.5).
+    /// hyper-util then writes absolute-form request targets.
     proxied: bool,
     /// The proxy route used for this connection, if any (the Console logs it).
     proxy: Option<ProxyRoute>,
@@ -284,7 +284,7 @@ impl TimedStream {
     }
 }
 
-/// HTTP CONNECT (PROMPT.md 5.5): establish a tunnel through an HTTP proxy before TLS. Reads the
+/// HTTP CONNECT: establish a tunnel through an HTTP proxy before TLS. Reads the
 /// proxy's response one byte at a time so no tunneled bytes are consumed, and caps the header.
 async fn connect_tunnel(tcp: &mut TcpStream, host: &str, port: u16, route: &ProxyRoute) -> Result<()> {
     let authority = if host.contains(':') { format!("[{host}]:{port}") } else { format!("{host}:{port}") };

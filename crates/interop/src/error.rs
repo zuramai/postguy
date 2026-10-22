@@ -58,7 +58,7 @@ impl From<CurlError> for postguy_util::Error {
 
 /// The Postman importer/exporter's error vocabulary: actionable, no panic paths. The cURL
 /// module keeps its [`CurlError`]; the Postman module gets its own so failure modes are named
-/// precisely (PROMPT.md 5.7: every input branch tells the user exactly what to do next).
+/// precisely.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum PostmanError {

@@ -1,12 +1,12 @@
 //! An RFC 6265 cookie jar we own: visible, editable, persistent in `.postguy/cookies.json`
-//! (PROMPT.md 5.5), and bounded (per-domain and total caps so a hostile server cannot grow it
+//! and bounded (per-domain and total caps so a hostile server cannot grow it
 //! without limit). Parsing uses the `cookie` crate; the matching, path defaults, expiry and
 //! persistence rules are here.
 //!
 //! Documented v1 limits (recorded in docs/gaps.md): no public-suffix list (a domain attribute
 //! is refused when it is the host itself or has no dot and differs from the host; a full PSL is
 //! a later data dependency), SameSite is stored and shown but not enforced beyond the RFC
-//! 6265bis defaults (PROMPT.md 5.5 says exactly this), and `__Host-`/`__Secure-` prefixes are
+//! 6265bis defaults, and `__Host-`/`__Secure-` prefixes are
 //! not enforced.
 
 use std::collections::BTreeMap;
@@ -44,7 +44,7 @@ pub struct StoredCookie {
 pub struct CookieJar {
     #[serde(default)]
     pub cookies: Vec<StoredCookie>,
-    /// Domains scripts may read/write through `pm.cookies.jar()` (M8); stored with the jar so
+    /// Domains scripts may read/write through `pm.cookies.jar()`; stored with the jar so
     /// the UI's "Domain allowlist" tab survives restarts.
     #[serde(default)]
     pub domain_allowlist: Vec<String>,

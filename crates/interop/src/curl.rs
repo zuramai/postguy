@@ -1,4 +1,4 @@
-//! cURL import/export (PROMPT.md 5.7, 5.8): [`parse_curl`] turns a pasted cURL command line
+//! cURL import/export: [`parse_curl`] turns a pasted cURL command line
 //! into a [`ParsedCurl`] (an [`HttpRequest`] plus cURL-only out-of-band data), and
 //! [`generate_curl`] turns a request back into Postman-style cURL text. The CLI's curl import
 //! and the code-snippet panel share this one implementation.
@@ -748,7 +748,7 @@ fn encode_query_component(input: &str) -> String {
     out
 }
 
-/// Generate Postman-style cURL text for a request (PROMPT.md 5.8): each flag on its own
+/// Generate Postman-style cURL text for a request: each flag on its own
 /// `\`-continued line, or one single line when `line_width` is `0`.
 ///
 /// The round trip holds: `parse_curl(&generate_curl(request, _))` keeps method, URL, headers

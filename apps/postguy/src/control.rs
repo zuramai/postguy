@@ -1,4 +1,4 @@
-//! The opt-in UI control channel (PROMPT.md 6.2, AGENTS.md 3): only with `--control FILE`, bound
+//! The opt-in UI control channel (AGENTS.md 3): only with `--control FILE`, bound
 //! to loopback, a fresh random token per launch written to an owner-only file and never logged.
 //! `postguy-cli ui` speaks this JSON protocol. Supported operations are state inspection,
 //! commands, panel/tab setting and screenshots (via egui's viewport screenshot request).

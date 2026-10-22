@@ -97,7 +97,7 @@ impl StorePaths {
         self.dot_dir().join("lock")
     }
 
-    /// `<config>/settings.json` (PROMPT.md 4.4: user config NOT inside the workspace).
+    /// `<config>/settings.json`.
     pub fn settings_file(&self) -> PathBuf {
         self.config.join("settings.json")
     }

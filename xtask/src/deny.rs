@@ -1,7 +1,7 @@
 //! `cargo xtask deny`: dependency licences and sources.
 //!
 //! When `cargo-deny` is installed it delegates to it (deny.toml is the policy). Otherwise —
-//! the current state, pending the owner's approval to install tools (PLAN.md 0) — this module
+//! when the tool is not installed — this module
 //! checks the same core rules itself from `cargo metadata`: every dependency's licence is on the
 //! allowlist in deny.toml, no crate is a forbidden internal dependency, and no dependency comes
 //! from a git source. Advisories still need cargo-deny (or CI's cargo-deny-action).
@@ -30,7 +30,7 @@ struct Exception {
     allow: Vec<String>,
 }
 
-/// Internal dependencies of another team (PROMPT.md 4.2): never allowed, under any licence.
+/// Internal dependencies of another team: never allowed, under any licence.
 const BANNED_CRATES: &[&str] = &["craft-ui", "craft-libs", "craft-print", "craft-quit", "craft-docpath", "craft-fonts"];
 
 fn root() -> std::path::PathBuf {
@@ -78,7 +78,7 @@ fn own_check() -> Result<()> {
             continue; // our own crates are MIT OR Apache-2.0 by workspace declaration
         }
         if BANNED_CRATES.contains(&name) {
-            problems.push(format!("{name}: dependency on a forbidden internal crate (PROMPT.md 4.2)"));
+            problems.push(format!("{name}: dependency on a forbidden internal crate (see deny.toml)"));
         }
         let licence = pkg["license"].as_str();
         let Some(licence) = licence else {

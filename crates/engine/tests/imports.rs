@@ -1,4 +1,4 @@
-//! Import auto-detection, name-clash handling and explicit replacement (M4.1), plus folder
+//! Import auto-detection, name-clash handling and explicit replacement plus folder
 //! walking with caps. The files are synthetic and written by the test.
 
 use postguy_engine::{Engine, ImportKind, ImportOptions, detect, walk_import_paths};

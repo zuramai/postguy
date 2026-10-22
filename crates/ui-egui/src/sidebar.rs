@@ -1,4 +1,4 @@
-//! The sidebar (PROMPT.md 5.1, 5.2, 6.2): filter, COLLECTIONS / ENVIRONMENTS / HISTORY sections,
+//! The sidebar: filter, COLLECTIONS / ENVIRONMENTS / HISTORY sections,
 //! a flattened tree with caret toggles, preview-open clicks, keyboard navigation, multi-select,
 //! inline rename, typed delete confirmation and drag-and-drop (move, Cmd/Ctrl-drag copies).
 //! The widget is data-in/actions-out: the app owns the engine and applies the returned
@@ -185,7 +185,7 @@ impl SidebarState {
         }
     }
 
-    /// Requests expand their examples separately so examples start collapsed (PROMPT.md 5.1).
+    /// Requests expand their examples separately so examples start collapsed.
     pub fn toggle_examples(&mut self, id: &str) {
         if !self.examples_expanded.remove(id) {
             self.examples_expanded.insert(id.to_string());
@@ -332,7 +332,7 @@ impl Sidebar {
             });
         }
 
-        // Typed confirmation for destructive deletes (PROMPT.md 5.1).
+        // Typed confirmation for destructive deletes.
         if let Some(id) = state.delete_confirm.clone() {
             let label = rows.iter().find(|row| row.id == id).map(|row| row.label.clone()).unwrap_or_default();
             let mut open = true;
@@ -1098,7 +1098,7 @@ fn rename_item(ui: &mut Ui, state: &mut SidebarState, row: &SidebarRow, action: 
     }
 }
 
-/// Row height (PROMPT.md 5.1: ~26 px).
+/// Row height (about 26 px).
 pub const ROW_HEIGHT: f32 = 28.0;
 
 /// Flatten the workspace into visible rows in tree order. Filtering keeps parents of matches
@@ -1389,7 +1389,7 @@ fn paint_active_env_badge(painter: &egui::Painter, center: egui::Pos2, theme: &T
         Stroke::new(1.6, check),
     ));
 }
-/// Paint the row name, tinting filter matches (PROMPT.md 5.1: highlight matches). Left-centered
+/// Paint the row name, tinting filter matches. Left-centered
 /// at `center_left`.
 fn paint_highlighted_name(ui: &Ui, center_left: egui::Pos2, text: &str, color: Color32, filter: &str, theme: &Theme) {
     let needle = filter.trim().to_ascii_lowercase();

@@ -1,4 +1,4 @@
-//! The trash view (PROMPT.md 6.2, M3.8): soft-deleted collections, environments and files with
+//! The trash view: soft-deleted collections, environments and files with
 //! their kind, original path and deletion time; Restore puts one back. Item-level deletes are
 //! parked as JSON snapshots and appear here once the item-restore path lands.
 

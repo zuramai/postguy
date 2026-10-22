@@ -1,4 +1,4 @@
-//! The route table: every fixture the HTTP engine milestone needs, dispatched on path.
+//! The route table: every fixture the HTTP engine tests need, dispatched on path.
 //!
 //! | Path | Behaviour |
 //! |---|---|
@@ -235,7 +235,7 @@ fn auth_bearer(request: &Incoming) -> Reply {
     }
 }
 
-/// Digest challenge/response, RFC 7616 with MD5 and `qop=auth` (the M2.7/5.1 path). The
+/// Digest challenge/response, RFC 7616 with MD5 and `qop=auth` (the digest auth path). The
 /// challenge nonce is fixed ("postguy-nonce") so tests are deterministic; the response must be
 /// the correct MD5 digest over the method and URI.
 fn auth_digest(request: &Incoming) -> Reply {

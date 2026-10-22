@@ -1,23 +1,23 @@
-//! Settings: the global settings file (PROMPT.md 7, defaults per section) and the per-request
-//! settings (PROMPT.md 5.3.2). Unknown keys ride along in `extras`; corrupt files are
+//! Settings: the global settings file and the per-request
+//! settings. Unknown keys ride along in `extras`; corrupt files are
 //! `store`'s concern.
 
 use crate::extras::Extras;
 use serde::{Deserialize, Serialize};
 
-/// Per-request overrides (PROMPT.md 5.3.2 Settings tab). Defaults come from the global
+/// Per-request overrides. Defaults come from the global
 /// `Settings` when a request is created; the stored request holds full values.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RequestSettings {
-    /// `auto` | `http1` | `http2` (PROMPT.md: HTTP version Auto, HTTP/1.x, HTTP/2).
+    /// `auto` | `http1` | `http2`.
     #[serde(default)]
     pub http_version: HttpVersion,
     #[serde(default = "true_value")]
     pub verify_ssl: bool,
     #[serde(default = "true_value")]
     pub follow_redirects: bool,
-    /// off: 301/302/303 on POST become GET (PROMPT.md 5.3.2).
+    /// off: 301/302/303 on POST become GET.
     #[serde(default)]
     pub follow_original_method: bool,
     /// off: drop `Authorization` on cross-host redirect.
@@ -27,14 +27,14 @@ pub struct RequestSettings {
     pub remove_referer_on_redirect: bool,
     #[serde(default = "ten_value")]
     pub max_redirects: u32,
-    /// 0 = none (PROMPT.md 5.3.2).
+    /// 0 = none.
     #[serde(default)]
     pub timeout_ms: u64,
     #[serde(default = "true_value")]
     pub encode_url_automatically: bool,
     #[serde(default)]
     pub cookie_jar_disabled: bool,
-    /// 0 = unlimited (PROMPT.md 5.3.2).
+    /// 0 = unlimited.
     #[serde(default = "fifty_value")]
     pub max_response_mb: u64,
     #[serde(default, flatten)]
@@ -42,7 +42,7 @@ pub struct RequestSettings {
 }
 
 impl Default for RequestSettings {
-    /// The defaults the brief gives the per-request Settings tab (PROMPT.md 5.3.2).
+    /// The defaults the brief gives the per-request Settings tab.
     fn default() -> Self {
         RequestSettings {
             http_version: HttpVersion::Auto,
@@ -62,7 +62,7 @@ impl Default for RequestSettings {
 }
 
 impl Default for Settings {
-    /// The defaults from PROMPT.md 7 (General + Editor + Theme + History).
+    /// The defaults (General + Editor + Theme + History).
     fn default() -> Self {
         Settings {
             http_version: HttpVersion::Auto,
@@ -101,7 +101,7 @@ impl Default for Settings {
     }
 }
 
-/// The settings file in the OS config dir. Section 7 lists the keys; anything users or
+/// The settings file in the OS config dir. Anything users or
 /// NEWER builds store goes to `extras` and survives.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -133,7 +133,7 @@ pub struct Settings {
     pub trim_keys_and_values: bool,
     #[serde(default)]
     pub response_format_detection: ResponseFormatDetection,
-    /// Default: `<workspace>/files` (PROMPT.md 7: working directory).
+    /// Default: `<workspace>/files`.
     #[serde(default)]
     pub working_directory: String,
     #[serde(default)]
@@ -171,10 +171,10 @@ pub struct Settings {
     // History
     #[serde(default = "history_cap")]
     pub history_cap: usize,
-    /// "Save responses" toggle (PROMPT.md 5.5): bodies cached under `.postguy/responses/`.
+    /// "Save responses" toggle: bodies cached under `.postguy/responses/`.
     #[serde(default)]
     pub save_history_responses: bool,
-    /// Proxy (PROMPT.md 5.5): system env vars by default, or a custom route.
+    /// Proxy: system env vars by default, or a custom route.
     #[serde(default)]
     pub proxy: ProxySettings,
     #[serde(default, flatten)]
@@ -182,7 +182,7 @@ pub struct Settings {
 }
 
 /// Where the proxy comes from: the environment (`HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`) or the
-/// custom block below (which wins, PROMPT.md 5.5).
+/// custom block below (which wins).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum ProxyMode {
@@ -192,7 +192,7 @@ pub enum ProxyMode {
 }
 
 /// The proxy protocol. `Socks5h` resolves the target host at the proxy; `Socks5` resolves it
-/// locally (PROMPT.md 5.5).
+/// locally.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum ProxyProtocol {
@@ -202,7 +202,7 @@ pub enum ProxyProtocol {
     Socks5h,
 }
 
-/// Settings > Proxy (PROMPT.md 5.5). Empty `host` with `Custom` means no proxy.
+/// Settings > Proxy. Empty `host` with `Custom` means no proxy.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxySettings {
@@ -231,7 +231,7 @@ pub struct ProxySettings {
 }
 
 impl std::fmt::Debug for ProxySettings {
-    /// Never print the proxy password (PROMPT.md 9: secrets stay out of logs and the console).
+    /// Never print the proxy password.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ProxySettings")
             .field("mode", &self.mode)
@@ -278,7 +278,7 @@ pub enum HttpVersion {
     Http2,
 }
 
-/// Response format detection (PROMPT.md 7: Auto; "force JSON" override).
+/// Response format detection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum ResponseFormatDetection {
@@ -287,7 +287,7 @@ pub enum ResponseFormatDetection {
     ForceJson,
 }
 
-/// Light, Dark, System (PROMPT.md 6.6).
+/// Light, Dark, System.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum Theme {

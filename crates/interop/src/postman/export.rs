@@ -186,7 +186,7 @@ fn export_request(kind: &RequestKind, shared: &postguy_model::Extras) -> Value {
         RequestKind::Http(http) => export_http_request(http, shared),
         RequestKind::Grpc(grpc) => {
             // Best-effort gRPC shape (the v2.1 format speaks `request.protocol`); fine
-            // fidelity for these kinds is a later milestone (documented gap).
+            // fidelity for these kinds is a documented gap.
             let mut out = Map::new();
             out.insert("method".into(), Value::String("POST".into()));
             out.insert("protocol".into(), Value::String("grpc".into()));

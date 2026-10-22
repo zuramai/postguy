@@ -22,7 +22,7 @@ objc2 = { version = "0.6", default-features = false, features = ["std"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSEnumerator", "NSGeometry"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSScreen", "objc2-core-foundation"] }
 
-# Foundation (PROMPT.md 4.2): key order and number text survive round trips.
+# Foundation: key order and number text survive round trips.
 postguy-util = { path = "crates/util", version = "0.1.0" }
 postguy-model = { path = "crates/model", version = "0.1.0" }
 postguy-auth = { path = "crates/auth", version = "0.1.0" }
@@ -49,14 +49,14 @@ serde = { version = "1", default-features = false, features = ["std", "derive"] 
 serde_json = { version = "1", features = ["preserve_order", "unbounded_depth"] }
 thiserror = "2"
 uuid = { version = "1", default-features = false, features = ["v4"] }
-# IDNA for non-ASCII hosts (PROMPT.md Appendix D); licences: Unicode-3.0/MIT/Apache.
+# IDNA for non-ASCII hosts; licences: Unicode-3.0/MIT/Apache.
 idna = { version = "1", default-features = false, features = ["std", "compiled_data"] }
 # Pseudo-random text for dynamic variables (MIT/Apache-2.0).
 fastrand = "2"
 getrandom = "0.3"
 zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 
-# HTTP (PROMPT.md 4.2): hyper-direct connector; testkit serves the loopback fixtures.
+# HTTP: hyper-direct connector; testkit serves the loopback fixtures.
 tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread", "net", "time", "sync", "io-util", "fs", "macros"] }
 hyper = { version = "1", default-features = false, features = ["server", "client", "http1", "http2"] }
 hyper-util = { version = "0.1", default-features = false, features = ["server", "client", "client-legacy", "tokio", "http1", "http2"] }
@@ -97,7 +97,7 @@ debug = "line-tables-only"
 [profile.dev]
 opt-level = 1
 
-# Release profile per PROMPT.md 8. `panic = "unwind"` is required by AGENTS.md 4 so the
+# Release profile tuned for size. `panic = "unwind"` is required by AGENTS.md 4 so the
 # catch_unwind guards work; never set `panic = "abort"`.
 [profile.release]
 opt-level = "s"

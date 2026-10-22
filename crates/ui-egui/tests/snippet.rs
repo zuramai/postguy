@@ -1,4 +1,4 @@
-//! Snippet panel: all M4.2 languages are offered, and the gear updates indentation/boilerplate.
+//! Snippet panel: all languages are offered, and the gear updates indentation/boilerplate.
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;

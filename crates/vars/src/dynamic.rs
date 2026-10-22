@@ -1,4 +1,4 @@
-//! Appendix A dynamic variables (v1 set), resolved freshly per occurrence (PROMPT.md 5.2).
+//! Dynamic variables, resolved freshly per occurrence.
 //! Generators use `fastrand` and `uuid`, and word lists written for this project
 //! (`words.rs`, contributor-original -- recorded in ATTRIBUTION.toml). Shapes and ranges must
 //! hold; the exact strings are ours. The table is the single source of names and generators.
@@ -17,7 +17,7 @@ pub fn try_generate(name: &str) -> Option<String> {
     Some(generator(Gen))
 }
 
-/// All dynamic variable names (Appendix A v1), for the autocomplete list and tests.
+/// All dynamic variable names for the autocomplete list and tests.
 pub const KNOWN_NAMES: &[&str] = &[
     // Common
     "$guid",
@@ -98,7 +98,7 @@ type Generator = fn(Gen) -> String;
 
 fn lookup(name: &str) -> Option<Generator> {
     const TABLE: &[(&str, Generator)] = &[
-        // Common (Appendix A: Common)
+        // Common
         ("$guid", guid),
         ("$randomUUID", guid),
         ("$timestamp", timestamp),
@@ -224,7 +224,7 @@ fn timestamp(_g: Gen) -> String {
     unix_secs().to_string()
 }
 
-/// ISO 8601 UTC with milliseconds (PROMPT.md Appendix A: `2026-10-19T08:10:36.177Z`).
+/// ISO 8601 UTC with milliseconds.
 fn iso_now(_g: Gen) -> String {
     iso_of_offset_seconds(0)
 }

@@ -1,6 +1,6 @@
 //! Postman vocabulary import/export: Collection v2.1/v2.0 (JSON), environments and globals.
 //!
-//! # FIDELITY (AGENTS.md 5, PROMPT.md 5.7)
+//! # FIDELITY (AGENTS.md 5)
 //!
 //! Every key the Postman schemas define, and every unknown key the file carries, survives an
 //! import → export round trip:
@@ -20,7 +20,7 @@
 //!
 //! - `import_collection` detects the generation from `info.schema`: v2.1 (default), v2.0;
 //!   v1 Collection Format and v3 YAML are DETECTED and reported with per-format instructions
-//!   (PROMPT.md 5.7 table) as [`PostmanError::UnsupportedFormat`].
+//!   as [`PostmanError::UnsupportedFormat`].
 //! - URL objects map onto the `HttpRequest.url` STRING (postman `url.raw` is the source of
 //!   truth; `{{vars}}` and `:pathVars` preserved verbatim). `url.query[]` becomes the params
 //!   two-way view; `url.variable[]` becomes the path-vars view. On export the object form is
@@ -35,8 +35,8 @@
 //!   (`{key,value,type}`) collapse to the last non-empty value; non-string values are kept in
 //!   the auth struct's `extras`.
 //! - Item ids: Postman items rarely carry ids; we generate them ([`postguy_model::new_id`]).
-//!   Duplicate `_postman_id` across a multi-file import is the CALLER's name-clash layer
-//!   (PROMPT.md 5.7): the duplicate is accepted with a warning, no rewrite here.
+//!   Duplicate `_postman_id` across a multi-file import is the CALLER's name-clash layer:
+//!   the duplicate is accepted with a warning, no rewrite here.
 //! - `disabled`/`enabled` rows: missing `enabled` defaults to `true` for every row kind;
 //!   `disabled: true` → `enabled: false` and back on export.
 //! - `protocolProfileBehavior`: known keys map to `RequestSettings` (`followRedirects`,
@@ -45,7 +45,7 @@
 //!   `postmanProtocolProfileBehavior` extras key. Collection-level `protocolProfileBehavior`
 //!   has no model field, so it rides along verbatim and is re-emitted as-is.
 //! - gRPC/WebSocket-Schema items (Postman `request.protocol`) are listed in the report as
-//!   dropped (best-effort only when RECOGNISED per PROMPT.md 5.7); no fake HTTP request is
+//!   dropped (best-effort only when RECOGNISED); no fake HTTP request is
 //!   invented.
 //!
 //! All functions are total over `&Value`: hostile input degrades to warnings/`dropped`
@@ -64,7 +64,7 @@ mod report;
 pub use report::{ImportReport, Imported, MapOutcome};
 
 /// Sniff an already-parsed JSON value (multi-file list, one entry at a time; the LIST
-/// operation of PROMPT.md 5.7) and dispatch to the collection importer or the
+/// operation) and dispatch to the collection importer or the
 /// environment/globals importer.
 ///
 /// # Errors
@@ -108,7 +108,7 @@ pub fn import_environment(v: &Value) -> Result<(postguy_model::Environment, Impo
     import::import_environment(v)
 }
 
-/// Export a collection to a Postman Collection v2.1 JSON document (PROMPT.md 5.7). Secrets
+/// Export a collection to a Postman Collection v2.1 JSON document. Secrets
 /// handling (stripping) is the caller's secrets-store decision; the model only knows the
 /// `secret` flag, which round trips.
 #[must_use]

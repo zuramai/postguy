@@ -1,7 +1,6 @@
 # postguy-vars
 
-- **Layer:** L1 (PROMPT.md 4.1; enforced by `cargo xtask layers`)
-- **Status:** skeleton, planned for M1.4
+- **Layer:** L1 (checked by `cargo xtask layers`)
 
 Variable scopes and precedence, {{var}} resolver with depth limit and cycle guard, dynamic variables, secret masking; pure.
 

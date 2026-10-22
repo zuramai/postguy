@@ -1,5 +1,5 @@
 //! Error vocabulary: every network failure keeps its PHASE so the response viewer can say
-//! whether DNS, connect, TLS, writing or the server failed (PROMPT.md 5.4 timings hover).
+//! whether DNS, connect, TLS, writing or the server failed.
 
 /// Result alias.
 pub type Result<T, E = HttpError> = std::result::Result<T, E>;
@@ -27,7 +27,7 @@ pub enum HttpError {
     /// variant is for protocol violations (e.g. an ALPN mismatch).
     Protocol { reason: String },
     /// The response body exceeded the configured cap; the partial bytes are dropped (the UI
-    /// shows the banner and offers Save to file; streaming arrives with M2.4).
+    /// shows the banner and offers Save to file; streaming to a file is a separate path).
     BodyTooLarge { cap: usize },
     /// A configuration problem (bad CA PEM, unusable client config).
     Config { reason: String },

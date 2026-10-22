@@ -1,4 +1,4 @@
-//! Export values for the UI dialogs and automation tools (M4.3): Postman collection v2.1,
+//! Export values for the UI dialogs and automation tools: Postman collection v2.1,
 //! native collection JSON, environment/globals and the all-data zip. Secret variable values are
 //! blanked unless the caller explicitly asks to include them; the Postman schemas keep the
 //! `secret` type flag either way.

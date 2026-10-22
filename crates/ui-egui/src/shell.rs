@@ -1,6 +1,6 @@
-//! The app shell (PROMPT.md 6.2): header, sidebar, tab strip, central panel, optional right
-//! panel and bottom bar, built with the widget kit. M3.1 delivers the frame and the theme; the
-//! screens (tree, request builder, response viewer) fill it in M3.2-M3.9.
+//! The app shell: header, sidebar, tab strip, central panel, optional right
+//! panel and bottom bar, built with the widget kit. The screens (tree, request
+//! builder, response viewer and so on) are drawn by their own modules.
 //!
 //! The shell owns only layout state (panel sizes, open/closed flags, the active tab label). All
 //! document state belongs to the engine façade, which the app passes in when it exists.
@@ -105,8 +105,8 @@ fn edge_line(ui: &egui::Ui, x: egui::Rangef, y: f32, color: egui::Color32) {
     ui.ctx().layer_painter(ui.layer_id()).hline(x, y, egui::Stroke::new(1.0, color));
 }
 
-/// The shell app. `workspace` is the folder label shown in the header (the engine wires it in
-/// M3.2; the skeleton shows "No workspace").
+/// The shell app. `workspace` is the folder label shown in the header (the app wires it in;
+/// "No workspace" until then).
 pub struct PostguyShell {
     pub state: ShellState,
     pub workspace_label: String,
@@ -273,23 +273,23 @@ impl PostguyShell {
                 | TabDoc::Globals
                 | TabDoc::History { .. } => {
                     let note = match &tab.doc {
-                        TabDoc::Request { .. } => "The request builder arrives in M3.4.",
-                        TabDoc::Collection { .. } => "The collection overview arrives in M3.7.",
-                        TabDoc::Folder { .. } => "The folder detail arrives in M3.7.",
-                        TabDoc::Environment { .. } => "The environment editor arrives in M3.6.",
-                        TabDoc::Globals => "The globals editor arrives in M3.6.",
-                        _ => "Reopening a history entry arrives with the request builder (M3.4).",
+                        TabDoc::Request { .. } => "The request builder is not available for this tab yet.",
+                        TabDoc::Collection { .. } => "The collection overview is not available for this tab yet.",
+                        TabDoc::Folder { .. } => "The folder detail is not available for this tab yet.",
+                        TabDoc::Environment { .. } => "The environment editor is not available for this tab yet.",
+                        TabDoc::Globals => "The globals editor is not available for this tab yet.",
+                        _ => "Reopening a history entry is not available yet.",
                     };
                     self.detail(ui, &theme, &tab.title, note);
                 }
                 TabDoc::Cookies => {
-                    ui.label("The cookies manager arrives in M3.9.");
+                    ui.label("The cookies manager is not available here yet.");
                 }
                 TabDoc::Trash => {
-                    ui.label("The trash view arrives in M3.8.");
+                    ui.label("The trash view is not available here yet.");
                 }
                 TabDoc::Runner => {
-                    ui.label("The runner arrives in M3.8/M9.");
+                    ui.label("The runner is not implemented yet.");
                 }
             },
         });
@@ -363,7 +363,7 @@ impl PostguyShell {
                     });
                     ui.add_space(4.0);
                     let workspace = ui.add(egui::Button::new(RichText::new(&self.workspace_label).font(theme.semibold_font(13.0))).frame(false));
-                    workspace.on_hover_text("Open Workspace… (M3.2)");
+                    workspace.on_hover_text("Open Workspace…");
                     let left_end = ui.cursor().left();
                     let mut right_start = rect.right();
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -534,7 +534,7 @@ impl PostguyShell {
             _ => ThemeMode::System,
         };
         ui.add_space(8.0);
-        ui.label(RichText::new("The real Settings tab arrives in M3.9.").color(theme.palette.text_muted));
+        ui.label(RichText::new("Settings are not available here yet.").color(theme.palette.text_muted));
     }
 }
 

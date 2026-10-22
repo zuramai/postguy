@@ -1,4 +1,4 @@
-//! Property tests (PLAN.md M1.3): parse and build are inverses for ANY text, and the param
+//! Property tests: parse and build are inverses for ANY text, and the param
 //! view round-trips; encoding is idempotent and decode(encode(x)) == x over a wide charset.
 
 use postguy_urlkit::*;

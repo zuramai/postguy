@@ -1,5 +1,5 @@
-//! The config-dir side (settings.json, session.json): user-level files NOT in the workspace
-//! (PROMPT.md 4.4). Same atomic saves, same quarantine of corrupt files with a clear note.
+//! The config-dir side (settings.json, session.json): user-level files NOT in the workspace.
+//! Same atomic saves, same quarantine of corrupt files with a clear note.
 
 use postguy_model::Settings;
 use postguy_util::{Result, atomic_write, read_file_capped};
@@ -33,7 +33,7 @@ pub fn load_settings(paths: &crate::paths::StorePaths) -> Result<ConfigOutcome> 
 }
 
 /// A thin wrapper to write ONLY the settings file, unknown keys preserved through
-/// `Settings.extras` (PROMPT.md 4.5/7).
+/// `Settings.extras`.
 pub fn save_settings(paths: &crate::paths::StorePaths, settings: &Settings) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(settings)
         .map_err(|err| postguy_util::Error::JsonSyntax { what: "serializing settings".to_string(), source: err })?;

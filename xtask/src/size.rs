@@ -1,7 +1,6 @@
-//! `cargo xtask size`: measure the release binaries against the PROMPT.md 8 budgets.
+//! `cargo xtask size`: measure the release binaries against the size budgets.
 //!
-//! Budgets (macOS arm64, stripped, measured at the end of every milestone, enforced in CI from
-//! M10): desktop app <= 18 MB with `scripting` on (stretch 14; `scripting` off <= 12 MB). The
+//! Budgets (macOS arm64, stripped, enforced in CI): desktop app <= 18 MB with `scripting` on (stretch 14; `scripting` off <= 12 MB). The
 //! stretch number is reported, not gated.
 
 use anyhow::{Context, Result, bail};
@@ -46,7 +45,7 @@ pub fn run(args: &[String]) -> Result<()> {
     {
         println!("size: cargo-bloat installed; run `cargo bloat --release -p postguy --crates` for the breakdown");
     } else {
-        println!("size: cargo-bloat not installed (pending owner approval, PLAN.md 0); breakdown skipped");
+        println!("size: cargo-bloat not installed; breakdown skipped");
     }
     if over.is_empty() {
         return Ok(());

@@ -1,6 +1,12 @@
 # postguy-cli
 
-The headless CLI. Subcommands (PROMPT.md 5.6.3): `run` (collection runner with reporters),
-`tools`/`call`/`run --script` (automation tools; `--root` confines every path), `import`/`export`,
-`snippet`, and the opt-in `mcp` and `ui` subcommands. It is the same tool table the MCP server
-serves. Status: the automation table and `run --script` are implemented; `ui` implements the control client (`inspect`, `command`, `set`, `screenshot`; `click`/`key`/`type` are refused by the app, which does not emulate synthetic input). `run` with reporters and `mcp` are later milestones.
+The headless CLI. Subcommands:
+
+- `tools` / `call` / `run --script`: the automation tool table over the engine; `--root DIR`
+  confines every path.
+- `ui`: a client for the app's opt-in control channel (`inspect`, `command`, `set`,
+  `screenshot`). `click`, `key` and `type` are refused by the app, which does not emulate
+  synthetic input.
+- `fuzz-target`: dev verb used by `cargo xtask fuzz`.
+
+The collection runner with reporters and the `mcp` server are not implemented yet.

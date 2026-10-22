@@ -1,4 +1,4 @@
-//! Environment and Globals editor (PROMPT.md 5.2, M3.6): editable title and colour dot, search,
+//! Environment and Globals editor: editable title and colour dot, search,
 //! a variables table with enabled/name/value/description, a secret flag with masked values
 //! (hold Cmd/Ctrl or the reveal toggle to see them), per-row delete, drag reordering and a
 //! trailing add row. Changes autosave: the widget returns [`EnvironmentAction::Save`] whenever a

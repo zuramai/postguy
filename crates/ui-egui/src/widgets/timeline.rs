@@ -1,6 +1,6 @@
-//! Timeline skeleton shared by Console, gRPC and WebSocket (PROMPT.md 5.3.3, 6.3): virtualised
+//! Timeline skeleton shared by Console, gRPC and WebSocket: virtualised
 //! rows, an optional reversed order, filters handled by the caller, and expandable detail.
-//! This is the M3.1 skeleton; message bodies and per-direction colours arrive with the screens.
+//! Message bodies and per-direction colours are left to the screens that use it.
 
 use egui::{Response, ScrollArea, Sense, Ui};
 use serde_json::Value;

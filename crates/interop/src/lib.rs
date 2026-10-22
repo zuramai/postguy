@@ -5,9 +5,9 @@
 //! [`error::Result`], sizes are capped before work starts, and malformed input degrades to
 //! warnings wherever the meaning survives.
 //!
-//! Status: the cURL importer/exporter ([`curl`]) is implemented (M1.7) and the Postman
-//! v2.0/v2.1 importer/exporter ([`postman`]) is implemented (M1.6); the rest of the
-//! module list below is planned (later milestones) and arrives as further modules.
+//! Status: the cURL importer/exporter ([`curl`]) and the Postman v2.0/v2.1
+//! importer/exporter ([`postman`]) are implemented; the rest of the module list below is
+//! planned.
 //!
 //! - Postman v2.0/v2.1 collections, environments and globals: [`postman`] (implemented).
 //! - cURL: [`curl::parse_curl`] / [`curl::generate_curl`] (implemented).

@@ -1,7 +1,7 @@
 # postguy-script
 
-- **Layer:** L3 (PROMPT.md 4.1; enforced by `cargo xtask layers`)
-- **Status:** skeleton, planned for M8.1
+- **Layer:** L3 (enforced by `cargo xtask layers`)
+- **Status:** not implemented yet; the crate is an empty placeholder.
 
 Embedded JS sandbox (boa_engine) with the pm API, wall-clock and memory limits, cancellation; behind the scripting feature.
 

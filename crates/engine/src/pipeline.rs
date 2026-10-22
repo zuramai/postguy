@@ -1,6 +1,5 @@
-//! The send pipeline (PROMPT.md 5.3.2, steps 1–12) with scripts as explicit no-op hooks until
-//! M8: scope chain → script hook → auth inheritance/resolution → URL build → auth application →
-//! body/automatic headers → cookies → send → cookie update → response model → post-script hook →
+//! The send pipeline with scripts as explicit no-op hooks: scope chain → script hook → auth inheritance/resolution → URL build →
+//! auth application → body/automatic headers → cookies → send → cookie update → response model → post-script hook →
 //! history/console record. Each step lives in its own function so it is unit-testable, and the
 //! whole run is wrapped in `catch_unwind` by [`crate::Engine::send`].
 
@@ -37,7 +36,7 @@ pub struct SendOptions {
     pub environment: Option<Id>,
     /// The caller's cancellation handle (Esc in the UI, `request_cancel` from a tool).
     pub cancel: Option<Cancel>,
-    /// Run pre-request and test scripts when the sandbox exists (M8). Today a no-op that warns.
+    /// Run pre-request and test scripts when the sandbox exists. Today a no-op that warns.
     pub run_scripts: bool,
 }
 
@@ -70,7 +69,7 @@ pub struct ResponseView {
     pub timings: ResponseTimings,
 }
 
-/// Stages of one send, for the Console/timeline and the send-overhead budget (PROMPT.md 8):
+/// Stages of one send, for the Console/timeline and the send-overhead budget:
 /// `prepare` is steps 1–7 (click to first byte written), `network` is the round trip,
 /// `record` is steps 9–12 (last byte to the model the viewer renders).
 #[derive(Debug, Clone, Copy, Default, Serialize)]
@@ -112,8 +111,8 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
     // 2. Pre-request scripts (collection, folders outer→inner, request): the explicit no-op.
     let scripts_present = scripts_present(&located);
     if scripts_present {
-        warnings.push("scripts are saved but not executed in this build (scripting arrives in M8)".to_string());
-        engine.console().push(ConsoleLevel::Warning, ConsoleKind::Warning, "scripts were skipped: the script sandbox is not built yet (M8)");
+        warnings.push("scripts are saved but not executed in this build (scripting is not implemented yet)".to_string());
+        engine.console().push(ConsoleLevel::Warning, ConsoleKind::Warning, "scripts were skipped: the script sandbox is not built yet");
     }
     let _ = options.run_scripts;
 
@@ -408,7 +407,7 @@ fn http_of(request: &Request) -> Option<&HttpRequest> {
     }
 }
 
-/// Scopes: globals < collection < folders outer→inner < environment (PROMPT.md 5.2). Secret
+/// Scopes: globals < collection < folders outer→inner < environment. Secret
 /// variable values come from the secrets store, never from the model files.
 pub(crate) fn build_resolver(engine: &Engine, located: &Located, environment: Option<&Id>) -> Result<Resolver> {
     let mut resolver = Resolver::new();
@@ -563,7 +562,7 @@ fn build_url(request: &HttpRequest, resolver: &Resolver, encode_automatically: b
     let params: Vec<&KeyValue> = request.params.iter().filter(|row| row.enabled && !row.key.is_empty()).collect();
     if !params.is_empty() {
         // The URL string stays the source of truth: enabled table rows replace a same-key
-        // pair and append the rest, leaving URL-only pairs alone (PROMPT.md 5.3.2).
+        // pair and append the rest, leaving URL-only pairs alone.
         let mut rows: Vec<Param> = parsed.query.as_ref().map(|query| postguy_urlkit::params_of_query(&query.0)).unwrap_or_default();
         for row in params {
             let key = resolver.resolve_text(&row.key).text;
@@ -668,7 +667,7 @@ fn resolve_body(body: &Body, resolver: &Resolver) -> Body {
 }
 
 /// The file loader for binary and form-data rows: working-directory confinement (unless the
-/// setting allows outside paths) and a 100 MiB cap (PROMPT.md 5.3.2, AGENTS.md 4).
+/// setting allows outside paths) and a 100 MiB cap.
 fn file_loader<'a>(
     paths: &'a postguy_store::StorePaths,
     working_directory: &str,

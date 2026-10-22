@@ -1,7 +1,7 @@
 //! Postguy model (L0): plain data and serde for everything the user keeps on disk —
 //! collections, folders, requests (HTTP, gRPC, WebSocket), bodies, auth configs, environments,
 //! examples, history and settings. No I/O; unknown fields are preserved in `extras`
-//! (PROMPT.md 4.5) so any future version of the files round-trips.
+//! so any future version of the files round-trips.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 

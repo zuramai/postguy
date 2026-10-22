@@ -5,11 +5,11 @@ before merge; a reviewer asks for provenance first, then safety, then completene
 
 ## What
 
-<!-- What changes, in one para. Link the task id (PLAN.md) and any parity entry it affects. -->
+<!-- What changes, in one para. Link the related issue and any parity entry it affects. -->
 
 ## Context
 
-<!-- Why: the problem, the observed behaviour, the Postman feature it matches (PROMPT.md section), the ADR if a pattern changed. -->
+<!-- Why: the problem, the observed behaviour, the Postman feature it matches, the ADR if a pattern changed. -->
 
 ## Changes
 

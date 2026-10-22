@@ -1,7 +1,6 @@
 # postguy-model
 
-- **Layer:** L0 (PROMPT.md 4.1; enforced by `cargo xtask layers`)
-- **Status:** skeleton, planned for M1.2
+- **Layer:** L0 (checked by `cargo xtask layers`)
 
 Plain data and serde for collections, folders, requests, environments and history; unknown fields preserved in extras; no I/O.
 

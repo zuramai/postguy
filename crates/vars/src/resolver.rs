@@ -1,5 +1,5 @@
 //! The resolution engine: scopes in precedence order, recursive expansion, depth and cycle
-//! guards. Narrower scopes win (PROMPT.md 5.2: global < collection < folder outer-to-inner <
+//! guards. Narrower scopes win (global < collection < folder outer-to-inner <
 //! environment < data < local); a scope of the same kind added later wins the tie, so folder
 //! scopes are added outer-to-inner.
 //!
@@ -82,7 +82,7 @@ pub struct Resolution {
 
 impl Resolution {
     /// Names that are still `{{...}}` after resolution (deduped), for the Send-block hint
-    /// that lists unresolved names (PROMPT.md 5.2).
+    /// that lists unresolved names.
     pub fn unresolved_names(&self) -> Vec<&str> {
         let mut names: Vec<&str> = self.hits.iter().filter(|h| h.unresolved).map(|h| h.name.as_str()).collect();
         names.sort_unstable();
@@ -172,7 +172,7 @@ impl Resolver {
     /// Cycle guard: expanding `{{name}}` pushes it on `stack`; the name reappearing inside
     /// its own expansion chain leaves the `{{name}}` literal and reports it as unresolved.
     /// Depth cap: while `depth < MAX_DEPTH` a value containing `{{...}}` expands further;
-    /// beyond the cap the rest stays literal with a warning hit (PROMPT.md 5.2).
+    /// beyond the cap the rest stays literal with a warning hit.
     fn expand(&self, template: &str, depth: usize, stack: &mut Stackup, out: &mut String, hits: &mut Vec<VarHit>) {
         let mut byte_index = 0usize;
         while byte_index < template.len() {
@@ -216,7 +216,7 @@ impl Resolver {
                             push_hit(hits, name, kind, secret, span_start, out.len(), false);
                         }
                         (true, true, _) => {
-                            // Cycle: the mention itself stays literal (PROMPT.md 5.2: the
+                            // Cycle: the mention itself stays literal (the
                             // resolver warns and leaves the text unresolved).
                             out.push_str(&rest[open_rel..close_end_rel]);
                             push_hit(hits, name, kind, secret, span_start, out.len(), true);

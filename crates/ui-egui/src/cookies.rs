@@ -1,4 +1,4 @@
-//! Cookies manager (PROMPT.md 5.5, M3.9): every jar cookie with flags and expiry, search, delete
+//! Cookies manager: every jar cookie with flags and expiry, search, delete
 //! and clear-all, plus the domain allowlist that scripts may touch. The jar itself lives in the
 //! engine; this widget is data-in/actions-out.
 

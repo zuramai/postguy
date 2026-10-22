@@ -1,4 +1,4 @@
-//! The Console panel (PROMPT.md 5.5, M3.9): request summaries, logs, warnings and errors from the
+//! The Console panel: request summaries, logs, warnings and errors from the
 //! engine's bounded ring buffer, with filter chips, search, timestamps and Clear. Bodies in the
 //! detail are already truncated and masked by the engine.
 

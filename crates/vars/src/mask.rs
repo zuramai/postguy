@@ -1,4 +1,4 @@
-//! Secret masking (PROMPT.md 5.2, 5.5, 9): secret variable values never appear verbatim in
+//! Secret masking: secret variable values never appear verbatim in
 //! the console, logs, snippets or history echoes. `mask_secrets` replaces every occurrence
 //! while the non-secret text stays byte-identical, so callers can still eyeball requests.
 

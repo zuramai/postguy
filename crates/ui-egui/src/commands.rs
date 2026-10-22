@@ -1,4 +1,4 @@
-//! Command registry and palette (PROMPT.md 6.4, M3.8): every action has a stable id, label,
+//! Command registry and palette: every action has a stable id, label,
 //! default shortcut and a group; menus, shortcuts and the palette read the same table. The
 //! palette fuzzy-searches commands and workspace items, with `>` restricting it to commands.
 

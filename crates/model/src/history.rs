@@ -1,4 +1,4 @@
-//! History entries (PROMPT.md 4.5): one row per user send, snapshots instead of references so
+//! History entries: one row per user send, snapshots instead of references so
 //! a History row can be reopened without the collection it came from.
 
 use crate::ids::Id;
@@ -25,7 +25,7 @@ pub struct HistoryEntry {
     /// Bytes of the response body (decoded size for compressed responses).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size_bytes: Option<u64>,
-    /// Reference into `.postguy/responses/` when "Save responses" is on (PROMPT.md 5.5).
+    /// Reference into `.postguy/responses/` when "Save responses" is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_ref: Option<String>,
     #[serde(default, flatten)]

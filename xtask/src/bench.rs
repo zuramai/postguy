@@ -1,4 +1,4 @@
-//! `cargo xtask bench`: run the headless frame-time capture and report the PROMPT.md 8 budgets.
+//! `cargo xtask bench`: run the headless frame-time capture and report the frame-time budgets.
 //! The measurement covers our widget tree (layout + paint) without a GPU; run it in release for
 //! numbers that compare with the budgets. `--check` fails when a measured budget is exceeded.
 

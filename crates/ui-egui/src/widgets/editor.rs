@@ -1,12 +1,12 @@
-//! Code editor and large-text viewer (PROMPT.md 6.3, 5.4):
+//! Code editor and large-text viewer:
 //! - [`CodeEditor`]: monospace editing with a line-number gutter that scrolls with the text,
 //!   a per-language token colourer and a `{{var}}`-aware plain mode. Above the soft cap it
-//!   turns highlighting off instead of stalling (PROMPT.md 5.4: 5 MB).
+//!   turns highlighting off instead of stalling (5 MB).
 //! - [`LargeTextView`]: read-only virtualised lines over an `Arc<str>` with precomputed line
 //!   starts; only visible rows are laid out and coloured.
 //!
 //! Every tokenizer walks bytes with `get()` and only slices at ASCII boundaries, so a malformed
-//! or truncated body can never panic (AGENTS.md section 4).
+//! or truncated body can never panic (AGENTS.md).
 
 use std::sync::Arc;
 

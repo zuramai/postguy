@@ -1,7 +1,6 @@
 # postguy-urlkit
 
-- **Layer:** L1 (PROMPT.md 4.1; enforced by `cargo xtask layers`)
-- **Status:** skeleton, planned for M1.3
+- **Layer:** L1 (checked by `cargo xtask layers`)
 
 URL parse and build, percent-encoding per component, query/URL two-way sync, path variables, host-pattern matching; pure.
 

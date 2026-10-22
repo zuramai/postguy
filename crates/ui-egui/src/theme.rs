@@ -1,4 +1,4 @@
-//! Theme tokens (PROMPT.md 6.7): semantic colours with light and dark values, spacing and type
+//! Theme tokens: semantic colours with light and dark values, spacing and type
 //! scale. Widgets never name a raw colour; they ask the [`Theme`]. System mode follows the OS
 //! via egui's `system_theme` (macOS/Windows live; Linux falls back to light as the brief says).
 
@@ -23,7 +23,7 @@ impl From<postguy_model::Theme> for ThemeMode {
     }
 }
 
-/// The semantic palette. Hex values are the starting points from PROMPT.md 6.7.
+/// The semantic palette.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Palette {
     pub surface: Color32,
@@ -165,7 +165,7 @@ impl Palette {
     };
 }
 
-/// Spacing and sizes shared by every screen (PROMPT.md 6.2: 32 px header, 320 px right panel).
+/// Spacing and sizes shared by every screen.
 #[derive(Debug, Clone, Copy)]
 pub struct Metrics {
     pub header_height: f32,
@@ -409,7 +409,7 @@ impl Theme {
         FontId::new(size, family)
     }
 
-    /// Method text colour (universal REST conventions, PROMPT.md 6.7).
+    /// Method text colour (universal REST conventions).
     pub fn method_color(&self, method: &str) -> Color32 {
         match method.to_ascii_uppercase().as_str() {
             "GET" => self.palette.get,

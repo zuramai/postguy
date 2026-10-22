@@ -13,7 +13,7 @@ use crate::paths::StorePaths;
 use crate::secrets::SecretsStore;
 use crate::{history, lock, trash};
 
-const MAX_FILE_BYTES: usize = 100 << 20; // the import cap (PROMPT.md 5.7), model files included
+const MAX_FILE_BYTES: usize = 100 << 20; // the import cap, model files included
 
 /// A loaded (or freshly created) workspace. All mutations funnel through the interior MUTEX
 /// so two saves cannot interleave inside one process; separate processes are fenced by the
@@ -196,7 +196,7 @@ impl Workspace {
     }
 
     /// Save one environment and point the ORDER file at it. Secret variable values are moved
-    /// into the secrets store and BLANKED in the file (PROMPT.md 4.4: secret values never live
+    /// into the secrets store and BLANKED in the file (secret values never live
     /// in environment files).
     pub fn save_environment(&self, environment: &Environment) -> Result<()> {
         let owner = environment.id.0.clone();
@@ -388,7 +388,7 @@ impl Workspace {
 pub const GLOBALS_OWNER: &str = "globals";
 
 /// Move secret variable values into the secrets store, blanking them in the model copy that is
-/// about to be written (PROMPT.md 4.4). A cleared secret row removes the stored value.
+/// about to be written. A cleared secret row removes the stored value.
 fn split_variables(variables: &mut [Variable], owner: &str, secrets: &SecretsStore) -> Result<()> {
     for variable in variables.iter_mut().filter(|v| v.secret) {
         if variable.value.is_empty() {
@@ -574,7 +574,7 @@ pub fn write_model<T: Serialize>(path: &std::path::Path, model: &T) -> Result<()
 
 /// Read a model file; missing -> `Fresh(default)`; corrupt -> rename `.corrupt-<time>` and
 /// continue with `CorruptRecovered(default)` so the load is RECOVERABLE and the user hears
-/// about it (PROMPT.md 4.4: "renamed `.corrupt-<time>`; the app starts without it and says so").
+/// about it.
 pub fn read_model<T: for<'de> Deserialize<'de> + Default>(path: &std::path::Path) -> Result<LoadOutcome<T>> {
     let bytes = match read_file_capped(path, MAX_FILE_BYTES) {
         Ok(bytes) => bytes,

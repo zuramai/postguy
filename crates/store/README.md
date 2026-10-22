@@ -1,7 +1,6 @@
 # postguy-store
 
-- **Layer:** L2 (PROMPT.md 4.1; enforced by `cargo xtask layers`)
-- **Status:** skeleton, planned for M1.5
+- **Layer:** L2 (checked by `cargo xtask layers`)
 
 Workspace on disk: load/save, atomic writes with .bak, lock file, trash, history, session and settings files, secrets split.
 

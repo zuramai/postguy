@@ -1,4 +1,4 @@
-//! End-to-end: the M2.9 HTTP tools over a real engine and the loopback testkit — a stored
+//! End-to-end: the HTTP tools over a real engine and the loopback testkit — a stored
 //! request sent through the pipeline, response retrieval/saving/rendering, cookies, history,
 //! console and variable explanation, plus the cancellation contract.
 
@@ -130,7 +130,7 @@ fn variables_resolve_names_the_scope_and_secret_origin() {
     assert!(hits.iter().any(|hit| hit["name"] == "nope" && hit["unresolved"] == true));
 }
 
-/// The M2 exit through the tool layer: redirect loops, compressed responses, a self-signed TLS
+/// The full send path through the tool layer: redirect loops, compressed responses, a self-signed TLS
 /// server (verify off is an explicit per-request setting), the response cap and cancellation.
 #[test]
 fn the_send_path_covers_redirects_compression_tls_limits_and_cancel() {

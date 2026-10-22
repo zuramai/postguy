@@ -5,15 +5,16 @@ with egui. It does what the essential parts of Postman do — collections, envir
 import/export — and nothing online: no account, no sync, no telemetry. It runs natively on macOS,
 Windows, Linux and FreeBSD.
 
-See [PROMPT.md](PROMPT.md) for the product brief and [AGENTS.md](AGENTS.md) for the rules that
-bind every contributor. [PLAN.md](PLAN.md) is the execution order.
+See [AGENTS.md](AGENTS.md) for the rules that bind every contributor and
+[docs/architecture.md](docs/architecture.md) for the crate layout.
 
 ## Status
 
-**v0.1 in progress (M5.1):** desktop HTTP client with collections, environments, variables,
-request builder, response viewer, imports (Postman/cURL/zip documents), snippets and export
-dialogs and the M5.1 auth types. WebSocket, gRPC, OAuth 2.0, scripts and the runner are later milestones. The roadmap lives in
-[ROADMAP.md](ROADMAP.md), the milestone table in [docs/roadmap.md](docs/roadmap.md).
+Desktop HTTP client with collections, environments, variables, request builder, response viewer,
+imports (Postman/cURL/zip documents), code snippets, export dialogs and the common auth types.
+WebSocket and gRPC clients exist at a basic level; scripts and the collection runner are not
+implemented yet. Feature-by-feature state is in `parity/postman-features.toml`; known gaps are in
+[docs/gaps.md](docs/gaps.md).
 
 ## Building
 

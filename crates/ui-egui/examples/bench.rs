@@ -1,4 +1,4 @@
-//! Headless frame-time bench for the M3 exit budgets (PROMPT.md 8). Layout and painting run
+//! Headless frame-time bench for the frame-time budgets. Layout and painting run
 //! through egui's test harness, so the numbers cover our own widget tree without a GPU.
 //! `cargo xtask bench` runs this in release and checks the budgets; run it directly to inspect.
 //!

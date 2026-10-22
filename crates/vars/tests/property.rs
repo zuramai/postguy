@@ -1,4 +1,4 @@
-//! Property tests (PLAN.md M1.4): resolution always terminates, never invents text outside
+//! Property tests: resolution always terminates, never invents text outside
 //! the templates+values it was given, and hostile inputs degrade to literal text.
 
 use postguy_vars::{Resolver, Scope, ScopeKind, resolve_text};

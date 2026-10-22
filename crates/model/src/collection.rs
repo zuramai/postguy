@@ -1,4 +1,4 @@
-//! Collection, folder and request items (PROMPT.md 4.5, 5.1). Array order is the order; the
+//! Collection, folder and request items. Array order is the order; the
 //! tree operations live in `engine`, this is the data.
 
 use crate::auth::AuthConfig;
@@ -67,8 +67,8 @@ pub struct Request {
     pub name: String,
     #[serde(default)]
     pub description: String,
-    /// Kind-specific body. The protocol is chosen at creation and cannot change after save
-    /// (PROMPT.md 5.3.1); the kind variants keep that structural.
+    /// Kind-specific body. The protocol is chosen at creation and cannot change after save;
+    /// the kind variants keep that structural.
     pub kind: RequestKind,
     #[serde(default)]
     pub examples: Vec<Example>,

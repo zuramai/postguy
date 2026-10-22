@@ -1,6 +1,6 @@
-//! gRPC descriptors and unary invocation (M7.1/M7.2): compile a request's proto set/inline
-//! files from the workspace, then call one method with the dynamic codec. Reflection and
-//! streaming are later milestones.
+//! gRPC descriptors and unary invocation: compile a request's proto set/inline
+//! files from the workspace, then call one method with the dynamic codec. Reflection-based
+//! descriptors and streaming calls sit alongside unary.
 
 use std::path::PathBuf;
 

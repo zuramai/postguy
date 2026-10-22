@@ -1,6 +1,6 @@
-//! Dynamic gRPC (M7.1/M7.2): compile `.proto` files with protox into a descriptor pool, encode
-//! `prost-reflect::DynamicMessage` JSON payloads and call unary methods over tonic. No codegen,
-//! no protoc. Streaming and reflection arrive in M7.3/M7.4.
+//! Dynamic gRPC: compile `.proto` files with protox into a descriptor pool, encode
+//! `prost-reflect::DynamicMessage` JSON payloads and call unary and streaming methods over tonic. Descriptors come from
+//! compiled `.proto` files or server reflection. No codegen, no protoc.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 

@@ -1,5 +1,5 @@
 //! Property tests for the cURL importer/exporter: generate→parse round trips and
-//! panic-freedom on hostile flag soup (the M1.9 fuzzing precursor).
+//! panic-freedom on hostile flag soup (a fuzzing precursor).
 
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;

@@ -1,4 +1,4 @@
-//! The response viewer (PROMPT.md 5.4, M3.5): the header strip with status/time/size and phase
+//! The response viewer: the header strip with status/time/size and phase
 //! popovers, Body/Cookies/Headers tabs, Pretty/Raw/Preview/Hex body modes, a search box and the
 //! Save/Clear menus.
 //!

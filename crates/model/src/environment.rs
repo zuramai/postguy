@@ -1,4 +1,4 @@
-//! Environments and globals variables (PROMPT.md 4.5, 5.2). Secret values never live in the
+//! Environments and globals variables. Secret values never live in the
 //! collection or environment FILE on anywhere but the secrets store; `Variable` carries only
 //! the flag — the value split is `store`'s job (secret values live `.postguy/secrets.json`).
 
@@ -53,7 +53,7 @@ impl Default for Variable {
 
 impl Environment {
     /// Look up the VALUE of an enabled, non-secret-flag-aware variable by key: enabled rows
-    /// only (PROMPT.md 5.2: a disabled row does not exist for resolution).
+    /// only.
     pub fn get(&self, key: &str) -> Option<&str> {
         self.variables.iter().find(|v| v.enabled && v.key == key).map(|v| v.value.as_str())
     }
@@ -73,7 +73,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(env.variables.len(), 3);
-        // Missing enabled defaults to true (PROMPT.md 5.7: tolerant import).
+        // Missing enabled defaults to true.
         assert!(env.variables[0].enabled);
         assert_eq!(env.get("baseUrl"), Some("http://localhost"));
         assert!(!env.variables[2].secret, "defaults off");

@@ -1,5 +1,5 @@
 //! Icon rendering: the generated Lucide path data (`icons_gen`) drawn as stroked polylines.
-//! No SVG renderer, no font icons (PROMPT.md 4.2): a small path-data parser supports the
+//! No SVG renderer, no font icons: a small path-data parser supports the
 //! commands Lucide uses (M/L/H/V/C/S/Q/T/A/Z, absolute and relative) and flattens curves.
 //! Unknown commands skip that subpath and report nothing; an icon missing from the table draws
 //! nothing (a visible gap is better than a wrong glyph).

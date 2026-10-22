@@ -1,4 +1,4 @@
-//! Code snippets (PROMPT.md 5.8, M4.2): the right-panel widget with a language menu, formatting
+//! Code snippets: the right-panel widget with a language menu, formatting
 //! options, Copy and the generated text. Generation lives in `postguy-snippets` so the panel,
 //! the automation tool and the future CLI share one implementation.
 

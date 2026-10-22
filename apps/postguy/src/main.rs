@@ -1,8 +1,8 @@
 //! Postguy desktop app (eframe + glow): owns the engine session and applies the sidebar's
-//! intents (M3.2). Launch with `--workspace DIR` to choose the workspace; without it the app
+//! intents. Launch with `--workspace DIR` to choose the workspace; without it the app
 //! opens `./postguy-workspace` so a fresh checkout has somewhere to write.
 //!
-//! The UI thread never does network I/O; M3.2 has no sends. Reads of the workspace happen when
+//! The UI thread never does network I/O. Reads of the workspace happen when
 //! an action changed it (one revision), not every frame.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
@@ -52,7 +52,7 @@ struct Clipboard {
     cut: bool,
 }
 
-/// What the session file stores (M3.3). Tabs carry their own drafts; the rest is layout.
+/// What the session file stores. Tabs carry their own drafts; the rest is layout.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct StoredSession {
@@ -1423,7 +1423,7 @@ impl App {
                     self.clipboard = Some(Clipboard { items: vec![ClipboardItem { source_collection, item }], cut: false });
                     Ok("Copied to the clipboard".into())
                 } else {
-                    Err("copying whole collections arrives with export (M4)".into())
+                    Err("copying whole collections is not supported yet".into())
                 }
             }
             SidebarAction::Cut { id } => {
@@ -1505,7 +1505,7 @@ impl App {
                 let example = engine.create_example(&collection, &id, "Example").map_err(|err| err.to_string())?;
                 Ok(format!("Created example `{}`", example.name))
             }
-            SidebarAction::Run { .. } => Ok("The runner arrives in M3.8/M9".into()),
+            SidebarAction::Run { .. } => Ok("The runner is not implemented yet".into()),
             SidebarAction::Export { id } => {
                 let id = Id(id.clone());
                 if let Ok(collection) = engine.collection(&id) {
@@ -1524,13 +1524,13 @@ impl App {
                 };
                 let postguy_model::Item::Request(request) = item else { return Err("Copy as cURL applies to requests".into()) };
                 let postguy_model::RequestKind::Http(http) = &request.kind else {
-                    return Err("Copy as cURL supports HTTP requests in M4".into());
+                    return Err("Copy as cURL supports HTTP requests only".into());
                 };
                 self.pending_clipboard =
                     Some(postguy_snippets::generate(postguy_snippets::Language::Curl, http, postguy_snippets::Options::default()));
                 Ok("Copied as cURL".into())
             }
-            SidebarAction::OpenInNewTab { id, .. } => Ok(format!("Open in new tab: {id} (tab model arrives in M3.3)")),
+            SidebarAction::OpenInNewTab { id, .. } => Ok(format!("Open in new tab: {id}")),
             SidebarAction::Import => {
                 self.open_import();
                 Ok("Import…".into())
@@ -2053,7 +2053,7 @@ impl App {
                     }
                 }
             }
-            CollectionAction::Run => self.shell.state.status = "The runner arrives in M3.8/M9".into(),
+            CollectionAction::Run => self.shell.state.status = "The runner is not implemented yet".into(),
             CollectionAction::NewRequest => {
                 if let Some(editor) = self.detail_editors.get(&tab_id) {
                     let collection_id = editor.collection.id.clone();
@@ -2767,7 +2767,7 @@ fn ws_panel(ui: &mut egui::Ui, editor: &mut WsEditor) -> Option<WsUiAction> {
     ui.add(egui::TextEdit::multiline(&mut editor.message).desired_rows(3).desired_width(f32::INFINITY).hint_text("Message"));
     ui.label(
         egui::RichText::new(
-            "Headers, subprotocols and reconnect policy are stored in the request; the full composer/timeline lands with the M6.3 polish.",
+            "Headers, subprotocols and reconnect policy are stored in the request; the full composer/timeline is not implemented yet.",
         )
         .small()
         .color(theme.palette.text_muted),

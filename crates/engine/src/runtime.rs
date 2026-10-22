@@ -1,5 +1,4 @@
-//! The engine's single tokio runtime (PROMPT.md 4.2: one runtime on background threads, owned by
-//! `engine`; the UI thread never blocks on I/O). Worker threads are tokio's own; blocking
+//! The engine's single tokio runtime. Worker threads are tokio's own; blocking
 //! frontends (`postguy-cli`) call [`RuntimeHandle::block_on`], the UI uses `spawn`.
 
 use std::future::Future;

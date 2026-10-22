@@ -1,6 +1,6 @@
-//! The Settings tab (PROMPT.md section 7, M3.9): General, Editor, Themes, Data, Certificates,
+//! The Settings tab: General, Editor, Themes, Data, Certificates,
 //! Proxy and About. Every change saves immediately through the app (unknown keys are preserved by
-//! the model's `extras`). Network-touching/import-export buttons point at their milestones.
+//! the model's `extras`). Import/export-all buttons only describe what is not available yet.
 
 use egui::{RichText, ScrollArea, Ui};
 use postguy_model::{HttpVersion, ProxyMode, ProxyProtocol, ResponseFormatDetection, Settings, Theme};
@@ -80,7 +80,9 @@ impl SettingsEditor<'_> {
                     if ui.button("Reset settings (not workspace data)").clicked() {
                         reset = true;
                     }
-                    ui.label(RichText::new("Import data (zip or folder) and Export all data arrive in M4.").color(theme.palette.text_muted));
+                    ui.label(
+                        RichText::new("Import data (zip or folder) and Export all data are not available here yet.").color(theme.palette.text_muted),
+                    );
                 }
                 SettingsSection::Certificates => changed |= certificates(ui, self.settings),
                 SettingsSection::Proxy => changed |= proxy(ui, self.settings),

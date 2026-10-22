@@ -1,4 +1,4 @@
-//! Export dialog (PROMPT.md 5.7, M4.3): choose the shape for a collection, environment, globals
+//! Export dialog: choose the shape for a collection, environment, globals
 //! or the whole workspace, opt into secret values where the product allows it, then hand off to
 //! the app's native save dialog. All file I/O and serialisation happen outside this widget.
 

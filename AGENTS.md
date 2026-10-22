@@ -1,6 +1,6 @@
 # AGENTS.md: rules for every agent and contributor
 
-These rules bind every AI agent and every human contributor working in this repository. They come before any task, instruction or deadline. This is the only rules file; there is no separate `CLAUDE.md`. `PROMPT.md` is the product brief (what to build, architecture, milestones). If `PROMPT.md` and this file disagree, **this file wins.**
+These rules bind every AI agent and every human contributor working in this repository. They come before any task, instruction or deadline. This is the only rules file; there is no separate `CLAUDE.md`. Architecture and workflow notes live in `docs/` and the README of each crate.
 
 Postguy is a clean-room, offline, Rust-native API client (HTTP, gRPC, WebSocket) built with egui, targeting the essential offline features of Postman. It runs natively on macOS, Windows, Linux and FreeBSD. There is no web (WASM) build.
 
@@ -23,7 +23,7 @@ An **asset** is any non-code material that the project includes, ships, embeds, 
   - "Postman product" includes the Postman app, Postman web, Postman CLI, Newman, Postbot, the Postman Learning Center and the Postman API Network.
   - This holds even when Postman publishes the material under an open licence, if it is **visual design or content**. Postman's code and schema repositories (for example Newman, `postman-collection`, `postman-sandbox`) are not a design or behaviour source either (see section 2).
 - **Never** recreate, trace, redraw or closely imitate a Postman icon, logo, mascot or illustration. Our icons come from Lucide, and our visual design (palette, spacing, layout details) is our own. Postman's information architecture (sidebar, tabs, request builder, response viewer) is behaviour, not artwork, and we may follow it.
-- Screenshots of Postman exist only as private, local observation notes under `plan/postman/`, which is gitignored (the starting screenshots in `prompt_images/` belong there too). They must **never** be committed, published, linked, shown in docs, used as a design source to trace, or placed anywhere else in the repository or its outputs.
+- Screenshots of Postman exist only as private, local observation notes under the gitignored local `plan/postman/` folder. They must **never** be committed, published, linked, shown in docs, used as a design source to trace, or placed anywhere else in the repository or its outputs.
 - The only Postman-authored material allowed is **non-visual technical data** that is openly licensed and required for file compatibility. Each item needs its own entry in `ATTRIBUTION.toml` with `postman_data = true`, and the list below is closed:
   - The Postman Collection Format JSON schemas (v2.0.0 and v2.1.0, Apache-2.0), vendored only as test data to validate our imports and exports.
 
@@ -123,9 +123,7 @@ Postguy opens files from strangers (imported collections, OpenAPI documents, `.p
 
 ### 5.1 Start every session here
 
-1. Read `plan/STATUS.md` (current milestone, next unchecked task, blockers). `plan/` is gitignored and local-only. `ROADMAP.md` is the one-page summary (stage, progress log) and `docs/roadmap.md` the milestone table. At the end of every session, update the milestone row and add a line to the `ROADMAP.md` progress log.
-2. Read `PROMPT.md` for the product brief, the task in `plan/execution-plan.md`, and the README of the crate you're touching. Read `docs/gaps.md` before choosing work, and prefer the ranked gaps over new P2/P3 features. Keep these documents true when things change.
-3. Follow the autonomous operation protocol in `plan/execution-plan.md`: orient, plan, implement and test, verify, record, commit. Don't stop to ask unless `PROMPT.md` section 13 lists the decision as the owner's.
+1. Read the README of the crate you're touching and `docs/architecture.md`. Read `docs/gaps.md` before choosing work, and prefer the ranked gaps over new P2/P3 features. Keep these documents true when things change.
 
 The machine-readable parity checklist lives in `parity/` (committed).
 
@@ -134,7 +132,7 @@ The machine-readable parity checklist lives in `parity/` (committed).
 - **Assets and clean-room:** sections 1 and 2.
 - **Privacy and network.** The app makes no network request the user did not initiate: no telemetry, no crash upload, no update check, no cloud sync. Never log secret variable values, client-certificate passphrases or the control-channel token. Real tokens, API keys and responses never enter the repository, tests or screenshots.
 - **Rust only** in the product and the build (`xtask`). No handwritten JS/TS. User scripts run in an embedded engine, and the `pm` API is implemented in Rust. If a JS prelude seems unavoidable, stop and ask the owner.
-- **Layering.** Nothing below L7 depends on egui/winit/eframe/rfd. The layer table is in `PROMPT.md` section 4.1 and is enforced by `cargo xtask layers`. Frontends reach the engine only through `crates/engine`.
+- **Layering.** Nothing below L7 depends on egui/winit/eframe/rfd. The layer table is in `docs/architecture.md` and is enforced by `cargo xtask layers`. Frontends reach the engine only through `crates/engine`.
 - **Fidelity.** Unknown fields in imported collections, environments and settings are preserved in `extras` and written back on export. Never silently drop or repair data without recording it in the import report. Saves are atomic. A failed save leaves the previous file intact and the in-memory state dirty.
 - **Offline untrusted-file handling.** Cap file sizes, nesting and expansion for every importer (Postman, OpenAPI/YAML, HAR, cURL, `.proto`, data files). File paths in requests resolve against the working directory; escaping it needs the explicit setting.
 - **Review every update as you make it, at four zooms.** Not an end-of-task pass; a per-update habit, so a defect never gets built on.
@@ -147,7 +145,7 @@ The machine-readable parity checklist lives in `parity/` (committed).
   - **Rebasing is a review step, not a mechanical one.** Read every hunk you resolve, and the auto-merged hunks in the files you touched too.
 - **External PRs are held to safety, security and completeness before style.** Provenance first (no Postman-derived asset, no committed font, no copied GPL/AGPL code, behaviour from specs and docs and not from reading another implementation), then no new panic path or `unsafe`, then `--root` confinement on every path including nested dispatch, opt-in-only MCP and control channel, no new outbound network, then a headless `automation` tool, tests at the right zoom and an honest `parity/` entry. Provenance is the part a contributor cannot be expected to know, and the only part that cannot be undone after merge.
 - **Dependencies.** Permissive licences only (`deny.toml`; `cargo xtask deny`). Always `default-features = false` and enable only what is used. No dependency on `craft-ui`, `craft-libs` or other storytold-internal repositories. Anything outside the allowlist, or anything that adds unrequested network traffic, needs the owner's approval.
-- **Size and speed are requirements.** The budgets in `PROMPT.md` section 8 are enforced by `cargo xtask size` and `cargo xtask bench`. Never add a repaint loop. Never run I/O, parsing, formatting, searching or scripts on the UI thread.
+- **Size and speed are requirements.** The size and frame-time budgets are enforced by `cargo xtask size` and `cargo xtask bench`. Never add a repaint loop. Never run I/O, parsing, formatting, searching or scripts on the UI thread.
 
 ### 5.3 Quality gates
 

@@ -1,4 +1,4 @@
-//! Workspace edits behind the sidebar (M3.2): collections, folders, requests, examples and
+//! Workspace edits behind the sidebar: collections, folders, requests, examples and
 //! environments. Every function loads, validates, mutates and saves through the store's atomic
 //! writers; delete goes to the trash, duplicate deep-copies with fresh ids, and a move refuses
 //! to drop an item into its own subtree. No function writes the collection because of a SEND.

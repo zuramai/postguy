@@ -1,4 +1,4 @@
-//! All-data zip export and zip import (M4.3): documents travel, `.postguy/` state and `.bak`
+//! All-data zip export and zip import: documents travel, `.postguy/` state and `.bak`
 //! files do not, and hostile paths never extract to disk.
 
 use std::io::Write;

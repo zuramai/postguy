@@ -1,7 +1,6 @@
 # postguy-util
 
-- **Layer:** L0 (PROMPT.md 4.1; enforced by `cargo xtask layers`)
-- **Status:** skeleton, planned for M1.1
+- **Layer:** L0 (checked by `cargo xtask layers`)
 
 Small helpers: atomic path utilities, size-capped readers, depth-limited JSON walker, ring buffer, fractional ordering, time.
 

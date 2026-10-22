@@ -50,7 +50,6 @@ struct Feature {
     title: String,
     area: String,
     tier: String,
-    milestone: String,
     status: String,
     #[serde(default)]
     commands: Vec<String>,
@@ -94,13 +93,6 @@ pub fn run(args: &[String]) -> Result<()> {
         }
         if !tiers.contains(&f.tier) {
             problems.push(format!("{}: unknown tier `{}`", f.id, f.tier));
-        }
-        let milestone_ok = match f.milestone.strip_prefix('M') {
-            None => f.milestone.is_empty(),
-            Some(rest) => !rest.is_empty() && rest.split('.').all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit())),
-        };
-        if !milestone_ok {
-            problems.push(format!("{}: milestone `{}` does not look like M2 or M2.3", f.id, f.milestone));
         }
         let exists = |evidence: &str| -> bool {
             let Some((path, test)) = evidence.split_once("::") else { return Path::new(&root).join(evidence).exists() };
@@ -152,11 +144,7 @@ pub fn run(args: &[String]) -> Result<()> {
         let mut out = String::new();
         let _ = writeln!(out, "{{");
         for f in &parity.feature {
-            let _ = writeln!(
-                out,
-                "  {{ \"id\": \"{}\", \"status\": \"{}\", \"tier\": \"{}\", \"milestone\": \"{}\" }},",
-                f.id, f.status, f.tier, f.milestone
-            );
+            let _ = writeln!(out, "  {{ \"id\": \"{}\", \"status\": \"{}\", \"tier\": \"{}\" }},", f.id, f.status, f.tier);
         }
         let _ = writeln!(out, "  \"total\": {total}");
         let _ = writeln!(out, "}}");
@@ -164,7 +152,7 @@ pub fn run(args: &[String]) -> Result<()> {
     } else if partial {
         for f in &parity.feature {
             if f.status != "shipped" {
-                println!("{:<24} {:>8} {:>3} {:<6} {}", f.id, f.status, f.tier, f.milestone, f.title);
+                println!("{:<24} {:>8} {:>3} {}", f.id, f.status, f.tier, f.title);
             }
         }
     } else {

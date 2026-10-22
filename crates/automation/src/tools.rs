@@ -391,7 +391,7 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
         ToolDef {
             name: "snippet_generate",
             title: "Generate a code snippet",
-            description: "One HTTP request as cURL, raw HTTP, fetch, Python requests, Go, Rust reqwest, PowerShell or Node axios; variables stay unresolved. gRPC/WS snippets arrive with their milestones.",
+            description: "One HTTP request as cURL, raw HTTP, fetch, Python requests, Go, Rust reqwest, PowerShell or Node axios; variables stay unresolved. gRPC/WS snippets are not implemented yet.",
             input_schema: schema! {
                 "collection": req("collection id"),
                 "request": req("request id"),
@@ -1098,7 +1098,7 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
                         Ok(json!({"language": language.id(), "snippet": snippet}))
                     }
                     _ => Err(AutomationError::Failed {
-                        message: "snippet_generate supports HTTP requests in M4; gRPC/WS snippets arrive with M6/M7".into(),
+                        message: "snippet_generate supports HTTP requests only; gRPC/WS snippets are not implemented yet".into(),
                     }),
                 },
                 Some(Item::Folder(_)) => Err(AutomationError::Failed { message: format!("`{request_id}` is a folder, not a request") }),
@@ -1586,7 +1586,7 @@ fn parent_of(collection: &postguy_model::Collection, id: &str) -> Option<String>
 }
 
 /// Park a deleted item's JSON in `<workspace>/.trash/item-<nanos>.json` so a delete is never
-/// a silent shred (restore UI arrives with M3's trash view).
+/// a silent shred (the trash view restores it).
 fn park_deleted(session: &Session, collection_id: &str, item_id: &str, item: &Item) -> Result<()> {
     let workspace = session.workspace()?;
     let trash = workspace.paths.trash_dir();

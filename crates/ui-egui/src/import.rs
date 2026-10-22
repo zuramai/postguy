@@ -1,4 +1,4 @@
-//! The import dialog (PROMPT.md 5.7, M4.1): one box for Postman JSON or cURL text, file/folder
+//! The import dialog: one box for Postman JSON or cURL text, file/folder
 //! pickers and a drop hint, an explicit Replace option, and the per-file ImportReport view.
 //! Parsing and workspace writes happen outside the UI thread; this widget is data/actions only.
 

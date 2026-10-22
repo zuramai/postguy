@@ -1,5 +1,5 @@
 //! Postguy urlkit (L1, pure): request-URL parsing and building, percent-encoding per
-//! component (PROMPT.md Appendix D), the query-params two-way view, path variables and
+//! component, the query-params two-way view, path variables and
 //! certificate host patterns.
 //!
 //! The URL is treated as TEXT with `{{variables}}` possibly anywhere. Parsing is total (an
@@ -11,7 +11,7 @@
 use serde::{Deserialize, Serialize};
 
 /// A parsed request URL. Every field keeps its ORIGINAL spelling (percent encodings and
-/// `{{variables}}` included); encoding for the wire happens at send time per Appendix D.
+/// `{{variables}}` included); encoding for the wire happens at send time per component.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Url {
@@ -176,7 +176,7 @@ pub fn params_of_query(query: &str) -> Vec<Param> {
     params
 }
 
-/// Rebuild the query string from edited params. Table text is encoded per the Appendix D
+/// Rebuild the query string from edited params. Table text is encoded per the
 /// query set; the structural separators stay. Round-trips through [`params_of_query`].
 pub fn query_of_params(params: &[Param]) -> Option<RawQuery> {
     if params.is_empty() {
@@ -194,7 +194,7 @@ pub fn query_of_params(params: &[Param]) -> Option<RawQuery> {
     Some(RawQuery(out))
 }
 
-/// Encode per the Appendix D QUERY set: `"`, `#`, `&`, `'`, `<`, `=`, `>`, space — the value's
+/// Encode per the QUERY set: `"`, `#`, `&`, `'`, `<`, `=`, `>`, space — the value's
 /// own `&`/`=` encode, the separators don't. Valid `%XX` escapes pass through unchanged, so
 /// encoding is idempotent; non-ASCII encodes as UTF-8 percent text.
 pub fn encode_query(input: &str) -> String {
@@ -202,13 +202,13 @@ pub fn encode_query(input: &str) -> String {
     encode_component(input, QUERY_UNSAFE)
 }
 
-/// Encode per the Appendix D PATH set: `"`, `<`, `>`, backtick, `#`, `?`, `{`, `}`, space.
+/// Encode per the PATH set: `"`, `<`, `>`, backtick, `#`, `?`, `{`, `}`, space.
 pub fn encode_path(input: &str) -> String {
     const PATH_UNSAFE: &[u8] = br#""<>`#?{} "#;
     encode_component(input, PATH_UNSAFE)
 }
 
-/// Encode per the Appendix D USERINFO set (adds `/`, `:`, `;`, `=`, `@`, `[`, `\`, `]`, `^`).
+/// Encode per the USERINFO set (adds `/`, `:`, `;`, `=`, `@`, `[`, `\`, `]`, `^`).
 pub fn encode_userinfo(input: &str) -> String {
     const USERINFO_UNSAFE: &[u8] = br###""<>`#?{} /:;=@[\]^ "###;
     encode_component(input, USERINFO_UNSAFE)
@@ -225,7 +225,7 @@ pub fn encode_component(input: &str, unsafe_bytes: &[u8]) -> String {
             out.extend_from_slice(&bytes[i..i + 3]);
             i += 3;
         } else if unsafe_bytes.contains(&bytes[i]) || bytes[i] >= 0x80 {
-            // Appendix D: non-ASCII is UTF-8 percent-encoded; the rest per component set.
+            // Non-ASCII is UTF-8 percent-encoded; the rest per component set.
             write_percent(&mut out, bytes[i]);
             i += 1;
         } else {
@@ -277,7 +277,7 @@ fn hex_value(b: u8) -> u8 {
     }
 }
 
-/// Convert a non-ASCII host to its IDNA ASCII form (PROMPT.md Appendix D). The error is a
+/// Convert a non-ASCII host to its IDNA ASCII form. The error is a
 /// readable string: the caller reports it in the console, never panics.
 pub fn host_to_ascii(host: &str) -> Result<String, String> {
     if host.is_ascii() {
@@ -418,7 +418,7 @@ mod tests {
 
     #[test]
     fn encoding_sets_match_the_appendix() {
-        // Query: space, =, quotes get encoded (Appendix D query set includes `=`).
+        // Query: space, =, quotes get encoded (the query set includes `=`).
         assert_eq!(encode_query("a b='c'=d"), "a%20b%3D%27c%27%3Dd");
         // Path: `?` and braces encode; `/` stays.
         assert_eq!(encode_path("a/b c?d{e}"), "a/b%20c%3Fd%7Be%7D");

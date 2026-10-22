@@ -10,7 +10,7 @@ pub struct MapOutcome {
     /// JSON-ish path of the mapped key, e.g. `item[0].request.body.options.raw.language`.
     #[serde(default)]
     pub path: String,
-    /// The decision itself; the text is user-presentable (PROMPT.md 5.7 import report).
+    /// The decision itself; the text is user-presentable.
     #[serde(default)]
     pub detail: String,
 }

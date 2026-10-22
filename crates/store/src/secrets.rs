@@ -1,4 +1,4 @@
-//! The secrets store (PROMPT.md 4.4, 5.5): `(owner id, key) -> value` for every variable
+//! The secrets store: `(owner id, key) -> value` for every variable
 //! marked secret, in `.postguy/secrets.json` (0600 on unix). Secret values NEVER live inside
 //! collection or environment files — this file is the only on-disk place, and v1 does not
 //! encrypt at rest (documented; the OS keychain is a P2 decision for the owner).

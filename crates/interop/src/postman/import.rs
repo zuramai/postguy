@@ -20,9 +20,9 @@ use postguy_util::json::Caps;
 use super::auth::postman_to_auth;
 use crate::error::PostmanError;
 
-/// File size cap for path imports (PROMPT.md 5.7: 100 MB default).
+/// File size cap for path imports.
 pub const SIZE_CAP: usize = 100 * 1024 * 1024;
-/// JSON nesting cap (PROMPT.md 5.7).
+/// JSON nesting cap.
 pub const DEPTH_CAP: usize = 256;
 
 /// Reserved extras keys, consumed by the exporter and never emitted as user data.
@@ -112,7 +112,7 @@ pub fn import_path(path: &Path) -> Result<super::report::Imported, PostmanError>
 }
 
 /// Capped JSON parse. Bare YAML text is detected and reported with the v3 instructions
-/// (PROMPT.md 5.7) instead of a bare syntax error.
+/// instead of a bare syntax error.
 pub(crate) fn parse_capped(bytes: &[u8], what: &str) -> Result<Value, PostmanError> {
     let text = std::str::from_utf8(bytes)
         .map_err(|_| PostmanError::InvalidJson { what: what.to_string(), source: postguy_util::Error::Encoding { what: what.to_string() } })?;
@@ -459,9 +459,7 @@ fn map_http_request_core(http: &mut HttpRequest, request: &Value, path: &str, re
             {
                 report.drop(
                     &format!("{path}.request"),
-                    format!(
-                        "request protocol `{protocol}`: only HTTP requests are imported so far (gRPC/WebSocket items stay for a later milestone)"
-                    ),
+                    format!("request protocol `{protocol}`: only HTTP requests are imported so far (gRPC/WebSocket items are not imported yet)"),
                 );
             }
             http.method = match_method(request_object.get("method"), &mut extras, report);

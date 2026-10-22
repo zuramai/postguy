@@ -1,7 +1,6 @@
 # postguy-snippets
 
-- **Layer:** L3 (PROMPT.md 4.1; enforced by `cargo xtask layers`)
-- **Status:** skeleton, planned for M4.2
+- **Layer:** L3 (checked by `cargo xtask layers`)
 
 Code generation for cURL, raw HTTP, fetch, requests, Go net/http, reqwest, PowerShell, axios, grpcurl; pure.
 

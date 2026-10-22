@@ -1,5 +1,5 @@
 //! TLS configuration for the client: OS roots plus optional user CAs, or the explicit
-//! verification-off mode (which the UI must WARN about — PROMPT.md 9: turning it off is
+//! verification-off mode (which the UI must WARN about: turning it off is
 //! visible in a chip and the console).
 
 use std::sync::Arc;
@@ -18,8 +18,7 @@ pub struct ClientIdentity {
 /// How server certificates are treated.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TlsMode {
-    /// Verify against the OS trust store plus the PEM bundle at `ca_pem_path` (PROMPT.md 4.2:
-    /// rustls-native-certs; user CA optional).
+    /// Verify against the OS trust store plus the PEM bundle at `ca_pem_path`.
     Verify { ca_pem_path: Option<String> },
     /// Explicit off switch: NO verification. Encrypted but unauthenticated; the UI flags it.
     Insecure,

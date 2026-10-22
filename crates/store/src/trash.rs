@@ -1,4 +1,4 @@
-//! Trash (`.trash/`, PROMPT.md 5.5): deleted items land here with a metadata sidecar
+//! Trash (`.trash/`): deleted items land here with a metadata sidecar
 //! (`deletedAt`, the original path and the content snapshot). Restore puts the file back
 //! (`" restored"` suffix on a clash); purge empties expired entries (30-day default).
 
@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use postguy_util::{Result, atomic_write};
 use serde::{Deserialize, Serialize};
 
-/// The default retention window for trashed items (PROMPT.md 5.5: 30 days).
+/// The default retention window for trashed items.
 pub const DEFAULT_RETENTION: u64 = 30 * 24 * 3600;
 
 #[derive(Debug, Serialize, Deserialize)]

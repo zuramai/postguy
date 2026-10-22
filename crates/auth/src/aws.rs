@@ -1,4 +1,4 @@
-//! AWS Signature Version 4 (PROMPT.md Appendix E): Authorization header or presigned query.
+//! AWS Signature Version 4: Authorization header or presigned query.
 //! Signs the host and `x-amz-*` headers; payloads are SHA-256 hashed. Timestamps are formatted
 //! without pulling a calendar crate (UTC civil-date conversion).
 

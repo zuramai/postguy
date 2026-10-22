@@ -1,4 +1,4 @@
-//! Collection and folder detail tabs (PROMPT.md 5.1, M3.7): Overview, Authorization, Variables,
+//! Collection and folder detail tabs: Overview, Authorization, Variables,
 //! Scripts and Runs shells with the inheritance dots. The editor mutates the collection (or a
 //! folder inside it) and returns [`CollectionAction::Save`] on changes; the app writes through
 //! the engine atomically, so secrets split into the secrets file as usual.
@@ -224,7 +224,7 @@ impl CollectionDetail<'_> {
                 }
             }
             DetailTab::Runs => {
-                ui.label(RichText::new("No runs yet. The runner arrives in M3.8/M9.").color(theme.palette.text_muted));
+                ui.label(RichText::new("No runs yet. The runner is not implemented yet.").color(theme.palette.text_muted));
             }
         });
         if changed {

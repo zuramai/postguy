@@ -1,4 +1,4 @@
-//! The engine façade (L6, PROMPT.md 4.1): one session owning the workspace handle, the runtime,
+//! The engine façade (L6): one session owning the workspace handle, the runtime,
 //! the settings snapshot, the cookie jar, the console ring buffer and the send pipeline.
 //! Frontends reach the workspace and the network only through this crate.
 //!

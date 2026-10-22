@@ -1,10 +1,10 @@
-//! The tab strip (PROMPT.md 6.2): open documents with preview vs permanent tabs, a dirty dot,
+//! The tab strip: open documents with preview vs permanent tabs, a dirty dot,
 //! close/reopen, drag reorder, middle-click close, an overflow search (open and recently closed)
 //! and the per-tab context menu. Closing a dirty tab asks Save / Don't save / Cancel.
 //!
 //! The model is serialisable so the app can write it into the store's session file every time it
 //! changes; `clean_exit` lives next to it for crash recovery. Draft text is kept in a side map
-//! (the request editor fills it from M3.4).
+//! (the request editor fills it).
 
 use std::collections::BTreeMap;
 
@@ -87,7 +87,7 @@ pub struct Tab {
     pub id: u64,
     pub doc: TabDoc,
     pub title: String,
-    /// Preview tabs are italic and replaced by the next preview (PROMPT.md 5.1).
+    /// Preview tabs are italic and replaced by the next preview.
     #[serde(default)]
     pub preview: bool,
     /// Unsaved edits (the dirty dot replaces the close button until hover).
@@ -141,7 +141,7 @@ pub struct Tabs {
     pub pending_close: Option<u64>,
     #[serde(skip)]
     drag: Option<u64>,
-    /// Draft text per tab, written by the editors from M3.4.
+    /// Draft text per tab, written by the editors.
     #[serde(default)]
     pub drafts: BTreeMap<u64, String>,
 }
@@ -646,7 +646,7 @@ fn draw_tab(ui: &mut Ui, theme: &Theme, tab: &Tab, active: bool) -> DrawnTab {
             egui::Stroke::new(1.0, palette.text_muted.gamma_multiply(0.5)),
         );
     }
-    // Dirty dot replaces the close button until hover (PROMPT.md 6.2).
+    // Dirty dot replaces the close button until hover.
     let mut close_clicked = false;
     if tab.dirty && !response.hovered() {
         ui.painter().circle_filled(egui::pos2(rect.right() - 12.0, rect.center().y), 3.0, palette.warning);
@@ -678,5 +678,5 @@ fn method_badge(theme: &Theme, doc: &TabDoc) -> Option<(Color32, String)> {
     Some((theme.method_color(method), method.to_string()))
 }
 
-/// The tab strip's fixed height (PROMPT.md 6.2 keeps it compact).
+/// The tab strip's fixed height.
 pub const TAB_STRIP_HEIGHT: f32 = 38.0;

@@ -1,4 +1,4 @@
-//! Request bodies (PROMPT.md 5.3.2): none, form-data, urlencoded, raw, binary, GraphQL.
+//! Request bodies: none, form-data, urlencoded, raw, binary, GraphQL.
 //! Switching the body type in the UI keeps the other modes' data until save; the model only
 //! ever persists the active one, so this enum is single-valued by design.
 
@@ -33,7 +33,7 @@ pub enum Body {
         extras: Extras,
     },
     /// Sent as JSON `{"query": ..., "variables": ..., "operationName"?}` with
-    /// `Content-Type: application/json` (PROMPT.md 5.3.2, GraphQL mode P1).
+    /// `Content-Type: application/json`.
     GraphQL {
         #[serde(default)]
         query: String,
@@ -54,13 +54,13 @@ impl Body {
         !matches!(self, Body::None)
     }
 
-    /// A dot indicator for the Body tab (PROMPT.md 5.3.1): non-none body shows a dot.
+    /// A dot indicator for the Body tab: non-none body shows a dot.
     pub fn is_non_none(&self) -> bool {
         self.needs_data()
     }
 }
 
-/// The `raw` body language dropdown (PROMPT.md 5.3.2). Controls the default Content-Type.
+/// The `raw` body language dropdown. Controls the default Content-Type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum RawLanguage {
@@ -73,7 +73,7 @@ pub enum RawLanguage {
 }
 
 impl RawLanguage {
-    /// The Content-Type this language sets when the user set none (PROMPT.md 5.3.2).
+    /// The Content-Type this language sets when the user set none.
     pub fn content_type(&self) -> &'static str {
         match self {
             RawLanguage::Text => "text/plain",

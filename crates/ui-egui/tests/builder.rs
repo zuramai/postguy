@@ -1,4 +1,4 @@
-//! Request-builder UI tests (M3.4): send/save intents, the tab set, auth switching, body mode
+//! Request-builder UI tests: send/save intents, the tab set, auth switching, body mode
 //! switching, settings toggles and cURL paste detection.
 
 use egui_kittest::Harness;

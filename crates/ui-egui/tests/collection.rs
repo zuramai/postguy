@@ -1,4 +1,4 @@
-//! Collection/folder detail tests (M3.7): overview editing, auth, variables, scripts, folder
+//! Collection/folder detail tests: overview editing, auth, variables, scripts, folder
 //! detail, counts and the header menu intents.
 
 use egui_kittest::Harness;

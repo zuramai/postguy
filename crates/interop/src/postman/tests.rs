@@ -1,7 +1,7 @@
 //! Golden round-trip tests (goldens in `crates/interop/goldens/postman`) plus unit tests
 //! for the mapping tables (`protocolProfileBehavior`, the apikey `in` filter).
 //!
-//! The PROMISE (PROMPT.md 5.7): `export(import(fixture))` deep-equals the fixture — object
+//! The PROMISE: `export(import(fixture))` deep-equals the fixture — object
 //! key order does not matter, ARRAY order does; unknown keys must keep their exact values.
 //! The crate denies `panic!`/`unwrap`/`expect` even in tests, so assertions go through
 //! `Result` plumbing and `assert*!` macros.

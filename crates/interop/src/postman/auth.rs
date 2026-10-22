@@ -4,7 +4,7 @@
 //! attribute is `{key, value, type?}`. The model stores a tagged object (e.g.
 //! `{kind: "basic", username, password}`), each typed struct's fields in `camelCase`, unknown
 //! keys in `extras`. This module does the row→field collapse and the key renames both ways,
-//! per Postman Appendix C spellings.
+//! using Postman's spellings.
 
 use serde_json::{Map, Value};
 

@@ -1,7 +1,7 @@
 # postguy
 
 The Postguy desktop app (eframe, glow backend). L7; it may use every crate, and reaches the
-engine only through `postguy-engine` (PROMPT.md 4.1). Status: M3 desktop shell.
+engine only through `postguy-engine` (checked by `cargo xtask layers`).
 Run with `cargo run -p postguy` (`--workspace DIR` picks a workspace folder).
 
 The opt-in UI control channel (AGENTS.md 3) starts only with `--control FILE`: it binds to

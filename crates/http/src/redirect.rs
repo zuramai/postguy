@@ -1,4 +1,4 @@
-//! Manual redirect handling (PROMPT.md 5.3.2 step 8): our own loop, never hyper's, because the
+//! Manual redirect handling: our own loop, never hyper's, because the
 //! product needs per-hop records, method rewrite rules, cross-host credential dropping, a hop
 //! cap and loop detection.
 //!
@@ -17,7 +17,7 @@ use crate::client::{Cancel, Client, RequestSpec, ResponseData};
 use crate::error::{HttpError, Result};
 use crate::jar::CookieJar;
 
-/// The per-request redirect settings (PROMPT.md 5.3.2 Settings tab defaults).
+/// The per-request redirect settings.
 #[derive(Debug, Clone, Copy)]
 pub struct RedirectPolicy {
     pub follow: bool,

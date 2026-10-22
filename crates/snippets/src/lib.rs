@@ -1,4 +1,4 @@
-//! Code generation for the right-panel snippets and `snippet_generate` (PROMPT.md 5.8, M4.2):
+//! Code generation for the right-panel snippets and `snippet_generate`:
 //! cURL, raw HTTP/1.1, JavaScript fetch, Python requests, Go net/http, Rust reqwest,
 //! PowerShell Invoke-RestMethod and Node axios. Pure string generation: no I/O, no panics on
 //! user text.

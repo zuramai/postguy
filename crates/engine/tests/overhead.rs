@@ -1,4 +1,4 @@
-//! Send-overhead measurement (PROMPT.md 8, M2 exit): loopback latency of the full engine
+//! Send-overhead measurement: loopback latency of the full engine
 //! pipeline versus a bare `postguy_http::Client` request, with a 100 KiB JSON body. Run it
 //! explicitly and record the numbers:
 //!
@@ -6,8 +6,7 @@
 //! cargo test -p postguy-engine --release --test overhead -- --ignored --nocapture
 //! ```
 //!
-//! The UI's "last byte to rendered Pretty view" budget is measured in M3/M10 when the viewer
-//! exists; this test isolates the engine's own per-send cost (resolve, build, send, decode,
+//! The UI's "last byte to rendered Pretty view" budget is measured separately; this test isolates the engine's own per-send cost (resolve, build, send, decode,
 //! history, console, jar persistence) on the same loopback server.
 
 use std::time::{Duration, Instant};

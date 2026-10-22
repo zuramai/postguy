@@ -1,4 +1,4 @@
-//! Fuzz targets for `cargo xtask fuzz` (PLAM M1.9): each is a pure parser entry the fuzzer's
+//! Fuzz targets for `cargo xtask fuzz` : each is a pure parser entry the fuzzer's
 //! child process calls with a mutated seed. No network, no filesystem writes; a panic here is
 //! a BUG per AGENTS.md 4 and the violated `#![deny]` contract defended below.
 //!

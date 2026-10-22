@@ -3,7 +3,7 @@
 //! of thousands of midpoints before a renumber).
 //!
 //! When an insert has no room (`None`), the caller renumbers that contiguous run — array
-//! order remains the source of truth in this product (PROMPT.md 4.5); fractional keys are the
+//! order remains the source of truth in this product; fractional keys are the
 //! convenience, not the storage format.
 
 /// The first key when there is nothing to be between: the centre, so both directions have the

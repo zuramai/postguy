@@ -3,8 +3,7 @@
 //! signal or a hang is a finding, saved with its input under `fuzz-out/findings/`. Findings
 //! become small synthetic regression tests before the fix (AGENTS.md 4).
 //!
-//! Targets are declared in [`TARGETS`]; the first importer targets arrive with M1.9 (PLAN.md),
-//! covering importers, the URL and cookie parsers, the variable resolver and the script sandbox.
+//! Targets are declared in [`TARGETS`]; they cover importers, the URL and cookie parsers, the variable resolver and the script sandbox.
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -21,7 +20,7 @@ struct Target {
     args: &'static [&'static str],
 }
 
-/// The fuzz targets (PLAN.md M1.9). Each runs `postguy-cli fuzz-target <name> <file>`; the
+/// The fuzz targets. Each runs `postguy-cli fuzz-target <name> <file>`; the
 /// CLI's `fuzz_targets.rs` dispatch is the single place that grows as importers land.
 const TARGETS: &[Target] = &[
     Target { name: "url", seeds: "fuzz/seeds/url", args: &["fuzz-target", "url", "{input}"] },

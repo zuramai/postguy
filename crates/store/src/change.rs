@@ -1,4 +1,4 @@
-//! Change detection (PROMPT.md 4.4): files edited by another tool are detected by the
+//! Change detection: files edited by another tool are detected by the
 //! engine polling this module with a fingerprint (mtime + size) per watched file. The
 //! `notify` watcher is a UI-layer nicety added later this is the engine-safe fallback.
 

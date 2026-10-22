@@ -1,4 +1,4 @@
-//! Request models (PROMPT.md 4.5, 5.3) and their shared row/script types.
+//! Request models and their shared row/script types.
 
 use crate::auth::AuthConfig;
 use crate::body::Body;
@@ -6,9 +6,9 @@ use crate::extras::Extras;
 use crate::ids::Id;
 use serde::{Deserialize, Serialize};
 
-/// One key-value row (PROMPT.md 4.5): the table type used by params, headers, form-data fields
+/// One key-value row: the table type used by params, headers, form-data fields
 /// and gRPC metadata. `kind` matters for form-data rows (text vs file); file paths are
-/// working-directory-relative (PROMPT.md 5.3.2).
+/// working-directory-relative.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KeyValue {
@@ -52,8 +52,7 @@ impl KeyValue {
         Self::default()
     }
 
-    /// Whether the row participates when built (an empty-key row is kept but ignored —
-    /// PROMPT.md 5.3.2).
+    /// Whether the row participates when built (an empty-key row is kept but ignored).
     pub fn contributes(&self) -> bool {
         self.enabled && !self.key.is_empty()
     }
@@ -72,7 +71,7 @@ pub enum KeyValueKind {
     File,
 }
 
-/// The HTTP methods v1 speaks (PROMPT.md 5.1 sidebar labels; custom methods are P2).
+/// The HTTP methods v1 speaks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum HttpMethod {
@@ -87,7 +86,7 @@ pub enum HttpMethod {
 }
 
 impl HttpMethod {
-    /// The sidebar short label (PROMPT.md 5.1): GET, POST, ..., DEL, HEAD, OPT.
+    /// The sidebar short label: GET, POST, ..., DEL, HEAD, OPT.
     pub fn short_label(&self) -> &'static str {
         match self {
             HttpMethod::Get => "GET",
@@ -117,9 +116,9 @@ impl Script {
     }
 }
 
-/// Pre-request / test scripts, plus the gRPC phases (PROMPT.md 5.6.1: gRPC adds before
-/// invoke, on message, after response). `test` is the on-disk event name used by Postman
-/// (PROMPT.md 5.6.1); ui and engine pick the phases that exist for the kind at hand.
+/// Pre-request / test scripts, plus the gRPC phases (gRPC adds before
+/// invoke, on message, after response). `test` is the on-disk event name used by Postman;
+/// ui and engine pick the phases that exist for the kind at hand.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Scripts {
@@ -162,7 +161,7 @@ pub enum RequestKind {
 
 /// Manual Default for the same reason as `#[default]`: never derivable for a data variant.
 impl Default for RequestKind {
-    /// A plain default HTTP request (new request flow: HTTP first, PROMPT.md 6.2).
+    /// A plain default HTTP request (new request flow: HTTP first).
     fn default() -> Self {
         RequestKind::Http(HttpRequest::default())
     }
@@ -179,7 +178,7 @@ impl RequestKind {
     }
 }
 
-/// A saved response (example) by itself: PROMPT.md 4.5. `original_request` is a snapshot so
+/// A saved response (example) by itself. `original_request` is a snapshot so
 /// the example can be opened as a request without touching the live one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -201,7 +200,7 @@ pub struct Example {
     /// Body bytes and their declared encoding (compression), as `store` persisted them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<ExampleBody>,
-    /// The language the Pretty view uses (PROMPT.md 5.4).
+    /// The language the Pretty view uses.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<crate::body::RawLanguage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -222,7 +221,7 @@ pub struct ExampleBody {
     pub extras: Extras,
 }
 
-/// How the stored body bytes relate to the response content (PROMPT.md 5.4).
+/// How the stored body bytes relate to the response content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum ContentEncoding {
@@ -235,8 +234,8 @@ pub enum ContentEncoding {
     Zstd,
 }
 
-/// HTTP request (PROMPT.md 4.5). The URL string is the source of truth for the query string;
-/// `params` and `path_vars` are the two-way views the UI maintains (PROMPT.md 5.3.2).
+/// HTTP request. The URL string is the source of truth for the query string;
+/// `params` and `path_vars` are the two-way views the UI maintains.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct HttpRequest {
@@ -264,7 +263,7 @@ pub struct HttpRequest {
     pub extras: Extras,
 }
 
-/// Where a gRPC request's service definition comes from (PROMPT.md 5.3.3). A new request
+/// Where a gRPC request's service definition comes from. A new request
 /// defaults to reflection until a proto set is loaded.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(tag = "source", rename_all = "camelCase")]
@@ -292,7 +291,7 @@ pub enum ServiceDefinition {
 }
 
 /// One `.proto` file inside a service definition: copied into the workspace, referenced by
-/// name + path (PROMPT.md 5.3.3).
+/// name + path.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ProtoFile {
@@ -318,13 +317,13 @@ impl Default for WsSettings {
     }
 }
 
-/// gRPC request (PROMPT.md 4.5, 5.3.3).
+/// gRPC request.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GrpcRequest {
     #[serde(default)]
     pub url: String,
-    /// Explicit toggle only; `grpcs://` sets the UI toggle, never silently (PROMPT.md 5.3.3).
+    /// Explicit toggle only; `grpcs://` sets the UI toggle, never silently.
     #[serde(default)]
     pub tls: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -361,7 +360,7 @@ pub struct SavedMessage {
     pub extras: Extras,
 }
 
-/// gRPC per-request settings (PROMPT.md 5.3.3 Settings tab).
+/// gRPC per-request settings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GrpcSettings {
@@ -372,7 +371,7 @@ pub struct GrpcSettings {
     pub server_name: String,
     #[serde(default)]
     pub include_default_fields: bool,
-    /// 0 = unlimited (PROMPT.md 5.3.3).
+    /// 0 = unlimited.
     #[serde(default)]
     pub max_response_mb: u64,
     #[serde(default)]
@@ -381,7 +380,7 @@ pub struct GrpcSettings {
     pub extras: Extras,
 }
 
-/// WebSocket message format options (PROMPT.md 5.3.4 composer).
+/// WebSocket message format options.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(tag = "form", rename_all = "camelCase")]
 #[non_exhaustive]
@@ -421,7 +420,7 @@ pub enum BinaryEncoding {
     Hex,
 }
 
-/// A WebSocket message saved with the request (PROMPT.md 4.5): name, format, text.
+/// A WebSocket message saved with the request: name, format, text.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct WsMessage {
@@ -435,7 +434,7 @@ pub struct WsMessage {
     pub extras: Extras,
 }
 
-/// WebSocket request (PROMPT.md 4.5, 5.3.4).
+/// WebSocket request.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct WsRequest {
@@ -445,7 +444,7 @@ pub struct WsRequest {
     pub params: Vec<KeyValue>,
     #[serde(default)]
     pub headers: Vec<KeyValue>,
-    /// Subprotocols, sent as `Sec-WebSocket-Protocol` (PROMPT.md 5.3.4).
+    /// Subprotocols, sent as `Sec-WebSocket-Protocol`.
     #[serde(default)]
     pub protocols: Vec<String>,
     #[serde(default)]
@@ -456,7 +455,7 @@ pub struct WsRequest {
     pub extras: Extras,
 }
 
-/// WebSocket per-request settings (PROMPT.md 5.3.4).
+/// WebSocket per-request settings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WsSettings {
@@ -468,7 +467,7 @@ pub struct WsSettings {
     pub reconnect_attempts: u32,
     #[serde(default)]
     pub reconnect_interval_ms: u64,
-    /// Maximum message size in MB, 0 = unlimited (PROMPT.md 5.3.4).
+    /// Maximum message size in MB, 0 = unlimited.
     #[serde(default)]
     pub max_message_mb: u64,
     #[serde(default, flatten)]
@@ -511,7 +510,7 @@ mod tests {
     #[test]
     fn unknown_protocol_kind_does_not_lie_and_stays_untagged() {
         // A newer file's kind must not decode as a made-up HTTP request: serde must fail and
-        // the importer will report it (PROMPT.md 5.7: best-effort only when RECOGNISED).
+        // the importer will report it.
         let err = serde_json::from_value::<RequestKind>(json!({"type": "socketIO"}));
         assert!(err.is_err(), "unknown protocol kind must not silently become a variant");
     }
@@ -525,7 +524,7 @@ mod tests {
             ..Default::default()
         };
         let value = serde_json::to_value(&grpc).unwrap();
-        assert_eq!(value["tls"], json!(false), "TLS toggle off by default (PROMPT.md 5.3.3)");
+        assert_eq!(value["tls"], json!(false), "TLS toggle off by default");
         assert_eq!(value["serviceDefinition"]["source"], json!("protoSet"));
         let back: GrpcRequest = serde_json::from_value(value).unwrap();
         assert_eq!(back, grpc);

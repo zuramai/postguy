@@ -1,4 +1,4 @@
-//! Dependency layering (PROMPT.md 4.1), enforced by `cargo xtask layers`.
+//! Dependency layering, enforced by `cargo xtask layers`.
 //!
 //! Two rules: a workspace crate may depend only on lower layers, and nothing below L7 may reach
 //! a UI toolkit (`egui`, `eframe`, `winit`, ...) through its normal-dependency closure. The rule
@@ -10,8 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
-/// Workspace crates (package name without the `postguy-` prefix) and their layer. The numbering
-/// follows PROMPT.md 4.1 (there is no L5). `testkit` is test-only support but sits at L3 because
+/// Workspace crates (package name without the `postguy-` prefix) and their layer. There is no L5. `testkit` is test-only support but sits at L3 because
 /// it hosts real network servers; crates use it as a dev-dependency, which layering does not
 /// constrain.
 pub const TABLE: &[(&str, u8)] = &[

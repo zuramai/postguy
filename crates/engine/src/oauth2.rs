@@ -1,4 +1,4 @@
-//! OAuth 2.0 token acquisition (M5.2): protocol pieces come from `postguy-auth`; this module
+//! OAuth 2.0 token acquisition: protocol pieces come from `postguy-auth`; this module
 //! performs the token endpoint request over the engine's HTTP client (no history/console entry,
 //! no redirects), returns the parsed token and can persist it in the workspace secrets store.
 

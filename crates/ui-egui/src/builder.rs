@@ -1,4 +1,4 @@
-//! The request builder (PROMPT.md 5.3.2, M3.4): breadcrumb and editable name, method + URL with
+//! The request builder: breadcrumb and editable name, method + URL with
 //! `{{var}}` chips and cURL paste detection, a 12-step-send button that becomes Cancel with an
 //! elapsed timer, and the tabs Params/Auth/Headers/Body/Scripts/Settings/Docs.
 //!
@@ -36,7 +36,7 @@ pub struct SendProgress {
     pub elapsed_ms: u64,
 }
 
-/// Body payloads kept per mode while the request is open (PROMPT.md 5.3.2: switching type never
+/// Body payloads kept per mode while the request is open (switching type never
 /// deletes data until the request is saved with the different type).
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -392,7 +392,7 @@ impl RequestBuilder<'_> {
                     *self.dirty = true;
                 }
             });
-            ui.label(RichText::new("Built-in sets; custom presets arrive with settings (M3.9).").small().color(theme.palette.text_muted));
+            ui.label(RichText::new("Built-in sets; custom presets are not available yet.").small().color(theme.palette.text_muted));
         });
         let table = widgets::key_value_table(ui, &mut self.draft.headers, TableVariant::Normal);
         let bulk = bulk_edit(ui, ("headers-bulk", self.name.as_str()), &mut self.draft.headers, theme);
@@ -545,7 +545,7 @@ impl RequestBuilder<'_> {
     }
 
     fn scripts(&mut self, ui: &mut Ui, theme: &Theme) {
-        ui.label(RichText::new("Scripts run in the M8 sandbox; v1 keeps them in the file untouched.").color(theme.palette.text_muted));
+        ui.label(RichText::new("Scripts are kept in the file untouched; they are not executed.").color(theme.palette.text_muted));
         for (label, script) in [("Pre-request", &mut self.draft.scripts.prerequest), ("Tests", &mut self.draft.scripts.test)] {
             ui.label(RichText::new(label).small().color(theme.palette.text_muted));
             let mut text = script.as_ref().map(|script| script.text.clone()).unwrap_or_default();

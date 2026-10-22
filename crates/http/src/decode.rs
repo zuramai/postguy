@@ -1,4 +1,4 @@
-//! Response decoding (PROMPT.md 5.3.2 step 8, M2.4): gzip, deflate (zlib, with a raw-deflate
+//! Response decoding: gzip, deflate (zlib, with a raw-deflate
 //! fallback), brotli and zstd (pure-Rust `ruzstd` decoder). Caps are mandatory: a decoded size
 //! cap and a ratio cap, so a compression bomb errors instead of exhausting memory (AGENTS.md 4
 //! names this explicitly). Chained encodings (`Content-Encoding: br, gzip`) decode in reverse.
@@ -22,7 +22,7 @@ impl Default for DecodeCaps {
 }
 
 /// A decoded body with the numbers the viewer shows on hover (headers vs body, encoded vs
-/// decoded — PROMPT.md 5.4).
+/// decoded).
 #[derive(Debug)]
 pub struct DecodedBody {
     pub bytes: Vec<u8>,

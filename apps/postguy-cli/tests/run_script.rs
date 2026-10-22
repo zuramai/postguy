@@ -89,7 +89,7 @@ fn an_outside_script_is_refused_with_the_same_message_shape() {
     assert!(stderr.contains("is outside the allowed directory"), "{stderr}");
 }
 
-/// The M2.9 exit: the REAL binary sends a stored request to the loopback testkit through
+/// The REAL binary sends a stored request to the loopback testkit through
 /// `postguy-cli run --script --root`, with the response tools reading the same outcome.
 #[test]
 fn run_script_sends_through_the_engine_to_loopback() {

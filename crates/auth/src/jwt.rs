@@ -1,4 +1,4 @@
-//! JWT bearer tokens (PROMPT.md Appendix E): HS256/384/512, RS256/384/512, ES256/384/512 and
+//! JWT bearer tokens: HS256/384/512, RS256/384/512, ES256/384/512 and
 //! PS256/384/512. The claims JSON is user text; `iat` is added when absent. Private keys are
 //! PEM (PKCS#8 or PKCS#1 for RSA); ECDSA keys are PKCS#8. Errors never echo key material.
 

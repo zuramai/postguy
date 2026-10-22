@@ -1,7 +1,6 @@
 # postguy-auth
 
-- **Layer:** L2 (PROMPT.md 4.1; enforced by `cargo xtask layers`)
-- **Status:** skeleton, planned for M5.1
+- **Layer:** L2 (checked by `cargo xtask layers`)
 
 Pure signing and credential algorithms (Basic, Bearer, Digest, Hawk, OAuth 1.0, AWS Sig v4, JWT); a canonical request in, headers/params out; no sockets.
 

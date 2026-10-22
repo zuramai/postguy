@@ -1,7 +1,7 @@
 //! A single-line field with `{{variable}}` chips: the text edit is styled by a layouter that
 //! tints variable spans with the accent and gives them a subtle background, so the chips move
 //! with the text instead of being a separate overlay. The field is also the base for the URL
-//! bar (autocomplete and cURL paste arrive in M3.4).
+//! bar (autocomplete and cURL paste are layered on by the builder).
 
 use egui::text::LayoutJob;
 use egui::{FontId, Response, TextEdit, TextFormat, Ui};

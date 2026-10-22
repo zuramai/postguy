@@ -1,4 +1,4 @@
-//! WebSocket client (M6.1): handshake headers/subprotocols, TLS via the same rustls policy as
+//! WebSocket client: handshake headers/subprotocols, TLS via the same rustls policy as
 //! HTTP, ping/pong, close codes, message size caps and a typed event stream. Reconnection policy
 //! lives in the engine/session; this crate is one connection.
 //!

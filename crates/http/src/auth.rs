@@ -1,4 +1,4 @@
-//! Auth application (PROMPT.md 5.3.2 Authorization tab, v1 P0 set): Basic, Bearer, API key.
+//! Auth application: Basic, Bearer, API key.
 //! Values arrive ALREADY resolved by the engine (variables expanded, secrets fetched); this
 //! module only places them on the request and never logs or returns them.
 //!

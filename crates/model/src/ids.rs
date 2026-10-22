@@ -1,4 +1,4 @@
-//! Random 128-bit ids as text (PROMPT.md 4.5: "ids are UUID text"). The whole workspace uses
+//! Random 128-bit ids as text. The whole workspace uses
 //! the constructor, never raw `String` assignment, so an id is never accidentally empty.
 
 use serde::{Deserialize, Serialize};
