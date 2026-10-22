@@ -22,7 +22,7 @@ use postguy_store::{StorePaths, config_dir};
 use postguy_ui_egui::auth::OAuth2Action;
 use postguy_ui_egui::builder::{BodyDrafts, BuilderAction, BuilderTab, RequestBuilder, SendProgress};
 use postguy_ui_egui::collection::{CollectionAction, CollectionDetail, DetailState};
-use postguy_ui_egui::commands::CommandAction;
+use postguy_ui_egui::commands::{CommandAction, EditCommand, WindowCommand, edit_events, step_zoom};
 use postguy_ui_egui::console::ConsoleRow;
 use postguy_ui_egui::cookies::{CookieAction, CookieData, CookieRow, cookie_manager};
 use postguy_ui_egui::environment::{EnvironmentAction, EnvironmentEditor};
@@ -35,10 +35,12 @@ use postguy_ui_egui::sidebar::{RequestProtocol, RowKind, SidebarAction, SidebarD
 use postguy_ui_egui::tabs::{TabAction, TabDoc, Tabs};
 use postguy_ui_egui::trash::{TrashAction, TrashEntryView, trash_view};
 use postguy_ui_egui::widgets::field::VariableInfo;
-use postguy_ui_egui::{PostguyShell, ThemeMode};
+use postguy_ui_egui::{PostguyShell, ThemeMode, WindowChrome};
 use serde::{Deserialize, Serialize};
 
 mod control;
+#[cfg(target_os = "macos")]
+mod macos;
 
 struct ClipboardItem {
     source_collection: Id,
@@ -222,6 +224,16 @@ struct App {
     grpc_editors: BTreeMap<u64, GrpcEditor>,
     grpc_jobs: BTreeMap<u64, std::sync::mpsc::Receiver<Result<postguy_engine::UnaryResult, String>>>,
     pending_clipboard: Option<String>,
+    /// Edit-menu commands waiting to be injected as egui events (`raw_input_hook`).
+    pending_edit: Vec<EditCommand>,
+    /// Window-menu commands waiting for the next frame's viewport info.
+    pending_window: Vec<WindowCommand>,
+    /// The outer rect before the last placement command ("Return to previous size").
+    previous_outer: Option<egui::Rect>,
+    /// Registry ids of clicked native menu items.
+    menu_events: Option<std::sync::mpsc::Receiver<String>>,
+    #[cfg(target_os = "macos")]
+    native_menu: Option<muda::Menu>,
 }
 
 impl App {
@@ -266,6 +278,12 @@ impl App {
                     ws_editors: BTreeMap::new(),
                     grpc_editors: BTreeMap::new(),
                     grpc_jobs: BTreeMap::new(),
+                    pending_edit: Vec::new(),
+                    pending_window: Vec::new(),
+                    previous_outer: None,
+                    menu_events: None,
+                    #[cfg(target_os = "macos")]
+                    native_menu: None,
                 };
                 app.shell.settings_value = app.engine.as_ref().map(|engine| engine.settings()).unwrap_or_default();
                 app.refresh();
@@ -310,12 +328,121 @@ impl App {
                     ws_editors: BTreeMap::new(),
                     grpc_editors: BTreeMap::new(),
                     grpc_jobs: BTreeMap::new(),
+                    pending_edit: Vec::new(),
+                    pending_window: Vec::new(),
+                    previous_outer: None,
+                    menu_events: None,
+                    #[cfg(target_os = "macos")]
+                    native_menu: None,
                 }
             }
         }
     }
 
-    /// Start answering the opt-in control channel (AGENTS.md 3). Only `--control` calls this.
+    /// Install the native macOS menu bar; on failure the shell keeps its in-app menu row.
+    #[cfg(target_os = "macos")]
+    fn install_native_menu(&mut self, ctx: &egui::Context) {
+        match macos::install_menu(ctx) {
+            Ok((menu, events)) => {
+                self.native_menu = Some(menu);
+                self.menu_events = Some(events);
+            }
+            Err(error) => self.shell.state.status = format!("Native menu unavailable: {error}"),
+        }
+    }
+
+    /// Run the commands native menu clicks queued since the last frame.
+    fn drain_menu_events(&mut self) {
+        let ids: Vec<String> = self.menu_events.as_ref().map(|events| events.try_iter().collect()).unwrap_or_default();
+        let registry = postguy_ui_egui::commands::CommandRegistry::default();
+        for id in ids {
+            match registry.action(&id) {
+                Some(action) => self.apply_command(action),
+                None => self.shell.state.status = format!("unknown menu item `{id}`"),
+            }
+        }
+    }
+
+    /// Arrange the window frame for the platform: macOS puts the header beside the traffic
+    /// lights and, with the native menu installed, drops the in-app menu row.
+    fn update_chrome(&mut self, ctx: &egui::Context) {
+        #[cfg(target_os = "macos")]
+        {
+            let fullscreen = ctx.input(|input| input.viewport().fullscreen.unwrap_or(false));
+            self.shell.chrome =
+                WindowChrome { in_app_menu: self.native_menu.is_none(), custom_titlebar: true, leading_inset: if fullscreen { 12.0 } else { 78.0 } };
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = ctx;
+            self.shell.chrome = WindowChrome::default();
+        }
+    }
+
+    /// The area a placement command may use (egui points), when the platform can tell.
+    fn work_area(&self, ctx: &egui::Context, info: &egui::ViewportInfo) -> Option<egui::Rect> {
+        #[cfg(target_os = "macos")]
+        {
+            macos::work_area(info.outer_rect, ctx.zoom_factor())
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = ctx;
+            info.monitor_size.map(|size| egui::Rect::from_min_size(egui::Pos2::ZERO, size))
+        }
+    }
+
+    /// Apply the Window menu commands queued since the last frame.
+    fn apply_window_commands(&mut self, ctx: &egui::Context) {
+        if self.pending_window.is_empty() {
+            return;
+        }
+        let info = ctx.input(|input| input.viewport().clone());
+        for command in std::mem::take(&mut self.pending_window) {
+            match command {
+                WindowCommand::Minimize => ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true)),
+                WindowCommand::Zoom => ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!info.maximized.unwrap_or(false))),
+                WindowCommand::ToggleFullscreen => ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!info.fullscreen.unwrap_or(false))),
+                // `on_exit` flushes pending saves and persists the session, drafts included.
+                WindowCommand::Close => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                WindowCommand::Fill | WindowCommand::Center | WindowCommand::Place(_) | WindowCommand::PreviousSize => {
+                    self.place_window(ctx, &info, command);
+                }
+            }
+        }
+    }
+
+    fn place_window(&mut self, ctx: &egui::Context, info: &egui::ViewportInfo, command: WindowCommand) {
+        if info.fullscreen == Some(true) {
+            self.shell.state.status = "Exit full screen to move or resize the window".into();
+            return;
+        }
+        let Some(work) = self.work_area(ctx, info) else {
+            self.shell.state.status = "The window position is unavailable on this platform".into();
+            return;
+        };
+        let target = if command == WindowCommand::PreviousSize {
+            let Some(previous) = self.previous_outer else {
+                self.shell.state.status = "No previous size to return to".into();
+                return;
+            };
+            previous
+        } else {
+            let Some(target) = postguy_ui_egui::window::placement(command, work, info.outer_rect) else { return };
+            self.previous_outer = info.outer_rect;
+            target
+        };
+        let chrome_delta = match (info.outer_rect, info.inner_rect) {
+            (Some(outer), Some(inner)) => outer.size() - inner.size(),
+            _ => egui::Vec2::ZERO,
+        };
+        if info.maximized == Some(true) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+        }
+        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(target.min));
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(target.size() - chrome_delta));
+    }
+
     fn attach_control(&mut self, server: control::ControlServer) {
         self.control_queue = Some(server.queue());
         self.control_server = Some(server);
@@ -2052,6 +2179,7 @@ impl App {
             }
             BuilderAction::OAuth2(action) => self.start_oauth2(tab_id, action),
             BuilderAction::IntrospectGraphql => self.start_graphql_introspection(tab_id),
+            BuilderAction::OpenCookies => self.apply_command(CommandAction::OpenCookies),
             BuilderAction::Cancel => {
                 if let Some(sending) = &self.sending {
                     sending.cancel.cancel();
@@ -2317,6 +2445,19 @@ impl App {
             OpenDoc(doc) => {
                 let title = self.doc_title(&doc);
                 self.shell.tabs.open(doc, title);
+            }
+            Edit(command) => self.pending_edit.push(command),
+            Zoom(step) => {
+                let zoom = step_zoom(self.shell.settings_value.ui_zoom, step);
+                self.shell.settings_value.ui_zoom = zoom;
+                self.apply_settings(SettingsAction::Save);
+                self.shell.state.status = format!("Zoom {}%", (zoom * 100.0).round());
+            }
+            Window(command) => self.pending_window.push(command),
+            OpenUrl(url) => {
+                if let Err(error) = postguy_platform::open_url(url) {
+                    self.shell.state.status = format!("Could not open {url}: {error}");
+                }
             }
         }
     }
@@ -2754,6 +2895,8 @@ fn resolve_target(collections: &[Collection], target: &Id) -> Result<(Id, Option
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.apply_window_commands(ui.ctx());
+        self.update_chrome(ui.ctx());
         self.poll_control(ui.ctx());
         self.poll_import();
         self.poll_import_picker(ui.ctx());
@@ -3013,6 +3156,16 @@ impl eframe::App for App {
         self.save_session(false, false);
     }
 
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        self.drain_menu_events();
+        for command in std::mem::take(&mut self.pending_edit) {
+            match command {
+                EditCommand::Paste => ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste),
+                other => raw_input.events.extend(edit_events(other)),
+            }
+        }
+    }
+
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.flush_pending_env(true);
         self.flush_pending_detail(true);
@@ -3050,11 +3203,11 @@ fn control_argument() -> Option<PathBuf> {
 
 fn main() -> eframe::Result<()> {
     let workspace = workspace_argument();
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 800.0]).with_min_inner_size([900.0, 560.0]).with_title("Postguy"),
-        renderer: eframe::Renderer::Glow,
-        ..Default::default()
-    };
+    let viewport = egui::ViewportBuilder::default().with_inner_size([1280.0, 800.0]).with_min_inner_size([900.0, 560.0]).with_title("Postguy");
+    // macOS: the header row is the title bar, beside the traffic lights.
+    #[cfg(target_os = "macos")]
+    let viewport = viewport.with_fullsize_content_view(true).with_titlebar_shown(false).with_title_shown(false);
+    let options = eframe::NativeOptions { viewport, renderer: eframe::Renderer::Glow, ..Default::default() };
     let mut app = App::new(workspace);
     if let Some(path) = control_argument() {
         match control::ControlServer::start(path) {
@@ -3065,7 +3218,17 @@ fn main() -> eframe::Result<()> {
             }
         }
     }
-    eframe::run_native("Postguy", options, Box::new(move |_cc| Ok(Box::new(app))))
+    eframe::run_native(
+        "Postguy",
+        options,
+        Box::new(move |cc| {
+            #[cfg(target_os = "macos")]
+            app.install_native_menu(&cc.egui_ctx);
+            #[cfg(not(target_os = "macos"))]
+            let _ = cc;
+            Ok(Box::new(app))
+        }),
+    )
 }
 
 #[cfg(test)]
@@ -3864,5 +4027,20 @@ message EchoMessage { string text = 1; int32 number = 2; }
         assert!(matches!(app.shell.tabs.tabs[0].doc, TabDoc::Request { .. }));
         let loaded = engine.collections().expect("collections");
         assert_eq!(loaded.iter().find(|value| value.id == collection.id).map(|value| value.items.len()), Some(1));
+    }
+
+    #[test]
+    fn menu_commands_reach_zoom_window_and_edit_queues() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        app.apply_control(control::ControlCommand::Command("view.zoom-in".into())).expect("zoom in");
+        assert!((app.shell.settings_value.ui_zoom - 1.1).abs() < 1e-6);
+        app.apply_control(control::ControlCommand::Command("view.zoom-reset".into())).expect("zoom reset");
+        assert!((app.shell.settings_value.ui_zoom - 1.0).abs() < 1e-6);
+        app.apply_control(control::ControlCommand::Command("window.left-half".into())).expect("left half");
+        assert_eq!(app.pending_window, vec![WindowCommand::Place(postguy_ui_egui::commands::Placement::LeftHalf)]);
+        app.apply_control(control::ControlCommand::Command("edit.copy".into())).expect("copy");
+        assert_eq!(app.pending_edit, vec![EditCommand::Copy]);
+        assert!(app.apply_control(control::ControlCommand::Command("does.not.exist".into())).is_err());
     }
 }

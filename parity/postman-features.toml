@@ -989,8 +989,22 @@ area = "H"
 tier = "P0"
 milestone = "M3.1"
 status = "shipped"
-notes = "Semantic light/dark tokens from PROMPT.md 6.7 with every text token at >= 4.5:1 (tested); System/Light/Dark preference through egui's OS theme signal. Postman-style scale in both modes: the proportional (sans-serif) family for every UI text style at 20/14.5/12.5 px, monospace reserved for code at the user's editor font size, 32 px control heights, 10x8 spacing, 12x6 button padding and 6/8 px corner radii on widgets, windows and menus. Live OS theme switching is egui's macOS/Windows signal; Linux falls back to light per the brief."
-evidence = ["crates/ui-egui/src/theme.rs::every_text_token_meets_wcag_aa_on_its_surface", "crates/ui-egui/src/theme.rs::both_modes_install_a_larger_sans_serif_type_scale_and_rounded_controls", "crates/ui-egui/tests/widgets.rs::the_shell_draws_its_regions_and_opens_settings"]
+notes = "Semantic light/dark tokens (neutral greys, own palette) with every text token and every code colour at >= 4.5:1 (tested); System/Light/Dark preference through egui's OS theme signal. Compact scale in both modes: the proportional (sans-serif) family for every UI text style at 13/11.5/15 px, monospace reserved for code at the user's editor font size, 30 px controls (36 px URL bar), 8x6 spacing, 10x4 button padding, neutral chrome/sidebar/input/button/hover tokens and VS Code-style code colours. Live OS theme switching is egui's macOS/Windows signal; Linux falls back to light per the brief."
+evidence = ["crates/ui-egui/src/theme.rs::every_text_token_meets_wcag_aa_on_its_surface", "crates/ui-egui/src/theme.rs::both_modes_install_the_compact_sans_type_scale_and_rounded_controls", "crates/ui-egui/tests/widgets.rs::the_shell_draws_its_regions_and_opens_settings"]
+[[feature]]
+id = "h.menu-bar"
+title = "Application menu bar (File/Edit/View/Window/Help), UI zoom, window placement"
+area = "H"
+tier = "P1"
+milestone = "M3.8"
+status = "partial"
+notes = "Native macOS menu bar (muda), in-app menu row on Windows/Linux/FreeBSD; UI zoom 80-200% persisted in settings; halves/quarters/thirds/fill/center/previous size. Missing: multi-monitor placement off macOS (egui exposes no monitor origin) and native Windows menus (muda needs unsafe)."
+evidence = [
+  "crates/ui-egui/src/window.rs::placements_tile_the_work_area",
+  "crates/ui-egui/src/menu.rs::every_menu_entry_is_a_registered_command",
+  "crates/ui-egui/tests/commands.rs::the_in_app_menu_runs_registry_commands",
+  "apps/postguy/src/main.rs::menu_commands_reach_zoom_window_and_edit_queues",
+]
 [[feature]]
 id = "h.two-pane"
 title = "Two-pane layout and resizable response splitter"

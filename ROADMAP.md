@@ -21,6 +21,13 @@ The owner reviews at each tag and at the end of M0 and M3.
 
 ## Progress log
 
+- **2026-10-22 (Postman-feel shell + application menu bar):** neutral own palette with chrome,
+  sidebar, input, button, hover and VS Code-style code tokens (all WCAG-tested), compact 13/11.5/15 px
+  scale, 30 px controls and a 36 px unified URL bar; Lucide icons for toolbars, carets and the
+  bottom bar; painted line-number gutter and indent guides. File/Edit/View/Window/Help menus
+  from one registry (`menu.rs`): native macOS bar via muda (macOS only; Windows needs `unsafe`,
+  Linux needs GTK) and an in-app row elsewhere; persisted UI zoom 80-200%, window halves/
+  quarters/thirds/fill/center/previous size, unified macOS title bar. Parity entry `h.menu-bar`.
 - **2026-10-22 (UI parity polish + Postman v12 feature audit):** Postman-style scale in both
   themes: sans-serif (proportional) text for every UI style at 20/14.5/12.5 px with monospace
   reserved for code, 32 px controls, 46 px header, 300 px sidebar, 40 px tab strip, 10x8

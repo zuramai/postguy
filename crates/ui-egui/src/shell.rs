@@ -8,7 +8,7 @@
 use egui::{Align, Layout, RichText};
 
 use crate::collection::CollectionAction;
-use crate::commands::{CommandAction, CommandRegistry, PaletteItem, PaletteState, command_palette};
+use crate::commands::{CommandAction, CommandRegistry, PaletteItem, PaletteState, command_palette, parse_shortcut, sanitize_zoom};
 use crate::console::{ConsoleAction, ConsoleRow, ConsoleState, console_view};
 use crate::cookies::{CookieAction, CookieData, CookieState};
 use crate::environment::EnvironmentAction;
@@ -58,6 +58,53 @@ impl Default for ShellState {
     }
 }
 
+/// How the window frame is arranged; the app sets it per platform.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WindowChrome {
+    /// Draw the egui File/Edit/View/Window/Help row (false when a native menu bar exists).
+    pub in_app_menu: bool,
+    /// The header doubles as the title bar: dragging it moves the window.
+    pub custom_titlebar: bool,
+    /// Space reserved at the header's leading edge (macOS traffic lights).
+    pub leading_inset: f32,
+}
+
+impl Default for WindowChrome {
+    fn default() -> Self {
+        WindowChrome { in_app_menu: true, custom_titlebar: false, leading_inset: 0.0 }
+    }
+}
+
+/// Commands whose shortcuts always fire, even while a text field has focus.
+fn works_while_typing(id: &str) -> bool {
+    id.starts_with("view.zoom") || id == "view.fullscreen" || id.starts_with("window.") || id == "app.quit"
+}
+
+fn modifier_count(modifiers: egui::Modifiers) -> usize {
+    [modifiers.alt, modifiers.ctrl, modifiers.shift, modifiers.command, modifiers.mac_cmd].into_iter().filter(|set| *set).count()
+}
+
+/// Parsed shortcuts for every command the shell handles itself, most specific first (egui
+/// ignores extra Shift/Alt, so `Cmd+Shift+W` must be tried before `Cmd+W`). Edit commands
+/// (egui-winit already turns those keys into text events) and send/cancel (owned by the
+/// builder) are left out.
+fn shortcut_table(registry: &CommandRegistry) -> Vec<(egui::KeyboardShortcut, &'static str)> {
+    let mut table: Vec<_> = registry
+        .commands()
+        .iter()
+        .filter(|command| !command.id.starts_with("edit.") && !matches!(command.id, "request.send" | "request.cancel"))
+        .filter_map(|command| Some((parse_shortcut(command.shortcut?)?, command.id)))
+        .collect();
+    table.sort_by_key(|(shortcut, _)| std::cmp::Reverse(modifier_count(shortcut.modifiers)));
+    table
+}
+
+/// A 1 px horizontal rule across `x`, drawn over the panel edge (panel clip rects stop at
+/// their inner margin).
+fn edge_line(ui: &egui::Ui, x: egui::Rangef, y: f32, color: egui::Color32) {
+    ui.ctx().layer_painter(ui.layer_id()).hline(x, y, egui::Stroke::new(1.0, color));
+}
+
 /// The shell app. `workspace` is the folder label shown in the header (the engine wires it in
 /// M3.2; the skeleton shows "No workspace").
 pub struct PostguyShell {
@@ -83,6 +130,10 @@ pub struct PostguyShell {
     pub settings_value: postguy_model::Settings,
     pub snippet: SnippetPanelState,
     pub snippet_request: Option<postguy_model::HttpRequest>,
+    /// How the window frame is arranged (the app sets this per platform).
+    pub chrome: WindowChrome,
+    /// Registry shortcuts, most specific first (see [`shortcut_table`]).
+    shortcuts: Vec<(egui::KeyboardShortcut, &'static str)>,
 }
 
 impl Default for PostguyShell {
@@ -113,6 +164,8 @@ impl PostguyShell {
             settings_value: postguy_model::Settings::default(),
             snippet: SnippetPanelState::default(),
             snippet_request: None,
+            chrome: WindowChrome::default(),
+            shortcuts: shortcut_table(&CommandRegistry::default()),
         }
     }
 
@@ -128,8 +181,19 @@ impl PostguyShell {
         let ctx = ui.ctx().clone();
         let theme = Theme::from_context(&ctx, self.state.theme_mode).with_code_font(self.settings_value.editor_font_size);
         theme.install(&ctx);
+        if ctx.options(|options| options.zoom_with_keyboard) {
+            // Zoom is a registry command (View menu, persisted setting), not an egui built-in.
+            ctx.options_mut(|options| options.zoom_with_keyboard = false);
+        }
+        let zoom = sanitize_zoom(self.settings_value.ui_zoom);
+        if (ctx.zoom_factor() - zoom).abs() > 1e-3 {
+            ctx.set_zoom_factor(zoom);
+        }
         let metrics = theme.metrics;
 
+        self.action = None;
+        self.tab_action = None;
+        self.command_action = None;
         self.header(ui, &theme);
         self.bottom_bar(ui, &theme);
         if self.state.console_open {
@@ -140,52 +204,15 @@ impl PostguyShell {
                 }
             });
         }
-        self.action = None;
-        self.tab_action = None;
-        self.command_action = None;
-        if !ui.ctx().egui_wants_keyboard_input() {
-            let mut shortcut: Option<CommandAction> = None;
-            ui.input(|input| {
-                let command = input.modifiers.command;
-                let alt = input.modifiers.alt;
-                let shift = input.modifiers.shift;
-                if command && input.key_pressed(egui::Key::K) {
-                    self.palette.open = true;
-                }
-                if command && input.key_pressed(egui::Key::Comma) {
-                    shortcut = Some(CommandAction::OpenSettings);
-                }
-                if command && alt && input.key_pressed(egui::Key::C) {
-                    shortcut = Some(CommandAction::ToggleConsole);
-                }
-                if command && alt && input.key_pressed(egui::Key::V) {
-                    shortcut = Some(CommandAction::ToggleTwoPane);
-                }
-                if command && input.key_pressed(egui::Key::N) {
-                    shortcut = Some(CommandAction::NewRequest);
-                }
-                if command && input.key_pressed(egui::Key::I) {
-                    shortcut = Some(CommandAction::Import);
-                }
-                if command && shift && input.key_pressed(egui::Key::T) {
-                    shortcut = Some(CommandAction::ReopenTab);
-                }
-                if command && !shift && input.key_pressed(egui::Key::W) {
-                    shortcut = Some(CommandAction::CloseTab);
-                }
-                if command && input.key_pressed(egui::Key::Tab) {
-                    shortcut = Some(if shift { CommandAction::PreviousTab } else { CommandAction::NextTab });
-                }
-            });
-            if let Some(action) = shortcut {
-                self.command_action = Some(action);
-            }
+        if let Some(action) = self.handle_shortcuts(&ctx) {
+            self.command_action = Some(action);
         }
         if self.state.sidebar_open {
             self.sidebar(ui, &theme);
         }
         // The tab strip sits directly under the header, with the environment selector at its end.
-        egui::Panel::top("tab-strip").exact_size(TAB_STRIP_HEIGHT).show(ui, |ui| {
+        let strip_frame = egui::Frame::NONE.fill(theme.palette.chrome).inner_margin(egui::Margin::symmetric(8, 4));
+        egui::Panel::top("tab-strip").exact_size(TAB_STRIP_HEIGHT).frame(strip_frame).show(ui, |ui| {
             let data = &self.sidebar_data;
             self.tab_action = tabs::tab_strip(ui, &mut self.tabs, data);
         });
@@ -205,8 +232,11 @@ impl PostguyShell {
             }
         }
         if self.state.right_panel_open {
-            egui::Panel::right("snippet-panel").exact_size(metrics.right_panel).resizable(true).show(ui, |ui| {
-                egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(12, 10)).show(ui, |ui| {
+            egui::Panel::right("snippet-panel")
+                .exact_size(metrics.right_panel)
+                .resizable(true)
+                .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(12, 10)))
+                .show(ui, |ui| {
                     if let Some(request) = self.snippet_request.clone() {
                         snippet_panel(ui, &request, &mut self.snippet);
                     } else {
@@ -215,7 +245,6 @@ impl PostguyShell {
                         ui.label(RichText::new("Open a request to see its generated code.").color(theme.palette.text_muted));
                     }
                 });
-            });
         }
         let active = self.tabs.active_tab().cloned();
         let mut builder_action = None;
@@ -269,47 +298,141 @@ impl PostguyShell {
         builder_action
     }
 
+    /// Run the registry shortcuts for this frame and open the palette on Cmd+K. Returns the
+    /// command to run.
+    fn handle_shortcuts(&mut self, ctx: &egui::Context) -> Option<CommandAction> {
+        let typing = ctx.egui_wants_keyboard_input();
+        let registry = &self.command_registry;
+        let table = &self.shortcuts;
+        let mut open_palette = false;
+        let action = ctx.input_mut(|input| {
+            if !typing && input.modifiers.command && input.key_pressed(egui::Key::K) {
+                open_palette = true;
+            }
+            if input.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Plus) {
+                return registry.action("view.zoom-in");
+            }
+            for (shortcut, id) in table {
+                if typing && !works_while_typing(id) {
+                    continue;
+                }
+                if input.consume_shortcut(shortcut) {
+                    return registry.action(id);
+                }
+            }
+            None
+        });
+        if open_palette {
+            self.palette.open = true;
+        }
+        action
+    }
+
     fn header(&mut self, ui: &mut egui::Ui, theme: &Theme) {
-        egui::Panel::top("header").exact_size(theme.metrics.header_height).show(ui, |ui| {
-            egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(12, 6)).show(ui, |ui| {
+        let chrome = self.chrome;
+        let palette = theme.palette;
+        let mut menu_action = None;
+        egui::Panel::top("header")
+            .exact_size(theme.metrics.header_height)
+            .frame(egui::Frame::NONE.fill(palette.chrome).inner_margin(egui::Margin::symmetric(8, 0)))
+            .show(ui, |ui| {
+                let rect = ui.max_rect();
+                let full = rect.expand2(egui::vec2(8.0, 0.0));
+                edge_line(ui, full.x_range(), full.bottom() - 0.5, palette.border);
+                if chrome.custom_titlebar {
+                    let drag = ui.interact(rect, egui::Id::new("titlebar-drag"), egui::Sense::click_and_drag());
+                    if drag.drag_started() {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                    }
+                    if drag.double_clicked() {
+                        let maximized = ui.ctx().input(|input| input.viewport().maximized.unwrap_or(false));
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+                    }
+                }
+                let mut free = (rect.left(), rect.right());
                 ui.horizontal_centered(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    ui.add_space(chrome.leading_inset);
+                    if chrome.in_app_menu {
+                        if let Some(action) = crate::menu::menu_bar(ui, &self.command_registry) {
+                            menu_action = Some(action);
+                        }
+                        ui.add_space(4.0);
+                    }
                     ui.add_enabled_ui(false, |ui| {
                         widgets::icon_button(ui, "arrow-left", "Back");
                         widgets::icon_button(ui, "arrow-right", "Forward");
                     });
-                    ui.separator();
-                    let workspace = ui.add(egui::Button::new(RichText::new(&self.workspace_label).strong()).frame(false));
+                    ui.add_space(4.0);
+                    let workspace = ui.add(egui::Button::new(RichText::new(&self.workspace_label).font(theme.semibold_font(13.0))).frame(false));
                     workspace.on_hover_text("Open Workspace… (M3.2)");
+                    let left_end = ui.cursor().left();
+                    let mut right_start = rect.right();
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let settings = widgets::icon_button(ui, "settings", "Settings");
+                        right_start = settings.rect.left();
                         if settings.clicked() {
                             self.tabs.open(TabDoc::Settings, "Settings");
                         }
-                        let search = ui.add_sized(
-                            [320.0, 28.0],
-                            egui::Button::new(RichText::new("Search or run a command…").color(theme.palette.text_muted))
-                                .frame(true)
-                                .fill(theme.palette.surface_sunken)
-                                .corner_radius(egui::CornerRadius::same(theme.metrics.radius as u8)),
-                        );
-                        if search.clicked() {
-                            self.palette.open = true;
-                        }
-                        search.on_hover_text("Command palette (Cmd/Ctrl+K)");
                     });
+                    free = (left_end, right_start);
                 });
+                // The search box is centred in the header, squeezed only when the left or right
+                // groups need the room.
+                let width = (rect.width() * 0.4).min(420.0);
+                let left = (rect.center().x - width / 2.0).max(free.0 + 12.0);
+                let right = (rect.center().x + width / 2.0).min(free.1 - 12.0);
+                if right - left >= 80.0 {
+                    let search_rect = egui::Rect::from_min_max(egui::pos2(left, rect.center().y - 14.0), egui::pos2(right, rect.center().y + 14.0));
+                    let search = ui.interact(search_rect, egui::Id::new("header-search"), egui::Sense::click());
+                    let border = if search.hovered() { palette.input_border_hover } else { palette.input_border };
+                    ui.painter().rect(
+                        search_rect,
+                        egui::CornerRadius::same(theme.metrics.radius as u8),
+                        palette.input_bg,
+                        egui::Stroke::new(1.0, border),
+                        egui::StrokeKind::Inside,
+                    );
+                    crate::icons::paint(
+                        ui.painter(),
+                        egui::Rect::from_center_size(egui::pos2(search_rect.left() + 17.0, search_rect.center().y), egui::vec2(14.0, 14.0)),
+                        "search",
+                        palette.text_muted,
+                        1.5,
+                    );
+                    ui.painter().text(
+                        egui::pos2(search_rect.left() + 32.0, search_rect.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        "Search Postguy",
+                        egui::TextStyle::Body.resolve(ui.style()),
+                        palette.text_muted,
+                    );
+                    search.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Search or run a command…"));
+                    if search.clicked() {
+                        self.palette.open = true;
+                    }
+                    search.on_hover_text("Command palette (Cmd/Ctrl+K)");
+                }
             });
-        });
+        if menu_action.is_some() {
+            self.command_action = menu_action;
+        }
     }
 
     fn sidebar(&mut self, ui: &mut egui::Ui, theme: &Theme) {
-        egui::Panel::left("sidebar").default_size(theme.metrics.sidebar_default).resizable(true).show(ui, |ui| {
-            egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
+        let palette = theme.palette;
+        egui::Panel::left("sidebar")
+            .default_size(theme.metrics.sidebar_default)
+            .size_range(180.0..=520.0)
+            .resizable(true)
+            .frame(egui::Frame::NONE.fill(palette.sidebar).inner_margin(egui::Margin::symmetric(8, 8)))
+            .show(ui, |ui| {
+                let full = ui.max_rect().expand2(egui::vec2(8.0, 8.0));
+                let painter = ui.ctx().layer_painter(ui.layer_id());
+                painter.vline(full.right() - 0.5, full.y_range(), egui::Stroke::new(1.0, palette.border));
                 let data = &self.sidebar_data;
                 self.action = self.sidebar.show(ui, &mut self.sidebar_state, data);
             });
-        });
     }
 
     fn detail(&mut self, ui: &mut egui::Ui, theme: &Theme, name: &str, note: &str) {
@@ -319,38 +442,52 @@ impl PostguyShell {
     }
 
     fn bottom_bar(&mut self, ui: &mut egui::Ui, theme: &Theme) {
-        egui::Panel::bottom("bottom-bar").exact_size(theme.metrics.bottom_bar_height).show(ui, |ui| {
-            egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(12, 2)).show(ui, |ui| {
+        let palette = theme.palette;
+        let bar_height = theme.metrics.bottom_bar_height;
+        egui::Panel::bottom("bottom-bar")
+            .exact_size(bar_height)
+            .frame(egui::Frame::NONE.fill(palette.chrome).inner_margin(egui::Margin::symmetric(8, 2)))
+            .show(ui, |ui| {
+                let full = ui.max_rect().expand2(egui::vec2(8.0, 2.0));
+                edge_line(ui, full.x_range(), full.top() + 0.5, palette.border);
+                let item = |selected: bool| widgets::ButtonOptions { height: Some(bar_height - 4.0), small: true, selected, color: None };
                 ui.horizontal_centered(|ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
-                    if ui.add(egui::Button::new("Sidebar").frame(false)).clicked() {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    let sidebar = self.state.sidebar_open;
+                    if widgets::text_button_with(ui, widgets::ButtonKind::Ghost, Some("panel-left"), "Sidebar", true, item(sidebar)).clicked() {
                         self.state.sidebar_open = !self.state.sidebar_open;
                     }
-                    if ui.add(egui::Button::new("Console").frame(false)).clicked() {
+                    let console = self.state.console_open;
+                    if widgets::text_button_with(ui, widgets::ButtonKind::Ghost, Some("terminal"), "Console", true, item(console)).clicked() {
                         self.state.console_open = !self.state.console_open;
                     }
-                    if ui.add(egui::Button::new("Cookies").frame(false)).clicked() {
+                    if widgets::text_button_with(ui, widgets::ButtonKind::Ghost, Some("cookie"), "Cookies", true, item(false)).clicked() {
                         self.tabs.open(TabDoc::Cookies, "Cookies");
                     }
-                    if ui.add(egui::Button::new("Globals").frame(false)).clicked() {
+                    if widgets::text_button_with(ui, widgets::ButtonKind::Ghost, Some("globe"), "Globals", true, item(false)).clicked() {
                         self.tabs.open(TabDoc::Globals, "Globals");
                     }
-                    if ui.add(egui::Button::new("Trash").frame(false)).clicked() {
+                    if widgets::text_button_with(ui, widgets::ButtonKind::Ghost, Some("trash"), "Trash", true, item(false)).clicked() {
                         self.tabs.open(TabDoc::Trash, "Trash");
                     }
-                    ui.label("Runner");
+                    ui.add_space(6.0);
+                    let (icon_rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+                    crate::icons::paint(ui.painter(), icon_rect, "play", palette.text_muted, 1.5);
+                    ui.label(RichText::new("Runner").small().color(palette.text_muted));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(RichText::new(&self.state.status).small().color(theme.palette.text_muted));
-                        if ui.add(egui::Button::new("Right").frame(false).selected(self.state.right_panel_open)).clicked() {
+                        let right = self.state.right_panel_open;
+                        if widgets::text_button_with(ui, widgets::ButtonKind::Ghost, Some("code"), "Right", true, item(right)).clicked() {
                             self.state.right_panel_open = !self.state.right_panel_open;
                         }
-                        if ui.add(egui::Button::new("Two-pane").frame(false).selected(self.state.two_pane)).clicked() {
+                        let two_pane = self.state.two_pane;
+                        if widgets::text_button_with(ui, widgets::ButtonKind::Ghost, Some("panel-bottom"), "Two-pane", true, item(two_pane)).clicked()
+                        {
                             self.state.two_pane = !self.state.two_pane;
                         }
+                        ui.label(RichText::new(&self.state.status).small().color(palette.text_muted));
                     });
                 });
             });
-        });
     }
 
     fn welcome(&mut self, ui: &mut egui::Ui, theme: &Theme) {

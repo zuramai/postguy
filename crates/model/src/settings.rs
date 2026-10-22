@@ -86,6 +86,7 @@ impl Default for Settings {
             variable_autocomplete: true,
             autosave: false,
             editor_font_size: 13.5,
+            ui_zoom: 1.0,
             editor_indent_json: 2,
             editor_indent_other: 4,
             editor_spaces: true,
@@ -152,6 +153,8 @@ pub struct Settings {
     // Editor
     #[serde(default = "editor_font_size")]
     pub editor_font_size: f32,
+    #[serde(default = "ui_zoom")]
+    pub ui_zoom: f32,
     #[serde(default = "two_value")]
     pub editor_indent_json: u32,
     #[serde(default = "four_value")]
@@ -316,6 +319,10 @@ fn four_value() -> u32 {
 
 fn editor_font_size() -> f32 {
     13.5
+}
+
+fn ui_zoom() -> f32 {
+    1.0
 }
 
 fn history_cap() -> usize {

@@ -37,10 +37,10 @@ impl SnippetPanelState {
 pub fn snippet_panel(ui: &mut Ui, request: &HttpRequest, state: &mut SnippetPanelState) {
     let theme = Theme::current(ui.ctx());
     let text = generate(state.language, request, state.options());
-    ui.heading("Code snippet");
+    ui.label(RichText::new("Code snippet").font(theme.semibold_font(14.0)));
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("Copy").clicked() {
+            if widgets::icon_button_with(ui, "copy", "Copy", "Copy snippet").clicked() {
                 ui.ctx().copy_text(text.clone());
             }
             let mut chosen = Some(state.language.label().to_string());

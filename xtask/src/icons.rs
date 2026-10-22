@@ -60,6 +60,7 @@ fn render(icons: &[(String, Vec<String>)]) -> String {
     let _ = writeln!(out, "/// (icon name, path-data strings) pairs, drawn as strokes at 14-16 px. One string per");
     let _ = writeln!(out, "/// source `<path>`/primitive: relative moves inside a string anchor at that element's own");
     let _ = writeln!(out, "/// start, so strings must never be concatenated (that would rebase their moves).");
+    let _ = writeln!(out, "#[rustfmt::skip]");
     let _ = writeln!(out, "pub const ICONS: &[(&str, &[&str])] = &[");
     for (name, data) in icons {
         let datas: Vec<String> = data.iter().map(|d| format!("\"{d}\"")).collect();

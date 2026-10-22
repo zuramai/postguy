@@ -112,10 +112,18 @@ pub fn key_value_table(ui: &mut Ui, rows: &mut Vec<KeyValue>, variant: TableVari
                 if description.changed() {
                     result.changed = true;
                 }
-                let delete = ui.add(egui::Button::new("x").frame(false).small());
+                let (delete_rect, delete) = ui.allocate_exact_size(egui::vec2(24.0, 24.0), egui::Sense::click());
                 if delete.hovered() {
-                    ui.painter().rect_filled(delete.rect, egui::CornerRadius::same(4), theme.palette.surface_sunken);
+                    ui.painter().rect_filled(delete_rect, egui::CornerRadius::same(theme.metrics.radius as u8), theme.palette.hover);
                 }
+                crate::icons::paint(
+                    ui.painter(),
+                    delete_rect.shrink(6.0),
+                    "x",
+                    if delete.hovered() { theme.palette.text } else { theme.palette.text_muted },
+                    1.5,
+                );
+                delete.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "x"));
                 if delete.clicked() {
                     remove_index = Some(index);
                 }

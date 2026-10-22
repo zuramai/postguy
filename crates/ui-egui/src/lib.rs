@@ -16,6 +16,7 @@ pub mod environment;
 pub mod export;
 pub mod icons;
 pub mod import;
+pub mod menu;
 pub mod response;
 pub mod settings;
 pub mod shell;
@@ -25,6 +26,7 @@ pub mod tabs;
 pub mod theme;
 pub mod trash;
 pub mod widgets;
+pub mod window;
 
 pub use builder::{BodyDrafts, BuilderAction, BuilderTab, RequestBuilder, SendProgress};
 pub use collection::{CollectionAction, CollectionDetail, DetailState, DetailTab};
@@ -36,7 +38,7 @@ pub use export::{ExportFormat, ExportRequest, ExportState, ExportTarget, export_
 pub use import::{ImportAction, ImportItemView, ImportState, ImportSummary, import_dialog};
 pub use response::{BodyMode, ResponseAction, ResponseData, ResponseTab, ResponseViewerState, SendErrorView, error_view, response_view};
 pub use settings::{SettingsAction, SettingsEditor, SettingsSection, SettingsState};
-pub use shell::{PostguyShell, ShellState};
+pub use shell::{PostguyShell, ShellState, WindowChrome};
 pub use sidebar::{RequestProtocol, RowKind, Sidebar, SidebarAction, SidebarData, SidebarRow, SidebarState};
 pub use snippet::{SnippetLanguage, SnippetPanelState, snippet_panel};
 pub use tabs::{CloseChoice, Tab, TabAction, TabDoc, Tabs, tab_strip};

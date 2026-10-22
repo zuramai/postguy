@@ -44,49 +44,124 @@ pub struct Palette {
     pub delete: Color32,
     pub head: Color32,
     pub options: Color32,
+    /// Title bar, tab strip and bottom bar.
+    pub chrome: Color32,
+    pub sidebar: Color32,
+    pub hover: Color32,
+    pub selected: Color32,
+    pub input_bg: Color32,
+    pub input_border: Color32,
+    pub input_border_hover: Color32,
+    pub button_bg: Color32,
+    pub button_hover: Color32,
+    pub accent_fill: Color32,
+    pub accent_fill_hover: Color32,
+    pub on_accent: Color32,
+    /// Indent guides in code views.
+    pub guide: Color32,
+    pub line_number: Color32,
+    pub code_key: Color32,
+    pub code_string: Color32,
+    pub code_number: Color32,
+    pub code_keyword: Color32,
+    pub code_comment: Color32,
+    pub code_punct: Color32,
+    pub code_variable: Color32,
+    pub code_tag: Color32,
+    pub code_attr: Color32,
+}
+
+const fn hex(rgb: u32) -> Color32 {
+    Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
 }
 
 impl Palette {
     pub const LIGHT: Palette = Palette {
-        surface: Color32::from_rgb(0xFF, 0xFF, 0xFF),
-        surface_alt: Color32::from_rgb(0xF6, 0xF7, 0xF9),
-        surface_sunken: Color32::from_rgb(0xEE, 0xF0, 0xF3),
-        border: Color32::from_rgb(0xE2, 0xE5, 0xEA),
-        text: Color32::from_rgb(0x1F, 0x23, 0x28),
-        text_muted: Color32::from_rgb(0x6A, 0x73, 0x80),
-        accent: Color32::from_rgb(0x2F, 0x6F, 0xEB),
-        success: Color32::from_rgb(0x17, 0x80, 0x48),
-        warning: Color32::from_rgb(0x8A, 0x5A, 0x12),
-        danger: Color32::from_rgb(0xC0, 0x34, 0x34),
-        info: Color32::from_rgb(0x1F, 0x63, 0x99),
-        get: Color32::from_rgb(0x17, 0x80, 0x48),
-        post: Color32::from_rgb(0x8A, 0x5A, 0x12),
-        put: Color32::from_rgb(0x2F, 0x6F, 0xEB),
-        patch: Color32::from_rgb(0x7C, 0x5C, 0xC4),
-        delete: Color32::from_rgb(0xC0, 0x34, 0x34),
-        head: Color32::from_rgb(0x1C, 0x7C, 0x72),
-        options: Color32::from_rgb(0xA6, 0x3B, 0x80),
+        surface: hex(0xFFFFFF),
+        surface_alt: hex(0xF7F7F8),
+        surface_sunken: hex(0xF3F3F5),
+        border: hex(0xE4E4E7),
+        text: hex(0x1F2328),
+        text_muted: hex(0x6A7380),
+        accent: hex(0x2F6FEB),
+        success: hex(0x178048),
+        warning: hex(0x8A5A12),
+        danger: hex(0xC03434),
+        info: hex(0x1F6399),
+        get: hex(0x178048),
+        post: hex(0x8A5A12),
+        put: hex(0x2F6FEB),
+        patch: hex(0x7C5CC4),
+        delete: hex(0xC03434),
+        head: hex(0x1C7C72),
+        options: hex(0xA63B80),
+        chrome: hex(0xFAFAFA),
+        sidebar: hex(0xFFFFFF),
+        hover: hex(0xF2F2F3),
+        selected: hex(0xEBEBED),
+        input_bg: hex(0xFFFFFF),
+        input_border: hex(0xDCDCDF),
+        input_border_hover: hex(0xC4C4C8),
+        button_bg: hex(0xF2F2F3),
+        button_hover: hex(0xE6E6E8),
+        accent_fill: hex(0x2F6FEB),
+        accent_fill_hover: hex(0x2563D9),
+        on_accent: hex(0xFFFFFF),
+        guide: hex(0xE6E6E8),
+        line_number: hex(0x9C9CA3),
+        code_key: hex(0xA31515),
+        code_string: hex(0x0451A5),
+        code_number: hex(0x098658),
+        code_keyword: hex(0x0000FF),
+        code_comment: hex(0x6A737D),
+        code_punct: hex(0x1F2328),
+        code_variable: hex(0xAF00DB),
+        code_tag: hex(0x800000),
+        code_attr: hex(0xE50000),
     };
 
     pub const DARK: Palette = Palette {
-        surface: Color32::from_rgb(0x1E, 0x1F, 0x22),
-        surface_alt: Color32::from_rgb(0x25, 0x27, 0x2B),
-        surface_sunken: Color32::from_rgb(0x19, 0x1A, 0x1D),
-        border: Color32::from_rgb(0x34, 0x36, 0x3B),
-        text: Color32::from_rgb(0xE6, 0xE8, 0xEB),
-        text_muted: Color32::from_rgb(0x9A, 0xA1, 0xAB),
-        accent: Color32::from_rgb(0x5B, 0x93, 0xF5),
-        success: Color32::from_rgb(0x4C, 0xC3, 0x8A),
-        warning: Color32::from_rgb(0xE0, 0xA4, 0x58),
-        danger: Color32::from_rgb(0xF0, 0x71, 0x78),
-        info: Color32::from_rgb(0x6B, 0xB3, 0xE8),
-        get: Color32::from_rgb(0x4C, 0xC3, 0x8A),
-        post: Color32::from_rgb(0xE0, 0xA4, 0x58),
-        put: Color32::from_rgb(0x5B, 0x93, 0xF5),
-        patch: Color32::from_rgb(0xA6, 0x8B, 0xE8),
-        delete: Color32::from_rgb(0xF0, 0x71, 0x78),
-        head: Color32::from_rgb(0x4F, 0xC3, 0xB4),
-        options: Color32::from_rgb(0xD9, 0x7A, 0xC0),
+        surface: hex(0x1C1C1C),
+        surface_alt: hex(0x232323),
+        surface_sunken: hex(0x141414),
+        border: hex(0x2E2E2E),
+        text: hex(0xE6E6E6),
+        text_muted: hex(0xA0A0A0),
+        accent: hex(0x5B93F5),
+        success: hex(0x4CC38A),
+        warning: hex(0xE0A458),
+        danger: hex(0xF07178),
+        info: hex(0x6BB3E8),
+        get: hex(0x4CC38A),
+        post: hex(0xE0A458),
+        put: hex(0x5B93F5),
+        patch: hex(0xA68BE8),
+        delete: hex(0xF07178),
+        head: hex(0x4FC3B4),
+        options: hex(0xD97AC0),
+        chrome: hex(0x212121),
+        sidebar: hex(0x1C1C1C),
+        hover: hex(0x2A2A2A),
+        selected: hex(0x333333),
+        input_bg: hex(0x202020),
+        input_border: hex(0x3A3A3A),
+        input_border_hover: hex(0x4A4A4A),
+        button_bg: hex(0x2C2C2C),
+        button_hover: hex(0x363636),
+        accent_fill: hex(0x2F6FEB),
+        accent_fill_hover: hex(0x2563D9),
+        on_accent: hex(0xFFFFFF),
+        guide: hex(0x333333),
+        line_number: hex(0x6E6E6E),
+        code_key: hex(0x9CDCFE),
+        code_string: hex(0xCE9178),
+        code_number: hex(0xB5CEA8),
+        code_keyword: hex(0x569CD6),
+        code_comment: hex(0x6A9955),
+        code_punct: hex(0xD4D4D4),
+        code_variable: hex(0xC586C0),
+        code_tag: hex(0x569CD6),
+        code_attr: hex(0x9CDCFE),
     };
 }
 
@@ -99,6 +174,7 @@ pub struct Metrics {
     pub right_panel: f32,
     pub row_height: f32,
     pub control_height: f32,
+    pub url_height: f32,
     pub radius: f32,
     pub card_radius: f32,
     pub ui_font: f32,
@@ -112,17 +188,18 @@ pub struct Metrics {
 impl Default for Metrics {
     fn default() -> Self {
         Metrics {
-            header_height: 46.0,
-            bottom_bar_height: 36.0,
+            header_height: 40.0,
+            bottom_bar_height: 28.0,
             sidebar_default: 300.0,
             right_panel: 340.0,
-            row_height: 32.0,
-            control_height: 32.0,
+            row_height: 28.0,
+            control_height: 30.0,
+            url_height: 36.0,
             radius: 6.0,
             card_radius: 8.0,
-            ui_font: 14.5,
-            small_font: 12.5,
-            heading_font: 20.0,
+            ui_font: 13.0,
+            small_font: 11.5,
+            heading_font: 15.0,
             code_font: 13.5,
             stroke: 1.5,
             icon: 16.0,
@@ -137,6 +214,7 @@ pub struct Theme {
     pub dark: bool,
     pub palette: Palette,
     pub metrics: Metrics,
+    pub custom_fonts_ready: bool,
 }
 
 impl Default for Theme {
@@ -163,19 +241,25 @@ impl Theme {
             ThemeMode::Light => egui::ThemePreference::Light,
             ThemeMode::Dark => egui::ThemePreference::Dark,
         });
-        self.apply(ctx);
-        ctx.data_mut(|data| data.insert_temp(egui::Id::new("postguy-theme"), self.clone()));
+        let ready = Self::ensure_fonts(ctx);
+        let mut installed = self.clone();
+        installed.custom_fonts_ready = ready;
+        installed.apply(ctx);
+        ctx.data_mut(|data| data.insert_temp(egui::Id::new("postguy-theme"), installed));
     }
 
     /// Resolve the colour family. `System` follows `ctx.style().visuals.dark_mode`, which eframe
     /// updates from the OS (and kittest lets tests choose).
     pub fn from_context(ctx: &Context, mode: ThemeMode) -> Theme {
+        let ready = Self::ensure_fonts(ctx);
         let dark = match mode {
             ThemeMode::Light => false,
             ThemeMode::Dark => true,
             ThemeMode::System => ctx.theme() == egui::Theme::Dark,
         };
-        Theme::resolve_with(mode, dark)
+        let mut theme = Theme::resolve_with(mode, dark);
+        theme.custom_fonts_ready = ready;
+        theme
     }
 
     pub fn resolve(mode: ThemeMode) -> Theme {
@@ -184,11 +268,62 @@ impl Theme {
     }
 
     pub fn resolve_with(mode: ThemeMode, dark: bool) -> Theme {
-        Theme { mode, dark, palette: if dark { Palette::DARK } else { Palette::LIGHT }, metrics: Metrics::default() }
+        Theme { mode, dark, palette: if dark { Palette::DARK } else { Palette::LIGHT }, metrics: Metrics::default(), custom_fonts_ready: false }
+    }
+
+    /// Register Poppins (Regular, Medium, SemiBold) once per [`Context`] so all proportional
+    /// UI text renders in Poppins while code keeps Hack Mono and fallback glyphs stay intact.
+    pub fn ensure_fonts(ctx: &Context) -> bool {
+        let id = egui::Id::new("postguy-poppins-fonts");
+        let pass = ctx.cumulative_pass_nr();
+        if let Some(installed_pass) = ctx.data(|data| data.get_temp::<u64>(id)) {
+            return pass > installed_pass;
+        }
+        let mut fonts = egui::FontDefinitions::default();
+        fonts.font_data.insert(
+            "Poppins-Regular".to_owned(),
+            std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../../../assets/fonts/Poppins-Regular.ttf"))),
+        );
+        fonts.font_data.insert(
+            "Poppins-Medium".to_owned(),
+            std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../../../assets/fonts/Poppins-Medium.ttf"))),
+        );
+        fonts.font_data.insert(
+            "Poppins-SemiBold".to_owned(),
+            std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../../../assets/fonts/Poppins-SemiBold.ttf"))),
+        );
+        if let Some(proportional) = fonts.families.get_mut(&FontFamily::Proportional) {
+            proportional.insert(0, "Poppins-Regular".to_owned());
+        }
+        fonts.families.insert(
+            FontFamily::Name("medium".into()),
+            vec![
+                "Poppins-Medium".to_owned(),
+                "Poppins-Regular".to_owned(),
+                "Ubuntu-Light".to_owned(),
+                "NotoEmoji-Regular".to_owned(),
+                "emoji-icon-font".to_owned(),
+            ],
+        );
+        fonts.families.insert(
+            FontFamily::Name("semibold".into()),
+            vec![
+                "Poppins-SemiBold".to_owned(),
+                "Poppins-Regular".to_owned(),
+                "Ubuntu-Light".to_owned(),
+                "NotoEmoji-Regular".to_owned(),
+                "emoji-icon-font".to_owned(),
+            ],
+        );
+        ctx.set_fonts(fonts);
+        ctx.request_repaint();
+        ctx.data_mut(|data| data.insert_temp(id, pass));
+        false
     }
 
     /// Apply the palette to egui's style. Call once per frame (idempotent and cheap).
     pub fn apply(&self, ctx: &Context) {
+        Self::ensure_fonts(ctx);
         let palette = self.palette;
         let metrics = self.metrics;
         let control_rounding = egui::CornerRadius::same(metrics.radius as u8);
@@ -199,23 +334,35 @@ impl Theme {
         visuals.override_text_color = Some(palette.text);
         visuals.panel_fill = palette.surface;
         visuals.window_fill = palette.surface;
-        visuals.extreme_bg_color = palette.surface_sunken;
+        visuals.extreme_bg_color = palette.input_bg;
         visuals.faint_bg_color = palette.surface_alt;
+        visuals.text_edit_bg_color = Some(palette.input_bg);
         visuals.window_stroke = Stroke::new(1.0, palette.border);
         visuals.widgets.noninteractive.bg_fill = palette.surface;
+        visuals.widgets.noninteractive.weak_bg_fill = palette.surface;
         visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, palette.border);
+        visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, palette.text_muted);
         visuals.widgets.noninteractive.corner_radius = control_rounding;
-        visuals.widgets.inactive.bg_fill = palette.surface_alt;
-        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, palette.border);
+        visuals.widgets.inactive.bg_fill = palette.input_bg;
+        visuals.widgets.inactive.weak_bg_fill = palette.button_bg;
+        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, palette.input_border);
+        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, palette.text);
         visuals.widgets.inactive.corner_radius = control_rounding;
-        visuals.widgets.hovered.bg_fill = palette.surface_sunken;
-        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, palette.border);
+        visuals.widgets.hovered.bg_fill = palette.input_bg;
+        visuals.widgets.hovered.weak_bg_fill = palette.button_hover;
+        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, palette.input_border_hover);
+        visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, palette.text);
+        visuals.widgets.hovered.expansion = 0.0;
         visuals.widgets.hovered.corner_radius = control_rounding;
-        visuals.widgets.active.bg_fill = palette.surface_sunken;
+        visuals.widgets.active.bg_fill = palette.input_bg;
+        visuals.widgets.active.weak_bg_fill = palette.selected;
         visuals.widgets.active.bg_stroke = Stroke::new(1.0, palette.accent);
+        visuals.widgets.active.fg_stroke = Stroke::new(1.0, palette.text);
         visuals.widgets.active.corner_radius = control_rounding;
-        visuals.widgets.open.bg_fill = palette.surface_sunken;
+        visuals.widgets.open.bg_fill = palette.input_bg;
+        visuals.widgets.open.weak_bg_fill = palette.selected;
         visuals.widgets.open.bg_stroke = Stroke::new(1.0, palette.accent);
+        visuals.widgets.open.fg_stroke = Stroke::new(1.0, palette.text);
         visuals.widgets.open.corner_radius = control_rounding;
         visuals.selection.bg_fill = palette.accent.gamma_multiply(0.22);
         visuals.selection.stroke = Stroke::new(1.0, palette.accent);
@@ -225,11 +372,11 @@ impl Theme {
         visuals.window_corner_radius = card_rounding;
         visuals.menu_corner_radius = card_rounding;
         style.visuals = visuals;
-        style.spacing.item_spacing = egui::vec2(10.0, 8.0);
-        style.spacing.button_padding = egui::vec2(12.0, 6.0);
+        style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+        style.spacing.button_padding = egui::vec2(10.0, 4.0);
         style.spacing.window_margin = egui::Margin::same(14);
         style.spacing.menu_margin = egui::Margin::same(6);
-        style.spacing.interact_size = egui::vec2(44.0, metrics.control_height);
+        style.spacing.interact_size = egui::vec2(40.0, metrics.control_height);
         style.spacing.scroll.bar_width = 8.0;
         style.text_styles = [
             (TextStyle::Heading, FontId::new(metrics.heading_font, FontFamily::Proportional)),
@@ -246,6 +393,18 @@ impl Theme {
     pub fn with_code_font(mut self, size: f32) -> Self {
         self.metrics.code_font = size.clamp(9.0, 24.0);
         self
+    }
+
+    /// Medium-weight Poppins font (500 weight).
+    pub fn medium_font(&self, size: f32) -> FontId {
+        let family = if self.custom_fonts_ready { FontFamily::Name("medium".into()) } else { FontFamily::Proportional };
+        FontId::new(size, family)
+    }
+
+    /// SemiBold-weight Poppins font (600 weight, used for section headers and method labels).
+    pub fn semibold_font(&self, size: f32) -> FontId {
+        let family = if self.custom_fonts_ready { FontFamily::Name("semibold".into()) } else { FontFamily::Proportional };
+        FontId::new(size, family)
     }
 
     /// Method text colour (universal REST conventions, PROMPT.md 6.7).
@@ -319,9 +478,26 @@ mod tests {
                 ("delete", palette.delete),
                 ("head", palette.head),
                 ("options", palette.options),
+                ("code_key", palette.code_key),
+                ("code_string", palette.code_string),
+                ("code_number", palette.code_number),
+                ("code_keyword", palette.code_keyword),
+                ("code_comment", palette.code_comment),
+                ("code_variable", palette.code_variable),
+                ("code_tag", palette.code_tag),
+                ("code_attr", palette.code_attr),
             ] {
                 let ratio = contrast(color, surface);
                 assert!(ratio >= 4.5, "{name} on surface is {ratio:.2}:1 (needs 4.5:1)");
+            }
+            for (name, color, bg) in [
+                ("muted on chrome", palette.text_muted, palette.chrome),
+                ("muted on sidebar", palette.text_muted, palette.sidebar),
+                ("on_accent on accent_fill", palette.on_accent, palette.accent_fill),
+                ("on_accent on accent_fill_hover", palette.on_accent, palette.accent_fill_hover),
+            ] {
+                let ratio = contrast(color, bg);
+                assert!(ratio >= 4.5, "{name} is {ratio:.2}:1 (needs 4.5:1)");
             }
         }
     }
@@ -338,24 +514,29 @@ mod tests {
     }
 
     #[test]
-    fn both_modes_install_a_larger_sans_serif_type_scale_and_rounded_controls() {
+    fn both_modes_install_the_compact_sans_type_scale_and_rounded_controls() {
         for mode in [ThemeMode::Light, ThemeMode::Dark] {
             let context = egui::Context::default();
-            Theme::resolve(mode).install(&context);
+            let theme = Theme::resolve(mode);
+            theme.install(&context);
             let dark = mode == ThemeMode::Dark;
             let style = context.style_of(if dark { egui::Theme::Dark } else { egui::Theme::Light });
             for text_style in [TextStyle::Heading, TextStyle::Body, TextStyle::Button, TextStyle::Small] {
                 let font = style.text_styles.get(&text_style).cloned().unwrap_or_else(|| panic!("{text_style:?} is installed"));
                 assert_eq!(font.family, FontFamily::Proportional, "{text_style:?} is sans-serif in {mode:?}");
-                assert!(font.size >= 12.0, "{text_style:?} is at least 12 px in {mode:?}");
             }
             let body = style.text_styles.get(&TextStyle::Body).cloned().unwrap_or_else(|| panic!("body is installed"));
-            assert!(body.size >= 14.0, "body is at least 14 px in {mode:?}");
+            assert!((body.size - 13.0).abs() < f32::EPSILON, "body is 13 px in {mode:?}");
             let mono = style.text_styles.get(&TextStyle::Monospace).cloned().unwrap_or_else(|| panic!("monospace is installed"));
             assert_eq!(mono.family, FontFamily::Monospace, "code stays monospace in {mode:?}");
-            assert!(style.spacing.interact_size.y >= 32.0, "controls are at least 32 px tall in {mode:?}");
+            assert!((style.spacing.interact_size.y - theme.metrics.control_height).abs() < f32::EPSILON);
             assert!(style.visuals.widgets.inactive.corner_radius.nw > 0, "controls are rounded in {mode:?}");
             assert!(style.visuals.window_corner_radius.nw > 0, "windows are rounded in {mode:?}");
+            assert_eq!(style.visuals.text_edit_bg_color, Some(theme.palette.input_bg));
+            assert!(
+                context.data(|data| data.get_temp::<u64>(egui::Id::new("postguy-poppins-fonts")).is_some()),
+                "Poppins font definitions are installed in {mode:?}"
+            );
         }
     }
 

@@ -68,3 +68,58 @@ fn clicking_a_workspace_item_opens_its_document() {
     }
     assert!(!harness.state().palette.open, "choosing closes the palette");
 }
+
+struct ShellRun {
+    shell: postguy_ui_egui::PostguyShell,
+    /// The last command the shell emitted (the shell clears its own field every frame).
+    last: Option<CommandAction>,
+}
+
+fn shell_harness() -> Harness<'static, ShellRun> {
+    Harness::new_ui_state(
+        |ui, run: &mut ShellRun| {
+            run.shell.ui(ui);
+            if run.shell.command_action.is_some() {
+                run.last = run.shell.command_action.clone();
+            }
+        },
+        ShellRun { shell: postguy_ui_egui::PostguyShell::new("demo"), last: None },
+    )
+}
+
+#[test]
+fn the_in_app_menu_runs_registry_commands() {
+    use postguy_ui_egui::commands::{Placement, WindowCommand};
+    let mut harness = shell_harness();
+    harness.run();
+    harness.get_by_label("File").click();
+    harness.run();
+    harness.get_by_label("New ⏵").click();
+    harness.run();
+    harness.get_by_label("New collection").click();
+    harness.run();
+    assert_eq!(harness.state().last, Some(CommandAction::NewCollection));
+
+    let mut harness = shell_harness();
+    harness.run();
+    harness.get_by_label("Window").click();
+    harness.run();
+    harness.get_by_label("Move & Resize ⏵").click();
+    harness.run();
+    harness.get_by_label("Halves ⏵").click();
+    harness.run();
+    harness.get_by_label("Left half").click();
+    harness.run();
+    assert_eq!(harness.state().last, Some(CommandAction::Window(WindowCommand::Place(Placement::LeftHalf))));
+}
+
+#[test]
+fn zoom_setting_drives_the_context_zoom() {
+    let mut harness = shell_harness();
+    harness.state_mut().shell.settings_value.ui_zoom = 1.5;
+    harness.run();
+    assert!((harness.ctx.zoom_factor() - 1.5).abs() < 1e-3);
+    harness.state_mut().shell.settings_value.ui_zoom = f32::NAN;
+    harness.run();
+    assert!((harness.ctx.zoom_factor() - 1.0).abs() < 1e-3, "a corrupt zoom falls back to 100 %");
+}

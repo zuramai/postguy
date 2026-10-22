@@ -447,7 +447,7 @@ pub fn tab_strip(ui: &mut Ui, tabs: &mut Tabs, data: &SidebarData) -> Option<Tab
                 .and_then(|id| data.environments.iter().find(|environment| environment.id == *id))
                 .map(|environment| environment.name.clone())
                 .unwrap_or_else(|| "No environment".to_string());
-            let quick = ui.add(egui::Button::new("Vars").frame(false)).on_hover_text("Variables quick look");
+            let quick = widgets::icon_button_with(ui, "eye", "Vars", "Variables quick look");
             egui::Popup::menu(&quick).show(|ui| {
                 ui.set_min_width(340.0);
                 let collection_id = tabs.active_tab().and_then(|tab| match &tab.doc {
@@ -498,7 +498,13 @@ pub fn tab_strip(ui: &mut Ui, tabs: &mut Tabs, data: &SidebarData) -> Option<Tab
                 ];
                 crate::environment::variable_quick_look(ui, &groups);
             });
-            let response = ui.add(egui::Button::new(RichText::new(format!("{active_name}  ·")).color(theme.palette.text)));
+            let response = widgets::chevron_trigger(ui, &active_name, 180.0, None);
+            ui.painter().rect_stroke(
+                response.rect,
+                egui::CornerRadius::same(theme.metrics.radius as u8),
+                egui::Stroke::new(1.0, theme.palette.input_border),
+                egui::StrokeKind::Inside,
+            );
             egui::Popup::menu(&response).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
                 ui.set_min_width(240.0);
                 ui.label(RichText::new("Choose an environment for every request; pinning is P2.").small().color(theme.palette.text_muted));
@@ -522,15 +528,7 @@ pub fn tab_strip(ui: &mut Ui, tabs: &mut Tabs, data: &SidebarData) -> Option<Tab
                         continue;
                     }
                     let selected = current.as_deref() == Some(environment.id.0.as_str());
-                    if ui
-                        .add(
-                            egui::Button::new(format!("{}  {}", if selected { "✓" } else { " " }, environment.name))
-                                .selected(selected)
-                                .frame(false)
-                                .min_size(vec2(ui.available_width(), 24.0)),
-                        )
-                        .clicked()
-                    {
+                    if widgets::popup_row(ui, &environment.name, selected, true).clicked() {
                         action = Some(TabAction::SetActiveEnvironment(Some(environment.id.0.clone())));
                         ui.close();
                     }
@@ -541,7 +539,7 @@ pub fn tab_strip(ui: &mut Ui, tabs: &mut Tabs, data: &SidebarData) -> Option<Tab
                     ui.close();
                 }
             });
-            let overflow = ui.add(egui::Button::new("Tabs").frame(false)).on_hover_text("Search tabs");
+            let overflow = widgets::icon_button_with(ui, "chevron-down", "Tabs", "Search tabs");
             egui::Popup::menu(&overflow).close_behavior(egui::PopupCloseBehavior::CloseOnClick).show(|ui| {
                 ui.set_min_width(260.0);
                 ui.label(RichText::new("Open tabs").small().color(theme.palette.text_muted));
@@ -624,6 +622,7 @@ struct DrawnTab {
 
 fn draw_tab(ui: &mut Ui, theme: &Theme, tab: &Tab, active: bool) -> DrawnTab {
     let method = method_badge(theme, &tab.doc);
+    let palette = theme.palette;
     let mut text = String::new();
     if let Some((_, badge)) = &method {
         text.push_str(badge);
@@ -631,45 +630,41 @@ fn draw_tab(ui: &mut Ui, theme: &Theme, tab: &Tab, active: bool) -> DrawnTab {
     }
     text.push_str(&tab.title);
     let width = (text.chars().count() as f32 * 8.0 + 44.0).clamp(108.0, 260.0);
-    let (rect, response) = ui.allocate_exact_size(vec2(width, 32.0), Sense::click_and_drag());
-    let tab_rounding = egui::CornerRadius::same(theme.metrics.radius as u8);
+    let (rect, response) = ui.allocate_exact_size(vec2(width, 30.0), Sense::click_and_drag());
+    let rounding = egui::CornerRadius::same(theme.metrics.radius as u8);
     if active {
-        ui.painter().rect_filled(rect, egui::CornerRadius { nw: tab_rounding.nw, sw: 0, ne: tab_rounding.ne, se: 0 }, theme.palette.surface_alt);
-        ui.painter().line_segment(
-            [egui::pos2(rect.left() + 8.0, rect.bottom() - 1.0), egui::pos2(rect.right() - 8.0, rect.bottom() - 1.0)],
-            egui::Stroke::new(2.0, theme.palette.accent),
-        );
+        ui.painter().rect(rect, rounding, palette.surface, egui::Stroke::new(1.0, palette.border), egui::StrokeKind::Inside);
     } else if response.hovered() {
-        ui.painter().rect_filled(
-            rect,
-            egui::CornerRadius { nw: tab_rounding.nw, sw: 0, ne: tab_rounding.ne, se: 0 },
-            theme.palette.surface_alt.gamma_multiply(0.6),
-        );
+        ui.painter().rect_filled(rect, rounding, palette.hover);
     }
     let mut x = rect.left() + 12.0;
     if let Some((color, badge)) = method {
-        ui.painter().text(egui::pos2(x, rect.center().y), egui::Align2::LEFT_CENTER, badge, egui::TextStyle::Small.resolve(ui.style()), color);
+        ui.painter().text(egui::pos2(x, rect.center().y), egui::Align2::LEFT_CENTER, badge.to_uppercase(), theme.semibold_font(9.5), color);
         x += 40.0;
     }
-    let color = if active { theme.palette.text } else { theme.palette.text_muted };
+    let color = if active { palette.text } else { palette.text_muted };
     ui.painter().text(egui::pos2(x, rect.center().y), egui::Align2::LEFT_CENTER, &tab.title, egui::TextStyle::Body.resolve(ui.style()), color);
     if tab.preview {
         // A thin italic-approximation underline keeps preview tabs recognisable in the strip.
         ui.painter().line_segment(
             [egui::pos2(x, rect.bottom() - 8.0), egui::pos2(x + tab.title.chars().count() as f32 * 7.5, rect.bottom() - 8.0)],
-            egui::Stroke::new(1.0, theme.palette.text_muted.gamma_multiply(0.5)),
+            egui::Stroke::new(1.0, palette.text_muted.gamma_multiply(0.5)),
         );
     }
     // Dirty dot replaces the close button until hover (PROMPT.md 6.2).
     let mut close_clicked = false;
     if tab.dirty && !response.hovered() {
-        ui.painter().circle_filled(egui::pos2(rect.right() - 12.0, rect.center().y), 3.5, theme.palette.text_muted);
+        ui.painter().circle_filled(egui::pos2(rect.right() - 12.0, rect.center().y), 3.0, palette.warning);
     } else {
-        let close = egui::Rect::from_center_size(egui::pos2(rect.right() - 12.0, rect.center().y), egui::Vec2::splat(14.0));
+        let close = egui::Rect::from_center_size(egui::pos2(rect.right() - 14.0, rect.center().y), egui::Vec2::splat(18.0));
         let close_response = ui.interact(close, Id::new(("tab-close", tab.id)), Sense::click());
-        let stroke = egui::Stroke::new(1.2, theme.palette.text_muted);
-        ui.painter().line_segment([egui::pos2(close.left() + 4.0, close.top() + 4.0), egui::pos2(close.right() - 4.0, close.bottom() - 4.0)], stroke);
-        ui.painter().line_segment([egui::pos2(close.right() - 4.0, close.top() + 4.0), egui::pos2(close.left() + 4.0, close.bottom() - 4.0)], stroke);
+        if active || response.hovered() || close_response.hovered() {
+            if close_response.hovered() {
+                ui.painter().rect_filled(close, egui::CornerRadius::same(4), palette.button_hover);
+            }
+            let tint = if close_response.hovered() { palette.text } else { palette.text_muted };
+            crate::icons::paint(ui.painter(), egui::Rect::from_center_size(close.center(), egui::Vec2::splat(12.0)), "x", tint, 1.6);
+        }
         close_response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Close {}", tab.title)));
         close_clicked = close_response.clicked();
     }
@@ -683,4 +678,4 @@ fn method_badge(theme: &Theme, doc: &TabDoc) -> Option<(Color32, String)> {
 }
 
 /// The tab strip's fixed height (PROMPT.md 6.2 keeps it compact).
-pub const TAB_STRIP_HEIGHT: f32 = 40.0;
+pub const TAB_STRIP_HEIGHT: f32 = 38.0;
