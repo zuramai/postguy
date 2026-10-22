@@ -179,10 +179,10 @@ fn settings_toggles_persist_into_the_request_settings() {
 fn pasting_a_curl_command_emits_the_parse_intent() {
     let mut harness = harness();
     harness.run();
-    let url = harness.get_all_by_role(egui::accesskit::Role::TextInput).last().expect("url field");
+    let url = harness.get_all_by_role(egui::accesskit::Role::TextInput).nth(1).expect("url field");
     url.click();
     harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
-    harness.get_all_by_role(egui::accesskit::Role::TextInput).last().expect("url field").type_text("curl https://example.com -H 'X: y'");
+    harness.get_all_by_role(egui::accesskit::Role::TextInput).nth(1).expect("url field").type_text("curl https://example.com -H 'X: y'");
     harness.run();
     match &harness.state().last {
         Some(BuilderAction::ParseCurl(text)) => assert!(text.starts_with("curl ")),
@@ -194,7 +194,7 @@ fn pasting_a_curl_command_emits_the_parse_intent() {
 fn enter_in_the_url_sends() {
     let mut harness = harness();
     harness.run();
-    harness.get_all_by_role(egui::accesskit::Role::TextInput).last().expect("url").click();
+    harness.get_all_by_role(egui::accesskit::Role::TextInput).nth(1).expect("url").click();
     harness.key_press(egui::Key::Enter);
     harness.run();
     assert_eq!(harness.state().last, Some(BuilderAction::Send { download: false }));
@@ -204,9 +204,9 @@ fn enter_in_the_url_sends() {
 fn autocomplete_inserts_a_variable() {
     let mut harness = harness();
     harness.run();
-    harness.get_all_by_role(egui::accesskit::Role::TextInput).last().expect("url").click();
+    harness.get_all_by_role(egui::accesskit::Role::TextInput).nth(1).expect("url").click();
     harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
-    harness.get_all_by_role(egui::accesskit::Role::TextInput).last().expect("url").type_text("/{{ba");
+    harness.get_all_by_role(egui::accesskit::Role::TextInput).nth(1).expect("url").type_text("/{{ba");
     harness.run();
     harness.get_by_label("{{base}}").click();
     harness.run();

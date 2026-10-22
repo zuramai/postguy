@@ -219,7 +219,10 @@ pub fn split_button(ui: &mut Ui, main_label: &str, on_main: impl FnOnce(), menu:
     let mut clicked = false;
     let height = theme.metrics.url_height;
     let radius = theme.metrics.radius as u8;
-    ui.horizontal(|ui| {
+    let label_width = ui.painter().layout_no_wrap(main_label.to_owned(), TextStyle::Button.resolve(ui.style()), palette.on_accent).size().x;
+    let total_width = (label_width + 28.0).max(76.0) + 30.0;
+    // Explicit direction: `ui.horizontal` would mirror inside a right-to-left parent.
+    ui.allocate_ui_with_layout(vec2(total_width, height), egui::Layout::left_to_right(egui::Align::Min), |ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
         let font = TextStyle::Button.resolve(ui.style());
         let galley = ui.painter().layout_no_wrap(main_label.to_owned(), font, palette.on_accent);
@@ -285,9 +288,20 @@ pub(crate) fn popup_row(ui: &mut Ui, label: &str, selected: bool, enabled: bool)
     if selected {
         icons::paint(ui.painter(), Rect::from_center_size(pos2(rect.left() + 14.0, rect.center().y), Vec2::splat(13.0)), "check", color, 1.6);
     }
-    ui.painter().text(pos2(rect.left() + 28.0, rect.center().y), Align2::LEFT_CENTER, label, TextStyle::Body.resolve(ui.style()), color);
+    let galley = ellipsized_galley(ui, label, TextStyle::Body.resolve(ui.style()), color, (rect.width() - 38.0).max(10.0));
+    ui.painter().galley(pos2(rect.left() + 28.0, rect.center().y - galley.size().y / 2.0), galley, color);
     response.widget_info(|| WidgetInfo::selected(WidgetType::Button, enabled, selected, label));
     response
+}
+
+/// `text` laid out on one line no wider than `max_width`, ending in `…` when it had to be cut.
+pub(crate) fn ellipsized_galley(ui: &Ui, text: &str, font: egui::FontId, color: Color32, max_width: f32) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::simple_singleline(text.to_owned(), font, color);
+    job.wrap.max_width = max_width;
+    job.wrap.max_rows = 1;
+    job.wrap.break_anywhere = true;
+    job.wrap.overflow_character = Some('…');
+    ui.fonts_mut(|fonts| fonts.layout_job(job))
 }
 
 /// A searchable popup list (one line per item). Returns true when `selected` changed.

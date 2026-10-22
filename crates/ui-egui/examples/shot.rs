@@ -131,32 +131,56 @@ impl DemoState {
 
 /// Contributor-original demo data (no real user content, no Postman asset).
 fn demo_data() -> SidebarData {
+    let col_vendor = Collection {
+        id: Id("col-vendor".into()),
+        name: "Auth Service".into(),
+        items: vec![Item::Request(Box::new(Request { id: Id("req-vendor".into()), name: "Verify token".into(), ..Request::default() }))],
+        ..Collection::default()
+    };
+    let col_chat = Collection {
+        id: Id("col-chat".into()),
+        name: "Billing Webhooks".into(),
+        items: vec![Item::Request(Box::new(Request { id: Id("req-chat".into()), name: "Dispatch event".into(), ..Request::default() }))],
+        ..Collection::default()
+    };
     let mut collection = Collection {
         id: Id("demo-collection".into()),
         name: "Payments API".into(),
         variables: vec![Variable { key: "baseUrl".into(), value: "https://api.example.com".into(), ..Variable::default() }],
         ..Collection::default()
     };
-    let mut folder = postguy_model::Folder { id: Id("demo-folder".into()), name: "v1".into(), ..Default::default() };
-    folder.items.push(Item::Request(Box::new(Request {
+    let root_folder = postguy_model::Folder { id: Id("folder-root".into()), name: "/".into(), ..Default::default() };
+    let mut metrics_folder = postguy_model::Folder { id: Id("folder-metrics".into()), name: "metrics".into(), ..Default::default() };
+    metrics_folder.items.push(Item::Request(Box::new(Request {
         id: Id("demo-get".into()),
         name: "List payments".into(),
         kind: RequestKind::Http(HttpRequest { method: HttpMethod::Get, url: "{{baseUrl}}/payments".into(), ..Default::default() }),
+        examples: vec![postguy_model::Example { id: Id("ex-settled".into()), name: "Settled payments".into(), ..Default::default() }],
         ..Request::default()
     })));
-    folder.items.push(Item::Request(Box::new(Request {
-        id: Id("demo-post".into()),
-        name: "Create payment".into(),
-        kind: RequestKind::Http(HttpRequest { method: HttpMethod::Post, url: "{{baseUrl}}/payments".into(), ..Default::default() }),
-        ..Request::default()
+    let mut folder_v1 = postguy_model::Folder { id: Id("demo-folder".into()), name: "v1".into(), ..Default::default() };
+    let folder_admin = postguy_model::Folder { id: Id("folder-admin".into()), name: "admin".into(), ..Default::default() };
+    let mut folder_payouts = postguy_model::Folder { id: Id("folder-payouts".into()), name: "payouts".into(), ..Default::default() };
+    folder_payouts.items.push(Item::Folder(Box::new(postguy_model::Folder {
+        id: Id("folder-apps".into()),
+        name: "applications".into(),
+        ..Default::default()
     })));
-    collection.items.push(Item::Folder(Box::new(folder)));
-    collection.items.push(Item::Request(Box::new(Request {
-        id: Id("demo-health".into()),
-        name: "Health".into(),
-        kind: RequestKind::Http(HttpRequest { method: HttpMethod::Get, url: "{{baseUrl}}/health".into(), ..Default::default() }),
-        ..Request::default()
+    folder_payouts.items.push(Item::Folder(Box::new(postguy_model::Folder {
+        id: Id("folder-compare".into()),
+        name: "reconcile".into(),
+        ..Default::default()
     })));
+    folder_payouts.items.push(Item::Folder(Box::new(postguy_model::Folder {
+        id: Id("folder-daily".into()),
+        name: "daily-summary".into(),
+        ..Default::default()
+    })));
+    folder_v1.items.push(Item::Folder(Box::new(folder_admin)));
+    folder_v1.items.push(Item::Folder(Box::new(folder_payouts)));
+    collection.items.push(Item::Folder(Box::new(root_folder)));
+    collection.items.push(Item::Folder(Box::new(metrics_folder)));
+    collection.items.push(Item::Folder(Box::new(folder_v1)));
     let history = HistoryEntry {
         id: Id("demo-history".into()),
         time_ms: 1_790_000_000_000,
@@ -172,13 +196,18 @@ fn demo_data() -> SidebarData {
     };
     SidebarData {
         revision: 1,
-        collections: vec![collection],
-        environments: vec![Environment {
-            id: Id("demo-env".into()),
-            name: "Staging".into(),
-            variables: vec![Variable { key: "baseUrl".into(), value: "https://staging.example.com".into(), ..Default::default() }],
-            ..Environment::default()
-        }],
+        collections: vec![col_vendor, col_chat, collection],
+        environments: vec![
+            Environment { id: Id("env-dev".into()), name: "Development".into(), ..Environment::default() },
+            Environment {
+                id: Id("demo-env".into()),
+                name: "Staging".into(),
+                variables: vec![Variable { key: "baseUrl".into(), value: "https://staging.example.com".into(), ..Default::default() }],
+                ..Environment::default()
+            },
+            Environment { id: Id("env-prod".into()), name: "Production".into(), ..Environment::default() },
+            Environment { id: Id("env-sandbox".into()), name: "Sandbox".into(), ..Environment::default() },
+        ],
         history: vec![history],
         active_environment: Some(Id("demo-env".into())),
         globals: Environment { id: Id("demo-globals".into()), name: "Globals".into(), ..Environment::default() },
@@ -193,7 +222,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let light = mode == "light" || mode.ends_with("-light");
     let mut shell = PostguyShell::new("demo-workspace");
     shell.sidebar_data = demo_data();
+    shell.sidebar_state.collapsed.insert("col-vendor".into());
+    shell.sidebar_state.collapsed.insert("col-chat".into());
+    shell.sidebar_state.collapsed.insert("folder-root".into());
+    shell.sidebar_state.collapsed.insert("folder-admin".into());
+    shell.sidebar_state.collapsed.insert("folder-apps".into());
+    shell.sidebar_state.collapsed.insert("folder-compare".into());
+    shell.sidebar_state.collapsed.insert("folder-daily".into());
+    shell.sidebar_state.examples_expanded.insert("demo-get".into());
     shell.sidebar_state.selected.insert("demo-get".into());
+    shell.sidebar_state.section_heights = [356.0, 114.0, 60.0];
     shell.tabs.open(
         TabDoc::Request { collection: "demo-collection".into(), request: "demo-get".into(), method: "GET".into(), protocol: "http".into() },
         "List payments",

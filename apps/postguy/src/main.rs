@@ -1255,7 +1255,7 @@ impl App {
             SidebarAction::OpenHistory { id } => {
                 if let Some(entry) = engine.history(usize::MAX).map_err(|err| err.to_string())?.into_iter().find(|entry| entry.id.0 == id) {
                     let label = entry.request.as_ref().and_then(|request| match request {
-                        RequestKind::Http(http) => Some(http.url.clone()),
+                        RequestKind::Http(http) => Some(history_tab_title(http.method.short_label(), &http.url)),
                         _ => None,
                     });
                     if let Some(label) = label {
@@ -3173,6 +3173,13 @@ impl eframe::App for App {
     }
 }
 
+/// A history tab's title: the method and the path (no scheme or host), so tabs stay short.
+fn history_tab_title(method: &str, url: &str) -> String {
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let path = rest.find('/').and_then(|index| rest.get(index..)).filter(|path| *path != "/").unwrap_or(rest);
+    format!("{method} {path}")
+}
+
 fn workspace_argument() -> PathBuf {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut index = 0;
@@ -4042,5 +4049,12 @@ message EchoMessage { string text = 1; int32 number = 2; }
         app.apply_control(control::ControlCommand::Command("edit.copy".into())).expect("copy");
         assert_eq!(app.pending_edit, vec![EditCommand::Copy]);
         assert!(app.apply_control(control::ControlCommand::Command("does.not.exist".into())).is_err());
+    }
+
+    #[test]
+    fn history_tabs_are_titled_by_method_and_path() {
+        assert_eq!(history_tab_title("GET", "https://jsonplaceholder.typicode.com/posts/1"), "GET /posts/1");
+        assert_eq!(history_tab_title("POST", "http://localhost:3000"), "POST localhost:3000");
+        assert_eq!(history_tab_title("GET", "{{base}}/users?id=1"), "GET /users?id=1");
     }
 }

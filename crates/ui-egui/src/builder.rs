@@ -158,11 +158,37 @@ impl RequestBuilder<'_> {
             });
         });
         ui.add_space(4.0);
-        ui.horizontal(|ui| {
+        let bar_height = theme.metrics.url_height;
+        // Right-to-left so Send / Cancel sit at the container's right edge and the URL bar
+        // takes everything left of them; both are exactly `url_height` tall and top-aligned.
+        ui.allocate_ui_with_layout(vec2(ui.available_width(), bar_height), Layout::right_to_left(Align::Min), |ui| {
+            if let Some(progress) = self.sending {
+                ui.label(RichText::new(format!("{:.1}s", progress.elapsed_ms as f64 / 1000.0)).small().color(palette.text_muted));
+                if widgets::text_button(ui, widgets::ButtonKind::Danger, None, "Cancel", true).clicked() {
+                    *action = Some(BuilderAction::Cancel);
+                }
+            } else {
+                let mut send_now = false;
+                let mut send_download = false;
+                widgets::split_button(
+                    ui,
+                    "Send",
+                    || send_now = true,
+                    |ui| {
+                        if widgets::menu_item(ui, Some("send"), "Send and Download", None, true).clicked() {
+                            send_download = true;
+                        }
+                    },
+                );
+                if send_now {
+                    *action = Some(BuilderAction::Send { download: false });
+                } else if send_download {
+                    *action = Some(BuilderAction::Send { download: true });
+                }
+            }
             let methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
-            let bar_height = theme.metrics.url_height;
             let url_id = egui::Id::new(("builder-url", self.name.as_str()));
-            let bar_width = (ui.available_width() - 160.0).max(220.0);
+            let bar_width = ui.available_width().max(220.0);
             let (bar, _) = ui.allocate_exact_size(vec2(bar_width, bar_height), egui::Sense::hover());
             let focused = ui.memory(|memory| memory.has_focus(url_id));
             let border = if focused {
@@ -236,31 +262,6 @@ impl RequestBuilder<'_> {
             self.url_autocomplete(ui, &response);
             if (response.has_focus() || response.lost_focus()) && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
                 *action = Some(BuilderAction::Send { download: false });
-            }
-
-            if let Some(progress) = self.sending {
-                if widgets::text_button(ui, widgets::ButtonKind::Danger, None, "Cancel", true).clicked() {
-                    *action = Some(BuilderAction::Cancel);
-                }
-                ui.label(RichText::new(format!("{:.1}s", progress.elapsed_ms as f64 / 1000.0)).small().color(palette.text_muted));
-            } else {
-                let mut send_now = false;
-                let mut send_download = false;
-                widgets::split_button(
-                    ui,
-                    "Send",
-                    || send_now = true,
-                    |ui| {
-                        if widgets::menu_item(ui, Some("send"), "Send and Download", None, true).clicked() {
-                            send_download = true;
-                        }
-                    },
-                );
-                if send_now {
-                    *action = Some(BuilderAction::Send { download: false });
-                } else if send_download {
-                    *action = Some(BuilderAction::Send { download: true });
-                }
             }
         });
         if self.sending.is_some() {

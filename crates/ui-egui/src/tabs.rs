@@ -361,7 +361,8 @@ pub fn tab_strip(ui: &mut Ui, tabs: &mut Tabs, data: &SidebarData) -> Option<Tab
                     let mut hovered_index: Option<usize> = None;
                     let mut drag_index: Option<usize> = None;
                     for index in 0..tabs.tabs.len() {
-                        let tab = tabs.tabs[index].clone();
+                        // A close below shrinks the list; stop instead of indexing past the end.
+                        let Some(tab) = tabs.tabs.get(index).cloned() else { break };
                         let drawn = draw_tab(ui, &theme, &tab, tabs.active == Some(tab.id));
                         let response = drawn.response;
                         if drawn.close_clicked {
@@ -541,23 +542,12 @@ pub fn tab_strip(ui: &mut Ui, tabs: &mut Tabs, data: &SidebarData) -> Option<Tab
             });
             let overflow = widgets::icon_button_with(ui, "chevron-down", "Tabs", "Search tabs");
             egui::Popup::menu(&overflow).close_behavior(egui::PopupCloseBehavior::CloseOnClick).show(|ui| {
-                ui.set_min_width(260.0);
+                ui.set_width(300.0);
                 ui.label(RichText::new("Open tabs").small().color(theme.palette.text_muted));
                 let open_tabs: Vec<Tab> = tabs.tabs.clone();
                 for tab in open_tabs {
-                    if ui
-                        .add(
-                            egui::Button::new(format!(
-                                "{} {}",
-                                method_badge(&theme, &tab.doc).map(|(_, badge)| badge).unwrap_or_default(),
-                                tab.title
-                            ))
-                            .selected(tabs.active == Some(tab.id))
-                            .frame(false)
-                            .min_size(vec2(ui.available_width(), 24.0)),
-                        )
-                        .clicked()
-                    {
+                    let badge = method_badge(&theme, &tab.doc).map(|(_, badge)| format!("{badge}  ")).unwrap_or_default();
+                    if widgets::popup_row(ui, &format!("{badge}{}", tab.title), tabs.active == Some(tab.id), true).clicked() {
                         tabs.activate(tab.id);
                         ui.close();
                     }
@@ -629,7 +619,7 @@ fn draw_tab(ui: &mut Ui, theme: &Theme, tab: &Tab, active: bool) -> DrawnTab {
         text.push(' ');
     }
     text.push_str(&tab.title);
-    let width = (text.chars().count() as f32 * 8.0 + 44.0).clamp(108.0, 260.0);
+    let width = (text.chars().count() as f32 * 7.5 + 56.0).clamp(120.0, 220.0);
     let (rect, response) = ui.allocate_exact_size(vec2(width, 30.0), Sense::click_and_drag());
     let rounding = egui::CornerRadius::same(theme.metrics.radius as u8);
     if active {
@@ -643,11 +633,16 @@ fn draw_tab(ui: &mut Ui, theme: &Theme, tab: &Tab, active: bool) -> DrawnTab {
         x += 40.0;
     }
     let color = if active { palette.text } else { palette.text_muted };
-    ui.painter().text(egui::pos2(x, rect.center().y), egui::Align2::LEFT_CENTER, &tab.title, egui::TextStyle::Body.resolve(ui.style()), color);
+    // Leave room for the close button; longer titles end in an ellipsis instead of spilling
+    // into the next tab.
+    let max_title = (rect.right() - 28.0 - x).max(10.0);
+    let galley = widgets::ellipsized_galley(ui, &tab.title, egui::TextStyle::Body.resolve(ui.style()), color, max_title);
+    let title_width = galley.size().x;
+    ui.painter().galley(egui::pos2(x, rect.center().y - galley.size().y / 2.0), galley, color);
     if tab.preview {
         // A thin italic-approximation underline keeps preview tabs recognisable in the strip.
         ui.painter().line_segment(
-            [egui::pos2(x, rect.bottom() - 8.0), egui::pos2(x + tab.title.chars().count() as f32 * 7.5, rect.bottom() - 8.0)],
+            [egui::pos2(x, rect.bottom() - 8.0), egui::pos2(x + title_width, rect.bottom() - 8.0)],
             egui::Stroke::new(1.0, palette.text_muted.gamma_multiply(0.5)),
         );
     }

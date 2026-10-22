@@ -371,6 +371,8 @@ impl Theme {
         visuals.error_fg_color = palette.danger;
         visuals.window_corner_radius = card_rounding;
         visuals.menu_corner_radius = card_rounding;
+        // Every clickable widget (buttons, tabs, rows, menu items) shows the pointing hand.
+        visuals.interact_cursor = Some(egui::CursorIcon::PointingHand);
         style.visuals = visuals;
         style.spacing.item_spacing = egui::vec2(8.0, 6.0);
         style.spacing.button_padding = egui::vec2(10.0, 4.0);

@@ -370,10 +370,48 @@ fn the_shell_opens_a_sidebar_row_in_the_detail_area() {
 }
 
 #[test]
+fn opening_another_row_adds_a_tab_instead_of_replacing_the_active_one() {
+    let mut shell = PostguyShell::new("demo");
+    shell.sidebar_data = sample_data();
+    let mut harness = Harness::new_ui_state(move |ui, shell: &mut PostguyShell| shell.ui(ui), shell);
+    harness.run();
+    harness.get_by_label("Users").click();
+    harness.run();
+    harness.get_by_label("Health").click();
+    harness.run();
+    let titles: Vec<&str> = harness.state().tabs.tabs.iter().map(|tab| tab.title.as_str()).collect();
+    assert_eq!(titles, ["Users", "Health"], "the first tab stays");
+    assert_eq!(harness.state().tabs.active_tab().map(|tab| tab.title.as_str()), Some("Health"));
+}
+
+#[test]
 fn protocol_choices_are_all_offered() {
     // A small guard that the action surface carries the three protocols the brief names.
     let protocols = [RequestProtocol::Http, RequestProtocol::Grpc, RequestProtocol::WebSocket];
     assert_eq!(protocols.len(), 3);
     let keys = KeyValue::default();
     assert!(keys.enabled);
+}
+
+#[test]
+fn the_sidebar_width_does_not_grow_across_frames() {
+    let mut shell = PostguyShell::new("demo");
+    let mut data = sample_data();
+    for index in 0..50 {
+        data.collections[0].items.push(Item::Request(Box::new(request(
+            &format!("extra-{index}"),
+            &format!("Long request name {index} that exercises truncation and scrollbars"),
+            HttpMethod::Get,
+            "https://api.example.com/extra",
+        ))));
+    }
+    shell.sidebar_data = data;
+    let mut harness = Harness::new_ui_state(move |ui, shell: &mut PostguyShell| shell.ui(ui), shell);
+    harness.step();
+    let initial_width = harness.get_by_label("COLLECTIONS").rect().width();
+    for _ in 0..20 {
+        harness.step();
+    }
+    let after_width = harness.get_by_label("COLLECTIONS").rect().width();
+    assert!((after_width - initial_width).abs() < 1.0, "sidebar width grew across frames from {initial_width} to {after_width}");
 }
