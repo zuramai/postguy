@@ -174,6 +174,19 @@ fn the_strip_activates_middle_click_closes_and_the_close_button_works() {
 }
 
 #[test]
+fn closing_a_tab_before_others_in_the_strip_does_not_panic() {
+    let mut harness = harness();
+    harness.state_mut().tabs.open(doc("a"), "Alpha");
+    harness.state_mut().tabs.open(doc("b"), "Beta");
+    harness.state_mut().tabs.open(doc("c"), "Gamma");
+    harness.run();
+    harness.get_by_label("Close Alpha").click();
+    harness.run();
+    let titles: Vec<&str> = harness.state().tabs.tabs.iter().map(|tab| tab.title.as_str()).collect();
+    assert_eq!(titles, ["Beta", "Gamma"]);
+}
+
+#[test]
 fn a_dirty_close_shows_the_three_way_dialog() {
     let mut harness = harness();
     let id = harness.state_mut().tabs.open(doc("dirty"), "Dirty");
