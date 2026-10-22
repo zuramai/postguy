@@ -95,6 +95,10 @@ fn variable_field_impl(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str,
         if cursor < text.len() {
             job.append(&text[cursor..], 0.0, TextFormat { font_id: font.clone(), color: palette.text, ..Default::default() });
         }
+        if text.is_empty() {
+            // An empty job has zero height, which misplaces the caret and the hint text.
+            job.append("", 0.0, TextFormat { font_id: font.clone(), color: palette.text, ..Default::default() });
+        }
         ui.fonts_mut(|fonts| fonts.layout_job(job))
     };
     let mut edit =

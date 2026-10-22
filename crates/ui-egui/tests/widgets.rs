@@ -292,7 +292,7 @@ struct TableState {
 }
 
 #[test]
-fn key_value_table_adds_and_deletes_rows() {
+fn key_value_table_grows_a_row_when_the_empty_row_is_filled() {
     let mut harness = Harness::new_ui_state(
         |ui, state: &mut TableState| {
             let _ = widgets::key_value_table(ui, &mut state.rows, TableVariant::Normal);
@@ -301,11 +301,17 @@ fn key_value_table_adds_and_deletes_rows() {
     );
     harness.run();
     assert_eq!(harness.state().rows.len(), 1);
-    harness.get_by_label_contains("Add row").click();
+    assert_eq!(harness.get_all_by_label("x").count(), 1, "one delete button per real row, none on the empty row");
+    // The last empty Key cell is the empty row's; typing into it creates the row.
+    let keys: Vec<_> = harness.get_all_by_role(egui::accesskit::Role::TextInput).collect();
+    assert_eq!(keys.len(), 6, "two rows of three cells");
+    keys[3].click();
+    keys[3].type_text("page");
     harness.run();
     assert_eq!(harness.state().rows.len(), 2);
-    let deletes = harness.get_all_by_label("x").count();
-    assert_eq!(deletes, 2, "one delete button per row");
+    assert_eq!(harness.state().rows[1].key, "page");
+    assert!(harness.state().rows[1].enabled, "new rows start enabled");
+    assert_eq!(harness.get_all_by_role(egui::accesskit::Role::TextInput).count(), 9, "a fresh empty row appears");
     harness.get_all_by_label("x").next().expect("a delete button").click();
     harness.run();
     assert_eq!(harness.state().rows.len(), 1);

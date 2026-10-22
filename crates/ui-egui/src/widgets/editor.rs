@@ -187,6 +187,10 @@ pub fn highlight_job(language: CodeLanguage, text: &str, palette: &Palette, font
     if highlighter.cursor < text.len() {
         highlighter.push(highlighter.cursor, text.len(), palette.text, None);
     }
+    if text.is_empty() {
+        // An empty job has zero height, which misplaces the caret.
+        highlighter.raw(0, 0, palette.text, None);
+    }
     job
 }
 
