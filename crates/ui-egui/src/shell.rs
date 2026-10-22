@@ -221,15 +221,13 @@ impl PostguyShell {
         if let Some(action) = command_palette(ui, &mut self.palette, &self.command_registry, &items) {
             self.command_action = Some(action);
         }
-        if let Some(SidebarAction::Open { id, kind, preview }) = self.action.clone()
+        if let Some(SidebarAction::Open { id, kind, .. }) = self.action.clone()
             && let Some(row) = self.sidebar.rows(&self.sidebar_data, &self.sidebar_state.filter).iter().find(|row| row.id == id).cloned()
         {
+            // Every open adds its own tab (an already-open document is just activated); a click
+            // never replaces the tab you were on.
             let doc = doc_for_row(&row, kind);
-            if preview {
-                self.tabs.open_preview(doc, row.label.clone());
-            } else {
-                self.tabs.open(doc, row.label.clone());
-            }
+            self.tabs.open(doc, row.label.clone());
         }
         if self.state.right_panel_open {
             egui::Panel::right("snippet-panel")
