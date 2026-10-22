@@ -4,7 +4,7 @@
 //! Unknown commands skip that subpath and report nothing; an icon missing from the table draws
 //! nothing (a visible gap is better than a wrong glyph).
 
-use egui::{Color32, Pos2, Rect, Shape, Stroke, Ui, Vec2, pos2};
+use egui::{Color32, Pos2, Rect, Shape, Stroke, Vec2, pos2};
 
 use crate::icons_gen::ICONS;
 
@@ -51,17 +51,6 @@ pub fn paint(painter: &egui::Painter, rect: Rect, name: &str, color: Color32, st
     for line in polylines {
         painter.add(Shape::line(line, stroke));
     }
-}
-
-/// A layout slot plus the painted glyph (for toolbars and menu rows). `name` doubles as the
-/// hover text only when the caller passes one; widgets label themselves for accesskit.
-pub fn icon(ui: &mut Ui, name: &str, color: Color32) -> egui::Response {
-    let size = Vec2::splat(ui.spacing().icon_width);
-    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
-    if ui.is_rect_visible(rect) {
-        paint(ui.painter(), rect, name, color, 1.5);
-    }
-    response
 }
 
 /// The SVG path-data parser's output callback receives every flattened point in order.

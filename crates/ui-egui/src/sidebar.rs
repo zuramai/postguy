@@ -152,7 +152,7 @@ impl Default for SidebarState {
             rename: None,
             rename_text: String::new(),
             examples_expanded: BTreeSet::new(),
-            section_heights: [320.0, 140.0, 160.0],
+            section_heights: [356.0, 140.0, 140.0],
             sections: [true, true, true],
             delete_confirm: None,
             delete_many_confirm: None,
@@ -244,6 +244,8 @@ impl Sidebar {
     pub fn show(&mut self, ui: &mut Ui, state: &mut SidebarState, data: &SidebarData) -> Option<SidebarAction> {
         let theme = Theme::current(ui.ctx());
         let mut action: Option<SidebarAction> = None;
+        let available_width = ui.available_width();
+        ui.set_max_width(available_width);
 
         self.toolbar(ui, state, &mut action);
         ui.add_space(2.0);
@@ -259,23 +261,29 @@ impl Sidebar {
         self.section_header(ui, state, 0, "COLLECTIONS", &theme);
         if state.sections[0] {
             let height = state.section_heights[0].min((ui.available_height() - 80.0).max(80.0));
-            ScrollArea::vertical()
-                .id_salt("sidebar-collections")
-                .max_height(height)
-                .min_scrolled_height(height)
-                .auto_shrink([false, false])
-                .show_rows(
-                    ui,
-                    ROW_HEIGHT,
-                    rows.iter().filter(|row| matches!(row.kind, RowKind::Collection | RowKind::Folder | RowKind::Request | RowKind::Example)).count(),
-                    |ui, range| {
-                        let section_rows: Vec<&SidebarRow> = rows
-                            .iter()
+            ui.scope(|ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                ScrollArea::vertical()
+                    .id_salt("sidebar-collections")
+                    .max_width(available_width)
+                    .max_height(height)
+                    .min_scrolled_height(height)
+                    .auto_shrink([false, false])
+                    .show_rows(
+                        ui,
+                        ROW_HEIGHT,
+                        rows.iter()
                             .filter(|row| matches!(row.kind, RowKind::Collection | RowKind::Folder | RowKind::Request | RowKind::Example))
-                            .collect();
-                        self.paint_rows(ui, state, &rows, &section_rows, range, &theme, &mut action);
-                    },
-                );
+                            .count(),
+                        |ui, range| {
+                            let section_rows: Vec<&SidebarRow> = rows
+                                .iter()
+                                .filter(|row| matches!(row.kind, RowKind::Collection | RowKind::Folder | RowKind::Request | RowKind::Example))
+                                .collect();
+                            self.paint_rows(ui, state, &rows, &section_rows, range, &theme, &mut action);
+                        },
+                    );
+            });
         }
 
         if state.sections[0] {
@@ -285,20 +293,20 @@ impl Sidebar {
         // ENVIRONMENTS
         self.section_header(ui, state, 1, "ENVIRONMENTS", &theme);
         if state.sections[1] {
-            let env_rows: Vec<SidebarRow> = rows.iter().filter(|row| row.kind == RowKind::Environment).cloned().collect();
+            let env_rows: Vec<&SidebarRow> = rows.iter().filter(|row| row.kind == RowKind::Environment).collect();
             let height = state.section_heights[1].min((ui.available_height() - 60.0).max(60.0));
-            ScrollArea::vertical()
-                .id_salt("sidebar-environments")
-                .max_height(height)
-                .min_scrolled_height(height)
-                .auto_shrink([false, false])
-                .show_rows(ui, ROW_HEIGHT, env_rows.len(), |ui, range| {
-                    for index in range {
-                        if let Some(row) = env_rows.get(index) {
-                            self.paint_row(ui, state, &rows, row, &theme, &mut action);
-                        }
-                    }
-                });
+            ui.scope(|ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                ScrollArea::vertical()
+                    .id_salt("sidebar-environments")
+                    .max_width(available_width)
+                    .max_height(height)
+                    .min_scrolled_height(height)
+                    .auto_shrink([false, false])
+                    .show_rows(ui, ROW_HEIGHT, env_rows.len(), |ui, range| {
+                        self.paint_rows(ui, state, &rows, &env_rows, range, &theme, &mut action);
+                    });
+            });
         }
 
         if state.sections[1] {
@@ -308,20 +316,20 @@ impl Sidebar {
         // HISTORY
         self.section_header(ui, state, 2, "HISTORY", &theme);
         if state.sections[2] {
-            let history_rows: Vec<SidebarRow> = rows.iter().filter(|row| row.kind == RowKind::History).cloned().collect();
+            let history_rows: Vec<&SidebarRow> = rows.iter().filter(|row| row.kind == RowKind::History).collect();
             let height = state.section_heights[2].min((ui.available_height() - 30.0).max(30.0));
-            ScrollArea::vertical().id_salt("sidebar-history").max_height(height).min_scrolled_height(height).auto_shrink([false, false]).show_rows(
-                ui,
-                ROW_HEIGHT,
-                history_rows.len(),
-                |ui, range| {
-                    for index in range {
-                        if let Some(row) = history_rows.get(index) {
-                            self.paint_row(ui, state, &rows, row, &theme, &mut action);
-                        }
-                    }
-                },
-            );
+            ui.scope(|ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                ScrollArea::vertical()
+                    .id_salt("sidebar-history")
+                    .max_width(available_width)
+                    .max_height(height)
+                    .min_scrolled_height(height)
+                    .auto_shrink([false, false])
+                    .show_rows(ui, ROW_HEIGHT, history_rows.len(), |ui, range| {
+                        self.paint_rows(ui, state, &rows, &history_rows, range, &theme, &mut action);
+                    });
+            });
         }
 
         // Typed confirmation for destructive deletes (PROMPT.md 5.1).
@@ -377,15 +385,44 @@ impl Sidebar {
     }
 
     fn toolbar(&mut self, ui: &mut Ui, state: &mut SidebarState, action: &mut Option<SidebarAction>) {
+        let theme = Theme::current(ui.ctx());
+        let total_width = ui.available_width().max(80.0);
         ui.horizontal(|ui| {
-            let response = ui.add(
-                egui::TextEdit::singleline(&mut state.filter)
-                    .hint_text("Filter…")
-                    .desired_width((ui.available_width() - 62.0).max(80.0))
-                    .frame(egui::Frame::NONE),
+            ui.spacing_mut().item_spacing.x = 4.0;
+            ui.spacing_mut().interact_size = vec2(24.0, 24.0);
+            let filter_outer = if state.filter.is_empty() { (total_width - 72.0).max(40.0) } else { total_width };
+            let (filter_rect, _) = ui.allocate_exact_size(vec2(filter_outer, 28.0), Sense::hover());
+            ui.painter().rect(
+                filter_rect,
+                egui::CornerRadius::same(theme.metrics.radius as u8),
+                theme.palette.input_bg,
+                Stroke::new(1.0, theme.palette.input_border),
+                egui::StrokeKind::Inside,
             );
+            icons::paint(
+                ui.painter(),
+                egui::Rect::from_center_size(egui::pos2(filter_rect.left() + 15.0, filter_rect.center().y), vec2(13.0, 13.0)),
+                "funnel",
+                theme.palette.text_muted,
+                1.5,
+            );
+            let inner_rect = egui::Rect::from_min_max(
+                egui::pos2(filter_rect.left() + 26.0, filter_rect.top() + 4.0),
+                egui::pos2((filter_rect.right() - 8.0).max(filter_rect.left() + 27.0), filter_rect.bottom() - 4.0),
+            );
+            let response = ui
+                .scope_builder(egui::UiBuilder::new().max_rect(inner_rect), |ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut state.filter)
+                            .hint_text("Filter")
+                            .desired_width(inner_rect.width())
+                            .margin(egui::Margin::ZERO)
+                            .frame(egui::Frame::NONE),
+                    )
+                })
+                .inner;
             if state.filter.is_empty() {
-                let add = ui.add(egui::Button::new("+").frame(false)).on_hover_text("New…");
+                let add = widgets::icon_button_with(ui, "plus", "+", "New…");
                 egui::Popup::menu(&add).close_behavior(egui::PopupCloseBehavior::CloseOnClick).show(|ui| {
                     ui.set_min_width(190.0);
                     let selected_container =
@@ -429,7 +466,7 @@ impl Sidebar {
                         *action = Some(SidebarAction::NewEnvironment);
                     }
                 });
-                let import = widgets::icon_button(ui, "file-text", "Import");
+                let import = widgets::icon_button_with(ui, "import", "Import", "Import…");
                 if import.clicked() {
                     *action = Some(SidebarAction::Import);
                 }
@@ -441,19 +478,23 @@ impl Sidebar {
     }
 
     fn section_header(&self, ui: &mut Ui, state: &mut SidebarState, index: usize, label: &str, theme: &Theme) {
-        let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click());
+        let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click());
         if response.clicked() {
             state.sections[index] = !state.sections[index];
         }
-        paint_triangle(ui.painter(), rect.left_center() + vec2(8.0, 0.0), state.sections[index], theme.palette.text_muted, 5.0);
+        if response.hovered() {
+            ui.painter().rect_filled(rect.shrink2(vec2(2.0, 2.0)), egui::CornerRadius::same(theme.metrics.radius as u8), theme.palette.hover);
+        }
+        paint_chevron(ui.painter(), rect.left_center() + vec2(8.0, 0.0), state.sections[index], theme.palette.text, 3.8);
         ui.painter().text(
             rect.left_center() + vec2(20.0, 0.0),
             egui::Align2::LEFT_CENTER,
             label,
-            egui::TextStyle::Small.resolve(ui.style()),
+            theme.semibold_font(11.0),
             theme.palette.text_muted,
         );
         response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+        response.on_hover_cursor(egui::CursorIcon::PointingHand);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -469,40 +510,76 @@ impl Sidebar {
     ) {
         for index in range {
             if let Some(row) = section_rows.get(index) {
-                self.paint_row(ui, state, all_rows, row, theme, action);
+                let next_row = section_rows.get(index + 1).copied();
+                self.paint_row(ui, state, all_rows, row, next_row, theme, action);
             }
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn paint_row(
         &mut self,
         ui: &mut Ui,
         state: &mut SidebarState,
         all_rows: &[SidebarRow],
         row: &SidebarRow,
+        next_row: Option<&SidebarRow>,
         theme: &Theme,
         action: &mut Option<SidebarAction>,
     ) {
-        let indented = ui.available_width().max(220.0);
+        let indented = ui.available_width().max(1.0);
         let (rect, response) = ui.allocate_exact_size(vec2(indented, ROW_HEIGHT), Sense::click_and_drag());
-        let hovered = response.hovered();
+        let pointer_inside = ui.input(|input| input.pointer.hover_pos().is_some_and(|pos| rect.contains(pos)));
+        let hovered = response.hovered() || pointer_inside;
         let selected = state.selected.contains(&row.id);
+        let pill_rect = rect.shrink2(vec2(2.0, 1.0));
+        let rounding = egui::CornerRadius::same(theme.metrics.radius as u8);
         if selected {
-            ui.painter().rect_filled(rect, egui::CornerRadius::same(theme.metrics.radius as u8), theme.palette.accent.gamma_multiply(0.16));
+            ui.painter().rect_filled(pill_rect, rounding, theme.palette.selected);
         } else if hovered {
-            ui.painter().rect_filled(rect, egui::CornerRadius::same(theme.metrics.radius as u8), theme.palette.surface_alt);
+            ui.painter().rect_filled(pill_rect, rounding, theme.palette.hover);
         }
-        let mut x = rect.left() + 8.0 + row.depth as f32 * 14.0;
 
+        // Vertical tree guide lines directly under the collection chevron (depth 0) and each
+        // expanded folder icon (depth >= 1).
+        let guide_stroke = Stroke::new(1.0, theme.palette.guide);
+        if matches!(row.kind, RowKind::Collection | RowKind::Folder | RowKind::Request | RowKind::Example) {
+            let folder_levels = if row.kind == RowKind::Example { row.depth.saturating_sub(1) } else { row.depth };
+            for lvl in 0..folder_levels {
+                let gx = if lvl == 0 { rect.left() + TREE_COL_CHEVRON_X } else { tree_folder_icon_x(rect.left(), lvl) };
+                let continues = next_row.is_some_and(|next| next.depth > lvl && next.ancestors.get(lvl) == row.ancestors.get(lvl));
+                let y_bottom = if continues { rect.bottom() } else { rect.bottom() - 4.0 };
+                ui.painter().line_segment([egui::pos2(gx, rect.top()), egui::pos2(gx, y_bottom)], guide_stroke);
+            }
+            // Connect the top of the guide line right below an expanded collection/folder icon.
+            if next_row.is_some_and(|next| next.depth > row.depth) {
+                let (gx, y_start) = match row.kind {
+                    RowKind::Collection => (rect.left() + TREE_COL_CHEVRON_X, rect.center().y + 7.0),
+                    RowKind::Folder => (tree_folder_icon_x(rect.left(), row.depth), rect.center().y + 8.5),
+                    _ => (0.0, rect.bottom()),
+                };
+                if y_start < rect.bottom() {
+                    ui.painter().line_segment([egui::pos2(gx, y_start), egui::pos2(gx, rect.bottom())], guide_stroke);
+                }
+            }
+        }
+
+        let chevron_center_x = tree_chevron_x(rect.left(), row.depth);
         // Caret (collections, folders, requests with examples).
-        if row.has_children {
-            let caret_rect = egui::Rect::from_min_size(egui::pos2(x, rect.center().y - 6.0), vec2(12.0, 12.0));
+        if row.has_children || matches!(row.kind, RowKind::Collection | RowKind::Folder) {
+            let caret_rect = egui::Rect::from_center_size(egui::pos2(chevron_center_x, rect.center().y), vec2(14.0, 14.0));
             let caret_response = ui.interact(caret_rect, Id::new(("sidebar-caret", &row.id)), Sense::click());
             let expanded = if row.kind == RowKind::Request { state.examples_expanded.contains(&row.id) } else { state.is_expanded(&row.id) };
-            paint_triangle(ui.painter(), caret_rect.center(), expanded, theme.palette.text_muted, 4.5);
+            let caret_color = if caret_response.hovered() { theme.palette.text } else { theme.palette.text_muted };
+            if row.has_children {
+                paint_chevron(ui.painter(), caret_rect.center(), expanded, caret_color, 3.6);
+            } else {
+                paint_chevron(ui.painter(), caret_rect.center(), false, caret_color, 3.6);
+            }
             caret_response.widget_info(|| {
                 egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{} {}", if expanded { "Collapse" } else { "Expand" }, row.label))
             });
+            let caret_response = caret_response.on_hover_cursor(egui::CursorIcon::PointingHand);
             if caret_response.clicked() {
                 if row.kind == RowKind::Request {
                     state.toggle_examples(&row.id);
@@ -511,33 +588,65 @@ impl Sidebar {
                 }
                 return;
             }
-            x += 14.0;
-        } else {
-            x += 14.0;
         }
 
-        if row.kind == RowKind::Request {
-            let method = row.method.as_deref().unwrap_or("GET");
-            ui.painter().text(
-                egui::pos2(x, rect.center().y),
-                egui::Align2::LEFT_CENTER,
-                method,
-                egui::TextStyle::Small.resolve(ui.style()),
-                theme.method_color(method),
-            );
-            x += 42.0;
-        } else {
-            let icon_rect = egui::Rect::from_center_size(egui::pos2(x + 6.0, rect.center().y), egui::Vec2::splat(13.0));
-            icons::paint(ui.painter(), icon_rect, row.kind.icon(), theme.palette.text_muted, 1.4);
-            x += 18.0;
-        }
+        let mut x = match row.kind {
+            RowKind::Collection => rect.left() + TREE_DEPTH1_CHEVRON_X,
+            RowKind::Folder => {
+                let folder_x = tree_folder_icon_x(rect.left(), row.depth);
+                let icon_rect = egui::Rect::from_center_size(egui::pos2(folder_x, rect.center().y), egui::Vec2::splat(15.0));
+                let folder_color = theme.palette.text_muted;
+                let folder_icon = if state.is_expanded(&row.id) { "folder-open" } else { "folder" };
+                icons::paint(ui.painter(), icon_rect, folder_icon, folder_color, 1.45);
+                folder_x + 12.0
+            }
+            RowKind::Request => {
+                let method = row.method.as_deref().unwrap_or("GET");
+                let method_x = chevron_center_x + 8.0;
+                let galley = ui.painter().layout_no_wrap(method.to_uppercase(), theme.semibold_font(9.5), theme.method_color(method));
+                let width = galley.size().x;
+                ui.painter().galley(egui::pos2(method_x, rect.center().y - galley.size().y / 2.0), galley, theme.method_color(method));
+                method_x + (width + 6.0).max(34.0)
+            }
+            RowKind::Example => {
+                let parent_depth = row.depth.saturating_sub(1);
+                let ex_left = tree_chevron_x(rect.left(), parent_depth) + 8.0;
+                let ex_rect = egui::Rect::from_min_size(egui::pos2(ex_left, rect.center().y - 6.5), vec2(18.0, 13.0));
+                paint_example_icon(ui.painter(), ex_rect, theme.palette.text_muted);
+                ex_rect.right() + 6.0
+            }
+            RowKind::Environment => rect.left() + TREE_DEPTH1_CHEVRON_X,
+            RowKind::History => {
+                let icon_rect = egui::Rect::from_center_size(egui::pos2(rect.left() + 14.0, rect.center().y), egui::Vec2::splat(13.5));
+                icons::paint(ui.painter(), icon_rect, row.kind.icon(), theme.palette.text_muted, 1.4);
+                if let Some(method) = row.method.as_deref().filter(|m| !m.is_empty()) {
+                    let method_x = rect.left() + 25.0;
+                    let label = method.to_uppercase();
+                    let galley = ui.painter().layout_no_wrap(label, theme.semibold_font(9.5), theme.method_color(method));
+                    let width = galley.size().x;
+                    ui.painter().galley(egui::pos2(method_x, rect.center().y - galley.size().y / 2.0), galley, theme.method_color(method));
+                    method_x + (width + 6.0).max(34.0)
+                } else {
+                    rect.left() + 25.0
+                }
+            }
+        };
 
-        let label_color = if row.active { theme.palette.accent } else { theme.palette.text };
-        let available_label = (rect.right() - x - 44.0).max(20.0);
-        let clipped = truncate(&row.label, available_label, 7.5);
+        let label_color = theme.palette.text;
+        let right_reserve = if hovered || selected {
+            if row.kind == RowKind::Collection { 46.0 } else { 28.0 }
+        } else if row.active {
+            26.0
+        } else {
+            10.0
+        };
+        let available_label = (rect.right() - x - right_reserve).max(20.0);
+        let clipped = truncate(&row.label, available_label, 7.2);
         paint_highlighted_name(ui, egui::pos2(x, rect.center().y), &clipped, label_color, &state.filter, theme);
+        let _ = &mut x;
         if row.active {
-            ui.painter().circle_filled(egui::pos2(rect.right() - 10.0, rect.center().y), 3.0, theme.palette.accent);
+            let badge_x = if hovered || selected { rect.right() - 34.0 } else { rect.right() - 14.0 };
+            paint_active_env_badge(ui.painter(), egui::pos2(badge_x, rect.center().y), theme);
         }
 
         // Inline rename replaces the label; the widget writes `state.rename_text`, and a
@@ -568,16 +677,20 @@ impl Sidebar {
         // Hover controls: ... and, on collections, +.
         if hovered || selected {
             if row.kind == RowKind::Collection {
-                let add_rect = egui::Rect::from_min_size(egui::pos2(rect.right() - 42.0, rect.center().y - 8.0), vec2(16.0, 16.0));
+                let add_rect = egui::Rect::from_min_size(egui::pos2(rect.right() - 44.0, rect.center().y - 10.0), vec2(20.0, 20.0));
                 let add = ui.interact(add_rect, Id::new(("sidebar-add", &row.id)), Sense::click());
+                if add.hovered() {
+                    ui.painter().rect_filled(add_rect, egui::CornerRadius::same(theme.metrics.radius as u8), theme.palette.button_hover);
+                }
                 ui.painter().text(
                     add_rect.center(),
                     egui::Align2::CENTER_CENTER,
                     "+",
                     egui::TextStyle::Body.resolve(ui.style()),
-                    theme.palette.text_muted,
+                    if add.hovered() { theme.palette.text } else { theme.palette.text_muted },
                 );
                 add.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Add request to {}", row.label)));
+                let add = add.on_hover_cursor(egui::CursorIcon::PointingHand);
                 if add.clicked() {
                     *action = Some(SidebarAction::NewRequest {
                         collection: row.collection.clone().unwrap_or_else(|| row.id.clone()),
@@ -586,16 +699,20 @@ impl Sidebar {
                     });
                 }
             }
-            let menu_rect = egui::Rect::from_min_size(egui::pos2(rect.right() - 22.0, rect.center().y - 8.0), vec2(16.0, 16.0));
+            let menu_rect = egui::Rect::from_min_size(egui::pos2(rect.right() - 22.0, rect.center().y - 10.0), vec2(20.0, 20.0));
             let menu = ui.interact(menu_rect, Id::new(("sidebar-menu", &row.id)), Sense::click());
+            if menu.hovered() {
+                ui.painter().rect_filled(menu_rect, egui::CornerRadius::same(theme.metrics.radius as u8), theme.palette.button_hover);
+            }
             ui.painter().text(
                 menu_rect.center(),
                 egui::Align2::CENTER_CENTER,
                 "…",
                 egui::TextStyle::Body.resolve(ui.style()),
-                theme.palette.text_muted,
+                if menu.hovered() { theme.palette.text } else { theme.palette.text_muted },
             );
             menu.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Item menu"));
+            let menu = menu.on_hover_cursor(egui::CursorIcon::PointingHand);
             if menu.clicked() {
                 state.selected.clear();
                 state.selected.insert(row.id.clone());
@@ -612,9 +729,8 @@ impl Sidebar {
             (Some(url), _) => format!("{}\n{url}", row.label),
             _ => row.label.clone(),
         };
-        let response = response.on_hover_text(tip);
+        let response = response.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip);
         response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), selected, &row.label));
-
         if response.clicked() {
             let modifiers = ui.input(|input| input.modifiers);
             state.select(row, all_rows, modifiers);
@@ -983,7 +1099,7 @@ fn rename_item(ui: &mut Ui, state: &mut SidebarState, row: &SidebarRow, action: 
 }
 
 /// Row height (PROMPT.md 5.1: ~26 px).
-pub const ROW_HEIGHT: f32 = 30.0;
+pub const ROW_HEIGHT: f32 = 28.0;
 
 /// Flatten the workspace into visible rows in tree order. Filtering keeps parents of matches
 /// visible and expands nothing on its own (the caller can expand matches).
@@ -993,7 +1109,8 @@ fn flatten(data: &SidebarData, filter: &str) -> Vec<SidebarRow> {
     let mut rows: Vec<SidebarRow> = Vec::new();
     for collection in &data.collections {
         let collection_matches = filter_on && matches_text(&collection.name, &needle, None);
-        let child_rows = collect_children(&collection.items, collection, 1, None, filter_on, &needle, &[]);
+        let root_ancestors = [collection.id.0.clone()];
+        let child_rows = collect_children(&collection.items, collection, 1, None, filter_on, &needle, &root_ancestors);
         let keep = !filter_on || collection_matches || !child_rows.is_empty();
         if !keep {
             continue;
@@ -1198,12 +1315,26 @@ fn truncate(text: &str, width: f32, glyph_width: f32) -> String {
     out
 }
 
+/// Horizontal coordinate of a row's expand/collapse chevron center at `depth`.
+const TREE_COL_CHEVRON_X: f32 = 12.0;
+const TREE_DEPTH1_CHEVRON_X: f32 = 24.0;
+const TREE_DEPTH_STEP_X: f32 = 26.0;
+const TREE_FOLDER_ICON_OFFSET_X: f32 = 14.5;
+
+fn tree_chevron_x(left: f32, depth: usize) -> f32 {
+    if depth == 0 { left + TREE_COL_CHEVRON_X } else { left + TREE_DEPTH1_CHEVRON_X + (depth - 1) as f32 * TREE_DEPTH_STEP_X }
+}
+
+fn tree_folder_icon_x(left: f32, depth: usize) -> f32 {
+    tree_chevron_x(left, depth) + TREE_FOLDER_ICON_OFFSET_X
+}
+
 /// A draggable 7 px splitter above section `index`; dragging changes that section's height.
 fn section_splitter(ui: &mut Ui, state: &mut SidebarState, index: usize, theme: &Theme) {
-    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 7.0), Sense::drag());
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 9.0), Sense::drag());
     let hovered = response.hovered() || response.dragged();
     ui.painter().line_segment(
-        [egui::pos2(rect.left() + 6.0, rect.center().y), egui::pos2(rect.right() - 6.0, rect.center().y)],
+        [egui::pos2(rect.left() + 2.0, rect.center().y), egui::pos2(rect.right() - 2.0, rect.center().y)],
         Stroke::new(1.0, if hovered { theme.palette.accent } else { theme.palette.border }),
     );
     if response.dragged()
@@ -1214,24 +1345,50 @@ fn section_splitter(ui: &mut Ui, state: &mut SidebarState, index: usize, theme: 
     response.on_hover_cursor(egui::CursorIcon::ResizeVertical);
 }
 
-/// A small right/down chevron triangle (the default fonts lack ▸/▾ and would draw tofu).
-fn paint_triangle(painter: &egui::Painter, center: egui::Pos2, down: bool, color: Color32, size: f32) {
+/// Stroked right (`>`) or down (`v`) chevron matching the clean tree carets in Collections.png.
+fn paint_chevron(painter: &egui::Painter, center: egui::Pos2, down: bool, color: Color32, size: f32) {
     let points = if down {
         vec![
-            egui::pos2(center.x - size, center.y - size * 0.5),
-            egui::pos2(center.x + size, center.y - size * 0.5),
-            egui::pos2(center.x, center.y + size * 0.7),
+            egui::pos2(center.x - size, center.y - size * 0.45),
+            egui::pos2(center.x, center.y + size * 0.55),
+            egui::pos2(center.x + size, center.y - size * 0.45),
         ]
     } else {
         vec![
-            egui::pos2(center.x - size * 0.5, center.y - size),
-            egui::pos2(center.x + size * 0.7, center.y),
-            egui::pos2(center.x - size * 0.5, center.y + size),
+            egui::pos2(center.x - size * 0.45, center.y - size),
+            egui::pos2(center.x + size * 0.55, center.y),
+            egui::pos2(center.x - size * 0.45, center.y + size),
         ]
     };
-    painter.add(egui::Shape::convex_polygon(points, color, Stroke::NONE));
+    painter.add(egui::Shape::line(points, Stroke::new(1.5, color)));
 }
 
+/// The `e.g.` example glyph (top rule, `e.g.` label, bottom dashed rule).
+fn paint_example_icon(painter: &egui::Painter, rect: egui::Rect, color: Color32) {
+    let stroke = Stroke::new(1.15, color);
+    painter.line_segment([egui::pos2(rect.left() + 1.0, rect.top() + 1.0), egui::pos2(rect.right() - 1.0, rect.top() + 1.0)], stroke);
+    painter.text(rect.center() + vec2(0.0, -0.5), egui::Align2::CENTER_CENTER, "e.g.", egui::FontId::proportional(8.5), color);
+    let y = rect.bottom() - 1.0;
+    let dash = 3.2;
+    let gap = 2.2;
+    let mut x = rect.left() + 1.0;
+    while x < rect.right() - 1.0 {
+        let end = (x + dash).min(rect.right() - 1.0);
+        painter.line_segment([egui::pos2(x, y), egui::pos2(end, y)], stroke);
+        x += dash + gap;
+    }
+}
+
+/// Filled circle with a white checkmark on the right edge of the active environment row.
+fn paint_active_env_badge(painter: &egui::Painter, center: egui::Pos2, theme: &Theme) {
+    let fill = if theme.dark { Color32::from_rgb(0x88, 0x90, 0x9E) } else { Color32::from_rgb(0x61, 0x66, 0x6E) };
+    let check = if theme.dark { theme.palette.surface } else { Color32::WHITE };
+    painter.circle_filled(center, 7.5, fill);
+    painter.add(egui::Shape::line(
+        vec![egui::pos2(center.x - 3.2, center.y + 0.1), egui::pos2(center.x - 0.8, center.y + 2.5), egui::pos2(center.x + 3.4, center.y - 2.3)],
+        Stroke::new(1.6, check),
+    ));
+}
 /// Paint the row name, tinting filter matches (PROMPT.md 5.1: highlight matches). Left-centered
 /// at `center_left`.
 fn paint_highlighted_name(ui: &Ui, center_left: egui::Pos2, text: &str, color: Color32, filter: &str, theme: &Theme) {

@@ -2,7 +2,7 @@
 //! default shortcut and a group; menus, shortcuts and the palette read the same table. The
 //! palette fuzzy-searches commands and workspace items, with `>` restricting it to commands.
 
-use egui::{Align, Key, RichText, Ui};
+use egui::{Align, Event, Key, KeyboardShortcut, Modifiers, RichText, Ui};
 use serde::{Deserialize, Serialize};
 
 use crate::tabs::TabDoc;
@@ -42,7 +42,65 @@ pub enum CommandAction {
     ClearConsole,
     /// Open a workspace document from the palette's item list.
     OpenDoc(TabDoc),
+    Edit(EditCommand),
+    Zoom(ZoomStep),
+    Window(WindowCommand),
+    /// Open a link in the system browser.
+    OpenUrl(&'static str),
 }
+
+/// Text-editing menu commands, routed to whichever text field has focus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditCommand {
+    Undo,
+    Redo,
+    Cut,
+    Copy,
+    Paste,
+    Delete,
+}
+
+/// One UI zoom step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZoomStep {
+    In,
+    Out,
+    Reset,
+}
+
+/// Where a placement command puts the window inside the work area.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Placement {
+    LeftHalf,
+    RightHalf,
+    TopHalf,
+    BottomHalf,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+    LeftThird,
+    CenterThird,
+    RightThird,
+    LeftTwoThirds,
+    RightTwoThirds,
+}
+
+/// Window management commands (the Window menu).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowCommand {
+    Minimize,
+    Zoom,
+    Fill,
+    Center,
+    Place(Placement),
+    PreviousSize,
+    ToggleFullscreen,
+    Close,
+}
+
+pub const DOCS_URL: &str = "https://github.com/zuramai/postguy/tree/main/docs";
+pub const GITHUB_URL: &str = "https://github.com/zuramai/postguy";
 
 /// The registry: static commands in a stable order.
 #[derive(Debug, Clone)]
@@ -65,7 +123,7 @@ impl Default for CommandRegistry {
                 Command { id: "tab.reopen", label: "Reopen closed tab", shortcut: Some("Cmd+Shift+T"), group: "Tabs" },
                 Command { id: "tab.next", label: "Next tab", shortcut: Some("Cmd+Tab"), group: "Tabs" },
                 Command { id: "tab.previous", label: "Previous tab", shortcut: Some("Cmd+Shift+Tab"), group: "Tabs" },
-                Command { id: "view.sidebar", label: "Toggle sidebar", shortcut: None, group: "View" },
+                Command { id: "view.sidebar", label: "Toggle sidebar", shortcut: Some("Cmd+\\"), group: "View" },
                 Command { id: "view.console", label: "Toggle console", shortcut: Some("Cmd+Alt+C"), group: "View" },
                 Command { id: "view.right", label: "Toggle code snippet panel", shortcut: None, group: "View" },
                 Command { id: "view.two-pane", label: "Toggle two-pane layout", shortcut: Some("Cmd+Alt+V"), group: "View" },
@@ -74,6 +132,38 @@ impl Default for CommandRegistry {
                 Command { id: "globals.open", label: "Open globals", shortcut: None, group: "Go" },
                 Command { id: "cookies.open", label: "Open cookies", shortcut: None, group: "Go" },
                 Command { id: "trash.open", label: "Open trash", shortcut: None, group: "Go" },
+                Command { id: "edit.undo", label: "Undo", shortcut: Some("Cmd+Z"), group: "Edit" },
+                Command { id: "edit.redo", label: "Redo", shortcut: Some("Cmd+Shift+Z"), group: "Edit" },
+                Command { id: "edit.cut", label: "Cut", shortcut: Some("Cmd+X"), group: "Edit" },
+                Command { id: "edit.copy", label: "Copy", shortcut: Some("Cmd+C"), group: "Edit" },
+                Command { id: "edit.paste", label: "Paste", shortcut: Some("Cmd+V"), group: "Edit" },
+                Command { id: "edit.delete", label: "Delete", shortcut: None, group: "Edit" },
+                Command { id: "view.zoom-in", label: "Zoom in", shortcut: Some("Cmd+="), group: "View" },
+                Command { id: "view.zoom-out", label: "Zoom out", shortcut: Some("Cmd+-"), group: "View" },
+                Command { id: "view.zoom-reset", label: "Reset zoom", shortcut: Some("Cmd+0"), group: "View" },
+                Command { id: "view.fullscreen", label: "Toggle full screen", shortcut: Some("Ctrl+Cmd+F"), group: "View" },
+                Command { id: "window.minimize", label: "Minimize", shortcut: Some("Cmd+M"), group: "Window" },
+                Command { id: "window.zoom", label: "Zoom", shortcut: None, group: "Window" },
+                Command { id: "window.fill", label: "Fill", shortcut: None, group: "Window" },
+                Command { id: "window.center", label: "Center", shortcut: None, group: "Window" },
+                Command { id: "window.left-half", label: "Left half", shortcut: None, group: "Window" },
+                Command { id: "window.right-half", label: "Right half", shortcut: None, group: "Window" },
+                Command { id: "window.top-half", label: "Top half", shortcut: None, group: "Window" },
+                Command { id: "window.bottom-half", label: "Bottom half", shortcut: None, group: "Window" },
+                Command { id: "window.top-left", label: "Top left", shortcut: None, group: "Window" },
+                Command { id: "window.top-right", label: "Top right", shortcut: None, group: "Window" },
+                Command { id: "window.bottom-left", label: "Bottom left", shortcut: None, group: "Window" },
+                Command { id: "window.bottom-right", label: "Bottom right", shortcut: None, group: "Window" },
+                Command { id: "window.left-third", label: "Left third", shortcut: None, group: "Window" },
+                Command { id: "window.center-third", label: "Center third", shortcut: None, group: "Window" },
+                Command { id: "window.right-third", label: "Right third", shortcut: None, group: "Window" },
+                Command { id: "window.left-two-thirds", label: "Left two-thirds", shortcut: None, group: "Window" },
+                Command { id: "window.right-two-thirds", label: "Right two-thirds", shortcut: None, group: "Window" },
+                Command { id: "window.previous-size", label: "Return to previous size", shortcut: None, group: "Window" },
+                Command { id: "window.close", label: "Close window", shortcut: Some("Cmd+Shift+W"), group: "Window" },
+                Command { id: "app.quit", label: "Quit Postguy", shortcut: Some("Cmd+Q"), group: "Window" },
+                Command { id: "help.docs", label: "Documentation", shortcut: None, group: "Help" },
+                Command { id: "help.github", label: "GitHub", shortcut: None, group: "Help" },
             ],
         }
     }
@@ -111,6 +201,37 @@ impl CommandRegistry {
             "globals.open" => CommandAction::OpenGlobals,
             "cookies.open" => CommandAction::OpenCookies,
             "trash.open" => CommandAction::OpenTrash,
+            "edit.undo" => CommandAction::Edit(EditCommand::Undo),
+            "edit.redo" => CommandAction::Edit(EditCommand::Redo),
+            "edit.cut" => CommandAction::Edit(EditCommand::Cut),
+            "edit.copy" => CommandAction::Edit(EditCommand::Copy),
+            "edit.paste" => CommandAction::Edit(EditCommand::Paste),
+            "edit.delete" => CommandAction::Edit(EditCommand::Delete),
+            "view.zoom-in" => CommandAction::Zoom(ZoomStep::In),
+            "view.zoom-out" => CommandAction::Zoom(ZoomStep::Out),
+            "view.zoom-reset" => CommandAction::Zoom(ZoomStep::Reset),
+            "view.fullscreen" => CommandAction::Window(WindowCommand::ToggleFullscreen),
+            "window.minimize" => CommandAction::Window(WindowCommand::Minimize),
+            "window.zoom" => CommandAction::Window(WindowCommand::Zoom),
+            "window.fill" => CommandAction::Window(WindowCommand::Fill),
+            "window.center" => CommandAction::Window(WindowCommand::Center),
+            "window.left-half" => CommandAction::Window(WindowCommand::Place(Placement::LeftHalf)),
+            "window.right-half" => CommandAction::Window(WindowCommand::Place(Placement::RightHalf)),
+            "window.top-half" => CommandAction::Window(WindowCommand::Place(Placement::TopHalf)),
+            "window.bottom-half" => CommandAction::Window(WindowCommand::Place(Placement::BottomHalf)),
+            "window.top-left" => CommandAction::Window(WindowCommand::Place(Placement::TopLeft)),
+            "window.top-right" => CommandAction::Window(WindowCommand::Place(Placement::TopRight)),
+            "window.bottom-left" => CommandAction::Window(WindowCommand::Place(Placement::BottomLeft)),
+            "window.bottom-right" => CommandAction::Window(WindowCommand::Place(Placement::BottomRight)),
+            "window.left-third" => CommandAction::Window(WindowCommand::Place(Placement::LeftThird)),
+            "window.center-third" => CommandAction::Window(WindowCommand::Place(Placement::CenterThird)),
+            "window.right-third" => CommandAction::Window(WindowCommand::Place(Placement::RightThird)),
+            "window.left-two-thirds" => CommandAction::Window(WindowCommand::Place(Placement::LeftTwoThirds)),
+            "window.right-two-thirds" => CommandAction::Window(WindowCommand::Place(Placement::RightTwoThirds)),
+            "window.previous-size" => CommandAction::Window(WindowCommand::PreviousSize),
+            "window.close" | "app.quit" => CommandAction::Window(WindowCommand::Close),
+            "help.docs" => CommandAction::OpenUrl(DOCS_URL),
+            "help.github" => CommandAction::OpenUrl(GITHUB_URL),
             _ => return None,
         })
     }
@@ -246,6 +367,72 @@ pub fn fuzzy(needle: &str, text: &str) -> bool {
     true
 }
 
+/// Parse a registry shortcut string (`Cmd+Shift+Z`) into an egui shortcut. `Ctrl+Cmd+F`
+/// (full screen) is `F11` off macOS. Returns `None` for anything outside the grammar.
+pub fn parse_shortcut(shortcut: &str) -> Option<KeyboardShortcut> {
+    parse_shortcut_for(shortcut, cfg!(target_os = "macos"))
+}
+
+fn parse_shortcut_for(shortcut: &str, mac: bool) -> Option<KeyboardShortcut> {
+    if shortcut == "Ctrl+Cmd+F" && !mac {
+        return Some(KeyboardShortcut::new(Modifiers::NONE, Key::F11));
+    }
+    let mut tokens: Vec<&str> = shortcut.split('+').collect();
+    let key_token = tokens.pop()?;
+    let mut modifiers = Modifiers::NONE;
+    for token in tokens {
+        modifiers |= match token {
+            "Cmd" => Modifiers::COMMAND,
+            "Shift" => Modifiers::SHIFT,
+            "Alt" => Modifiers::ALT,
+            "Ctrl" => Modifiers::CTRL,
+            _ => return None,
+        };
+    }
+    let key = match key_token {
+        "=" => Key::Equals,
+        "-" => Key::Minus,
+        "0" => Key::Num0,
+        "\\" => Key::Backslash,
+        "," => Key::Comma,
+        "Enter" => Key::Enter,
+        "Tab" => Key::Tab,
+        "Esc" => Key::Escape,
+        letter if letter.len() == 1 && letter.chars().all(|c| c.is_ascii_alphabetic()) => Key::from_name(&letter.to_ascii_uppercase())?,
+        _ => return None,
+    };
+    Some(KeyboardShortcut::new(modifiers, key))
+}
+
+/// Clamp the UI zoom to 80-200 %; non-finite values reset to 100 %.
+pub fn sanitize_zoom(zoom: f32) -> f32 {
+    if zoom.is_finite() { zoom.clamp(0.8, 2.0) } else { 1.0 }
+}
+
+/// The zoom after one step, snapped to 10 % increments.
+pub fn step_zoom(zoom: f32, step: ZoomStep) -> f32 {
+    let snapped = (sanitize_zoom(zoom) * 10.0).round() / 10.0;
+    match step {
+        ZoomStep::In => sanitize_zoom(snapped + 0.1),
+        ZoomStep::Out => sanitize_zoom(snapped - 0.1),
+        ZoomStep::Reset => 1.0,
+    }
+}
+
+/// The egui events that make the focused text field perform `command` (what egui-winit would
+/// emit for the key). Paste returns none: it needs a viewport request for the clipboard text.
+pub fn edit_events(command: EditCommand) -> Vec<Event> {
+    let key = |key: Key, modifiers: Modifiers| Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
+    match command {
+        EditCommand::Undo => vec![key(Key::Z, Modifiers::COMMAND)],
+        EditCommand::Redo => vec![key(Key::Z, Modifiers::COMMAND | Modifiers::SHIFT)],
+        EditCommand::Cut => vec![Event::Cut],
+        EditCommand::Copy => vec![Event::Copy],
+        EditCommand::Paste => Vec::new(),
+        EditCommand::Delete => vec![key(Key::Delete, Modifiers::NONE)],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,6 +445,35 @@ mod tests {
             assert!(registry.find(command.id).is_some());
         }
         assert!(registry.find("missing").is_none());
+    }
+
+    #[test]
+    fn shortcuts_parse_and_zoom_steps_clamp() {
+        assert_eq!(parse_shortcut("Cmd+Shift+Z"), Some(KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)));
+        assert_eq!(parse_shortcut("Cmd+="), Some(KeyboardShortcut::new(Modifiers::COMMAND, Key::Equals)));
+        assert_eq!(parse_shortcut("Cmd+\\"), Some(KeyboardShortcut::new(Modifiers::COMMAND, Key::Backslash)));
+        assert_eq!(parse_shortcut("Esc"), Some(KeyboardShortcut::new(Modifiers::NONE, Key::Escape)));
+        assert_eq!(parse_shortcut("bogus+"), None);
+        assert_eq!(parse_shortcut("Hyper+Z"), None);
+        assert_eq!(parse_shortcut_for("Ctrl+Cmd+F", false), Some(KeyboardShortcut::new(Modifiers::NONE, Key::F11)));
+        assert_eq!(parse_shortcut_for("Ctrl+Cmd+F", true), Some(KeyboardShortcut::new(Modifiers::CTRL | Modifiers::COMMAND, Key::F)));
+        assert!((step_zoom(2.0, ZoomStep::In) - 2.0).abs() < 1e-6);
+        assert!((step_zoom(0.8, ZoomStep::Out) - 0.8).abs() < 1e-6);
+        assert!((step_zoom(1.0, ZoomStep::In) - 1.1).abs() < 1e-6);
+        assert!((step_zoom(1.5, ZoomStep::Reset) - 1.0).abs() < 1e-6);
+        assert!((sanitize_zoom(f32::NAN) - 1.0).abs() < 1e-6);
+        assert!((sanitize_zoom(9.0) - 2.0).abs() < 1e-6);
+        assert_eq!(edit_events(EditCommand::Copy), vec![Event::Copy]);
+        assert!(edit_events(EditCommand::Paste).is_empty());
+    }
+
+    #[test]
+    fn every_registered_shortcut_parses() {
+        for command in CommandRegistry::default().commands() {
+            if let Some(shortcut) = command.shortcut {
+                assert!(parse_shortcut(shortcut).is_some(), "{} has an unparsable shortcut {shortcut}", command.id);
+            }
+        }
     }
 
     #[test]

@@ -88,31 +88,28 @@ impl CodeEditor {
         self
     }
 
-    /// Show the editor inside a virtualised scroll area. Line numbers are one multiline label
-    /// beside the edit, so both scroll together.
+    /// Show the editor inside a scroll area. The line-number gutter is painted from the edit's
+    /// own galley rows, so numbers scroll with the text and follow soft wraps.
     pub fn show(self, ui: &mut Ui, text: &mut String) -> Response {
         let theme = Theme::current(ui.ctx());
         let palette = theme.palette;
         let font = FontId::monospace(theme.metrics.code_font);
         let line_count = text.lines().count().max(self.rows).max(1);
+        let char_w = ui.painter().layout_no_wrap(" ".into(), font.clone(), Color32::PLACEHOLDER).size().x;
+        let digits = line_count.ilog10() as usize + 1;
+        let gutter_w = (digits as f32 + 1.0) * char_w + 12.0;
         let mut response = ui.label("");
         egui::Frame::new()
-            .fill(palette.surface_sunken)
+            .fill(palette.input_bg)
             .stroke(egui::Stroke::new(1.0, palette.border))
             .corner_radius(egui::CornerRadius::same(theme.metrics.radius as u8))
-            .inner_margin(egui::Margin::symmetric(10, 8))
+            .inner_margin(egui::Margin::symmetric(0, 6))
             .show(ui, |ui| {
                 ScrollArea::vertical().id_salt((self.id, "scroll")).auto_shrink([false, false]).max_height(ui.available_height()).show(ui, |ui| {
                     ui.horizontal_top(|ui| {
-                        let mut numbers = String::with_capacity(line_count * 4);
-                        for line in 1..=line_count {
-                            numbers.push_str(&format!("{line:>width$}\n", width = (line_count.ilog10() + 1) as usize));
-                        }
-                        ui.add(
-                            egui::Label::new(egui::RichText::new(numbers).monospace().color(palette.text_muted))
-                                .selectable(false)
-                                .wrap_mode(egui::TextWrapMode::Extend),
-                        );
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        let gutter_left = ui.cursor().min.x;
+                        ui.add_space(gutter_w + 8.0);
                         let language = self.language;
                         let highlight = text.len() <= self.highlight_limit;
                         let layout_font = font.clone();
@@ -128,19 +125,31 @@ impl CodeEditor {
                             };
                             ui.fonts_mut(|fonts| fonts.layout_job(job))
                         };
-                        let edit = ui.add(
-                            TextEdit::multiline(text)
-                                .id(self.id)
-                                .font(font)
-                                .code_editor()
-                                .desired_rows(line_count)
-                                .desired_width(f32::INFINITY)
-                                .frame(egui::Frame::NONE)
-                                .margin(egui::Margin::ZERO)
-                                .interactive(!self.read_only)
-                                .layouter(&mut layouter),
-                        );
-                        response = edit;
+                        let output = TextEdit::multiline(text)
+                            .id(self.id)
+                            .font(font.clone())
+                            .code_editor()
+                            .desired_rows(line_count)
+                            .desired_width(f32::INFINITY)
+                            .frame(egui::Frame::NONE)
+                            .margin(egui::Margin::ZERO)
+                            .interactive(!self.read_only)
+                            .layouter(&mut layouter)
+                            .show(ui);
+                        let cursor_row = output.cursor_range.map(|range| text.chars().take(range.primary.index.0).filter(|c| *c == '\n').count());
+                        let right = gutter_left + gutter_w - 6.0;
+                        let mut logical = 0usize;
+                        let mut starts_line = true;
+                        for placed in &output.galley.rows {
+                            if starts_line {
+                                let color = if cursor_row == Some(logical) { palette.text } else { palette.line_number };
+                                let pos = egui::pos2(right, output.galley_pos.y + placed.pos.y);
+                                ui.painter().text(pos, egui::Align2::RIGHT_TOP, (logical + 1).to_string(), font.clone(), color);
+                                logical += 1;
+                            }
+                            starts_line = placed.ends_with_newline;
+                        }
+                        response = output.response.response;
                     });
                 });
             });
@@ -210,11 +219,11 @@ impl Highlighter<'_> {
         self.job.append(slice, 0.0, format);
     }
 
-    /// Push a quoted literal, splitting any `{{var}}` inside it into the accent chip colour.
+    /// Push a quoted literal, splitting any `{{var}}` inside it into the variable chip colour.
     fn push_literal(&mut self, start: usize, end: usize, color: Color32) {
         let text = self.text;
-        let patch = self.palette.patch;
-        let chip = patch.gamma_multiply(0.14);
+        let variable = self.palette.code_variable;
+        let chip = variable.gamma_multiply(0.14);
         let Some(slice) = text.get(start..end) else {
             self.push(start, end, color, None);
             return;
@@ -225,7 +234,7 @@ impl Highlighter<'_> {
             if absolute_start > cursor {
                 self.push(cursor, absolute_start, color, None);
             }
-            self.push(absolute_start, absolute_end, patch, Some(chip));
+            self.push(absolute_start, absolute_end, variable, Some(chip));
             cursor = absolute_end;
         }
         if cursor < end {
@@ -284,8 +293,8 @@ fn plain_tokens(highlighter: &mut Highlighter) {
         if byte == b'{'
             && let Some(end) = variable_end(text, index)
         {
-            let patch = highlighter.palette.patch;
-            highlighter.push(index, end, patch, Some(patch.gamma_multiply(0.14)));
+            let variable = highlighter.palette.code_variable;
+            highlighter.push(index, end, variable, Some(variable.gamma_multiply(0.14)));
             index = end;
             continue;
         }
@@ -297,8 +306,8 @@ fn plain_tokens(highlighter: &mut Highlighter) {
                 }
                 end += 1;
             }
-            let info = highlighter.palette.info;
-            highlighter.push(index, end, info, None);
+            let url = highlighter.palette.code_string;
+            highlighter.push(index, end, url, None);
             index = end;
             continue;
         }
@@ -309,22 +318,22 @@ fn plain_tokens(highlighter: &mut Highlighter) {
 fn json_tokens(highlighter: &mut Highlighter) {
     let text = highlighter.text;
     let bytes = text.as_bytes();
-    let accent = highlighter.palette.accent;
-    let success = highlighter.palette.success;
-    let info = highlighter.palette.info;
-    let warning = highlighter.palette.warning;
-    let muted = highlighter.palette.text_muted;
-    let patch = highlighter.palette.patch;
+    let key = highlighter.palette.code_key;
+    let string = highlighter.palette.code_string;
+    let number = highlighter.palette.code_number;
+    let keyword = highlighter.palette.code_keyword;
+    let punct = highlighter.palette.code_punct;
+    let variable = highlighter.palette.code_variable;
     let mut index = 0usize;
     while index < bytes.len() {
         let byte = bytes.get(index).copied().unwrap_or_default();
         match byte {
             b'{' if bytes.get(index + 1) == Some(&b'{') => {
                 if let Some(end) = variable_end(text, index) {
-                    highlighter.push(index, end, patch, Some(patch.gamma_multiply(0.14)));
+                    highlighter.push(index, end, variable, Some(variable.gamma_multiply(0.14)));
                     index = end;
                 } else {
-                    highlighter.push(index, index + 1, muted, None);
+                    highlighter.push(index, index + 1, punct, None);
                     index += 1;
                 }
             }
@@ -335,7 +344,7 @@ fn json_tokens(highlighter: &mut Highlighter) {
                 while bytes.get(next).is_some_and(u8::is_ascii_whitespace) {
                     next += 1;
                 }
-                let color = if bytes.get(next) == Some(&b':') { accent } else { success };
+                let color = if bytes.get(next) == Some(&b':') { key } else { string };
                 highlighter.push_literal(index, end, color);
                 index = end;
             }
@@ -344,7 +353,7 @@ fn json_tokens(highlighter: &mut Highlighter) {
                 while bytes.get(end).is_some_and(|byte| byte.is_ascii_digit() || matches!(byte, b'.' | b'e' | b'E' | b'+' | b'-')) {
                     end += 1;
                 }
-                highlighter.push(index, end, info, None);
+                highlighter.push(index, end, number, None);
                 index = end;
             }
             b't' | b'f' | b'n' => {
@@ -354,12 +363,12 @@ fn json_tokens(highlighter: &mut Highlighter) {
                 }
                 let word = text.get(index..end).unwrap_or_default();
                 if matches!(word, "true" | "false" | "null") {
-                    highlighter.push(index, end, warning, None);
+                    highlighter.push(index, end, keyword, None);
                 }
                 index = end;
             }
             b'{' | b'}' | b'[' | b']' | b':' | b',' => {
-                highlighter.push(index, index + 1, muted, None);
+                highlighter.push(index, index + 1, punct, None);
                 index += 1;
             }
             _ => index += 1,
@@ -370,12 +379,13 @@ fn json_tokens(highlighter: &mut Highlighter) {
 fn markup_tokens(highlighter: &mut Highlighter) {
     let text = highlighter.text;
     let bytes = text.as_bytes();
-    let accent = highlighter.palette.accent;
-    let success = highlighter.palette.success;
-    let muted = highlighter.palette.text_muted;
-    let warning = highlighter.palette.warning;
-    let patch = highlighter.palette.patch;
-    let info = highlighter.palette.info;
+    let tag = highlighter.palette.code_tag;
+    let string = highlighter.palette.code_string;
+    let comment = highlighter.palette.code_comment;
+    let keyword = highlighter.palette.code_keyword;
+    let attr = highlighter.palette.code_attr;
+    let number = highlighter.palette.code_number;
+    let punct = highlighter.palette.code_punct;
     let mut index = 0usize;
     while index < bytes.len() {
         let byte = bytes.get(index).copied().unwrap_or_default();
@@ -392,7 +402,7 @@ fn markup_tokens(highlighter: &mut Highlighter) {
                 end += 1;
             }
             if bytes.get(end) == Some(&b';') {
-                highlighter.push(index, end + 1, info, None);
+                highlighter.push(index, end + 1, number, None);
                 index = end + 1;
             } else {
                 index += 1;
@@ -405,7 +415,7 @@ fn markup_tokens(highlighter: &mut Highlighter) {
         }
         if text.get(index..).is_some_and(|tail| tail.starts_with("<!--")) {
             let end = text.get(index..).and_then(|tail| tail.find("-->")).map_or(bytes.len(), |offset| index + offset + 3);
-            highlighter.push(index, end, muted, None);
+            highlighter.push(index, end, comment, None);
             index = end;
             continue;
         }
@@ -431,17 +441,17 @@ fn markup_tokens(highlighter: &mut Highlighter) {
         }
         let end = (end + 1).min(bytes.len());
         if declaration {
-            highlighter.push(index, end, warning, None);
+            highlighter.push(index, end, keyword, None);
             index = end;
             continue;
         }
-        // A start/end tag: delimiters and the tag name in the accent, attribute names in the
-        // patch colour, attribute strings in the success colour.
+        // A start/end tag: delimiters and the tag name in the tag colour, attribute names in the
+        // attribute colour, attribute strings in the string colour.
         let mut cursor = index;
-        highlighter.push(cursor, cursor + 1, accent, None);
+        highlighter.push(cursor, cursor + 1, tag, None);
         cursor += 1;
         if bytes.get(cursor) == Some(&b'/') {
-            highlighter.push(cursor, cursor + 1, accent, None);
+            highlighter.push(cursor, cursor + 1, tag, None);
             cursor += 1;
         }
         let name_start = cursor;
@@ -449,23 +459,23 @@ fn markup_tokens(highlighter: &mut Highlighter) {
             cursor += 1;
         }
         if cursor > name_start {
-            highlighter.push(name_start, cursor, accent, None);
+            highlighter.push(name_start, cursor, tag, None);
         }
         while cursor < end {
             let byte = bytes.get(cursor).copied().unwrap_or(b'>');
             if byte == b'/' || byte == b'>' {
-                highlighter.push(cursor, (cursor + 1).min(end), accent, None);
+                highlighter.push(cursor, (cursor + 1).min(end), tag, None);
                 cursor += 1;
                 continue;
             }
             if byte == b'=' {
-                highlighter.push(cursor, cursor + 1, muted, None);
+                highlighter.push(cursor, cursor + 1, punct, None);
                 cursor += 1;
                 continue;
             }
             if byte == b'"' || byte == b'\'' {
                 let literal_end = quoted_end(text, cursor).min(end);
-                highlighter.push_literal(cursor, literal_end, success);
+                highlighter.push_literal(cursor, literal_end, string);
                 cursor = literal_end.max(cursor + 1);
                 continue;
             }
@@ -474,12 +484,7 @@ fn markup_tokens(highlighter: &mut Highlighter) {
                 while bytes.get(cursor).is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.')) {
                     cursor += 1;
                 }
-                let mut lookahead = cursor;
-                while lookahead < end && bytes.get(lookahead) == Some(&b' ') {
-                    lookahead += 1;
-                }
-                let color = if bytes.get(lookahead) == Some(&b'=') { patch } else { muted };
-                highlighter.push(attribute_start, cursor, color, None);
+                highlighter.push(attribute_start, cursor, attr, None);
                 continue;
             }
             cursor += 1;
@@ -491,19 +496,20 @@ fn markup_tokens(highlighter: &mut Highlighter) {
 fn graphql_tokens(highlighter: &mut Highlighter) {
     let text = highlighter.text;
     let bytes = text.as_bytes();
-    let accent = highlighter.palette.accent;
-    let success = highlighter.palette.success;
-    let muted = highlighter.palette.text_muted;
-    let warning = highlighter.palette.warning;
-    let patch = highlighter.palette.patch;
-    let info = highlighter.palette.info;
+    let key = highlighter.palette.code_key;
+    let string = highlighter.palette.code_string;
+    let comment = highlighter.palette.code_comment;
+    let keyword_color = highlighter.palette.code_keyword;
+    let variable = highlighter.palette.code_variable;
+    let number = highlighter.palette.code_number;
+    let punct = highlighter.palette.code_punct;
     let mut index = 0usize;
     while index < bytes.len() {
         let byte = bytes.get(index).copied().unwrap_or_default();
         match byte {
             b'#' => {
                 let end = line_end(bytes, index);
-                highlighter.push(index, end, muted, None);
+                highlighter.push(index, end, comment, None);
                 index = end;
             }
             b'"' => {
@@ -512,7 +518,7 @@ fn graphql_tokens(highlighter: &mut Highlighter) {
                 } else {
                     quoted_end(text, index)
                 };
-                highlighter.push_literal(index, end, success);
+                highlighter.push_literal(index, end, string);
                 index = end.max(index + 1);
             }
             b'$' | b'@' => {
@@ -520,7 +526,7 @@ fn graphql_tokens(highlighter: &mut Highlighter) {
                 while bytes.get(end).is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$')) {
                     end += 1;
                 }
-                highlighter.push(index, end, patch, None);
+                highlighter.push(index, end, variable, None);
                 index = end;
             }
             b'0'..=b'9' | b'-' => {
@@ -528,11 +534,11 @@ fn graphql_tokens(highlighter: &mut Highlighter) {
                 while bytes.get(end).is_some_and(|byte| byte.is_ascii_digit() || matches!(byte, b'.' | b'e' | b'E')) {
                     end += 1;
                 }
-                highlighter.push(index, end, info, None);
+                highlighter.push(index, end, number, None);
                 index = end;
             }
             b'{' | b'}' | b'(' | b')' | b'[' | b']' | b':' | b',' | b'!' | b'|' | b'=' => {
-                highlighter.push(index, index + 1, muted, None);
+                highlighter.push(index, index + 1, punct, None);
                 index += 1;
             }
             _ if byte.is_ascii_alphabetic() || byte == b'_' => {
@@ -542,11 +548,11 @@ fn graphql_tokens(highlighter: &mut Highlighter) {
                 }
                 let word = text.get(index..end).unwrap_or_default();
                 let color = if keyword(GRAPHQL_KEYWORDS, word) {
-                    warning
+                    keyword_color
                 } else if word.starts_with(|character: char| character.is_ascii_uppercase()) {
-                    info
+                    number
                 } else {
-                    accent
+                    key
                 };
                 highlighter.push(index, end, color, None);
                 index = end;
@@ -649,12 +655,12 @@ fn keywords(language: CodeLanguage) -> &'static [&'static str] {
 fn code_tokens(language: CodeLanguage, highlighter: &mut Highlighter) {
     let text = highlighter.text;
     let bytes = text.as_bytes();
-    let accent = highlighter.palette.accent;
-    let success = highlighter.palette.success;
-    let muted = highlighter.palette.text_muted;
-    let warning = highlighter.palette.warning;
-    let info = highlighter.palette.info;
-    let patch = highlighter.palette.patch;
+    let key = highlighter.palette.code_key;
+    let string = highlighter.palette.code_string;
+    let comment = highlighter.palette.code_comment;
+    let keyword_color = highlighter.palette.code_keyword;
+    let number = highlighter.palette.code_number;
+    let variable = highlighter.palette.code_variable;
     let hash_comments = matches!(language, CodeLanguage::Shell | CodeLanguage::Python | CodeLanguage::Yaml | CodeLanguage::PowerShell);
     let slash_comments = matches!(language, CodeLanguage::JavaScript | CodeLanguage::Go | CodeLanguage::Rust);
     let cli_flags = matches!(language, CodeLanguage::Shell | CodeLanguage::Http | CodeLanguage::PowerShell);
@@ -677,32 +683,32 @@ fn code_tokens(language: CodeLanguage, highlighter: &mut Highlighter) {
         if byte == b'{'
             && let Some(end) = variable_end(text, index)
         {
-            highlighter.push(index, end, patch, Some(patch.gamma_multiply(0.14)));
+            highlighter.push(index, end, variable, Some(variable.gamma_multiply(0.14)));
             index = end;
             at_line_start = false;
             continue;
         }
         if hash_comments && byte == b'#' {
             let end = line_end(bytes, index);
-            highlighter.push(index, end, muted, None);
+            highlighter.push(index, end, comment, None);
             index = end;
             continue;
         }
         if slash_comments && byte == b'/' && bytes.get(index + 1) == Some(&b'/') {
             let end = line_end(bytes, index);
-            highlighter.push(index, end, muted, None);
+            highlighter.push(index, end, comment, None);
             index = end;
             continue;
         }
         if slash_comments && byte == b'/' && bytes.get(index + 1) == Some(&b'*') {
             let end = text.get(index..).and_then(|tail| tail.find("*/")).map_or(bytes.len(), |offset| index + offset + 2);
-            highlighter.push(index, end, muted, None);
+            highlighter.push(index, end, comment, None);
             index = end;
             continue;
         }
         if byte == b'"' || byte == b'\'' || (byte == b'`' && backtick_strings) {
             let end = quoted_end(text, index);
-            highlighter.push_literal(index, end, success);
+            highlighter.push_literal(index, end, string);
             index = end.max(index + 1);
             at_line_start = false;
             continue;
@@ -720,7 +726,7 @@ fn code_tokens(language: CodeLanguage, highlighter: &mut Highlighter) {
                 end += 1;
             }
             if end > key_start && bytes.get(end) == Some(&b':') {
-                highlighter.push(key_start, end, accent, None);
+                highlighter.push(key_start, end, key, None);
                 index = end;
                 at_line_start = false;
                 continue;
@@ -731,7 +737,7 @@ fn code_tokens(language: CodeLanguage, highlighter: &mut Highlighter) {
             while bytes.get(end).is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')) {
                 end += 1;
             }
-            highlighter.push(index, end, accent, None);
+            highlighter.push(index, end, key, None);
             index = end;
             continue;
         }
@@ -740,7 +746,7 @@ fn code_tokens(language: CodeLanguage, highlighter: &mut Highlighter) {
             while bytes.get(end).is_some_and(|byte| byte.is_ascii_digit() || *byte == b'.') {
                 end += 1;
             }
-            highlighter.push(index, end, info, None);
+            highlighter.push(index, end, number, None);
             index = end;
             at_line_start = false;
             continue;
@@ -752,11 +758,11 @@ fn code_tokens(language: CodeLanguage, highlighter: &mut Highlighter) {
             }
             let word = text.get(index..end).unwrap_or_default();
             let color = if boolean(word) || word == "nil" {
-                info
+                number
             } else if word.starts_with('$') || matches!(word, "pm" | "console" | "expect" | "postman") {
-                accent
+                key
             } else if keyword(words, word) {
-                warning
+                keyword_color
             } else {
                 highlighter.palette.text
             };
@@ -928,15 +934,17 @@ impl LargeTextView {
         let palette = theme.palette;
         let font = FontId::monospace(theme.metrics.code_font);
         let row_height = (ui.text_style_height(&egui::TextStyle::Monospace) + 4.0).max(20.0);
+        let char_w = ui.painter().layout_no_wrap(" ".into(), font.clone(), Color32::PLACEHOLDER).size().x;
         let digits = self.line_starts.len().max(1).ilog10() as usize + 1;
-        let gutter = if self.line_numbers { (digits as f32 + 1.0) * 8.0 } else { 0.0 };
+        let gutter = if self.line_numbers { (digits as f32 + 1.0) * char_w + 12.0 } else { 0.0 };
         let tint = palette.warning.gamma_multiply(0.28);
+        let guide = egui::Stroke::new(1.0, palette.guide);
         let mut clicked: Option<Response> = None;
         egui::Frame::new()
-            .fill(palette.surface_sunken)
+            .fill(palette.input_bg)
             .stroke(egui::Stroke::new(1.0, palette.border))
             .corner_radius(egui::CornerRadius::same(theme.metrics.radius as u8))
-            .inner_margin(egui::Margin::symmetric(10, 8))
+            .inner_margin(egui::Margin::symmetric(0, 6))
             .show(ui, |ui| {
                 ScrollArea::vertical().id_salt((self.id, "scroll")).auto_shrink([false, false]).show_rows(
                     ui,
@@ -948,13 +956,19 @@ impl LargeTextView {
                             let Some(display) = self.display.get(line) else { continue };
                             let content = self.text.get(display.start..display.end).unwrap_or_default().trim_end_matches('\n');
                             ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 8.0;
                                 if self.line_numbers {
-                                    ui.add_sized(
-                                        [gutter, row_height],
-                                        egui::Label::new(
-                                            egui::RichText::new(format!("{:>digits$}", display.number)).monospace().color(palette.text_muted),
-                                        ),
-                                    );
+                                    let (rect, _) = ui.allocate_exact_size(egui::vec2(gutter, row_height), Sense::hover());
+                                    // Continuation chunks of a split line carry no number.
+                                    if self.line_starts.get(display.number.saturating_sub(1)) == Some(&display.start) {
+                                        ui.painter().text(
+                                            egui::pos2(rect.right() - 6.0, rect.center().y),
+                                            egui::Align2::RIGHT_CENTER,
+                                            display.number.to_string(),
+                                            font.clone(),
+                                            palette.line_number,
+                                        );
+                                    }
                                 }
                                 let wrap_width = if self.wrap { ui.available_width().max(200.0) } else { f32::INFINITY };
                                 let mut job = highlight_job(self.language, content, &palette, font.clone(), wrap_width);
@@ -963,7 +977,24 @@ impl LargeTextView {
                                 let label = egui::Label::new(galley).sense(Sense::click()).selectable(true);
                                 let response = ui.add(label);
                                 if response.clicked() {
-                                    clicked = Some(response);
+                                    clicked = Some(response.clone());
+                                }
+                                // Indent guides, one per two leading columns (a tab counts as two).
+                                let mut columns = 0usize;
+                                for byte in content.bytes() {
+                                    match byte {
+                                        b' ' => columns += 1,
+                                        b'\t' => columns += 2,
+                                        _ => break,
+                                    }
+                                }
+                                if columns >= 2 && self.line_starts.get(display.number.saturating_sub(1)) == Some(&display.start) {
+                                    let rect = response.rect;
+                                    let y_range = (rect.top() - 1.0)..=(rect.bottom() + 1.0);
+                                    for level in 1..=columns / 2 {
+                                        let x = rect.left() + (level - 1) as f32 * 2.0 * char_w + char_w * 0.5;
+                                        ui.painter().vline(x, y_range.clone(), guide);
+                                    }
                                 }
                             });
                         }
@@ -1006,16 +1037,16 @@ mod tests {
     #[test]
     fn json_separates_keys_values_numbers_and_booleans() {
         let (job, palette) = highlight(CodeLanguage::Json, r#"{"user": "ada", "count": 42, "active": true}"#);
-        assert_eq!(colour_of(&job, "\"user\""), Some(palette.accent), "keys are the accent colour");
-        assert_eq!(colour_of(&job, "\"ada\""), Some(palette.success), "string values are the success colour");
-        assert_eq!(colour_of(&job, "42"), Some(palette.info), "numbers are the info colour");
-        assert_eq!(colour_of(&job, "true"), Some(palette.warning), "booleans are the warning colour");
+        assert_eq!(colour_of(&job, "\"user\""), Some(palette.code_key), "keys use the key colour");
+        assert_eq!(colour_of(&job, "\"ada\""), Some(palette.code_string), "string values use the string colour");
+        assert_eq!(colour_of(&job, "42"), Some(palette.code_number), "numbers use the number colour");
+        assert_eq!(colour_of(&job, "true"), Some(palette.code_keyword), "booleans use the keyword colour");
     }
 
     #[test]
     fn json_tints_variables_inside_strings() {
         let (job, palette) = highlight(CodeLanguage::Json, r#"{"id": "{{user_id}}"}"#);
-        assert_eq!(colour_of(&job, "{{user_id}}"), Some(palette.patch));
+        assert_eq!(colour_of(&job, "{{user_id}}"), Some(palette.code_variable));
     }
 
     #[test]
@@ -1045,17 +1076,17 @@ mod tests {
     #[test]
     fn http_and_yaml_colour_keys_at_the_start_of_a_line() {
         let (job, palette) = highlight(CodeLanguage::Http, "GET / HTTP/1.1\nContent-Type: application/json");
-        assert_eq!(colour_of(&job, "Content-Type"), Some(palette.accent));
-        assert_eq!(colour_of(&job, "GET"), Some(palette.warning));
+        assert_eq!(colour_of(&job, "Content-Type"), Some(palette.code_key));
+        assert_eq!(colour_of(&job, "GET"), Some(palette.code_keyword));
         let (yaml, palette) = highlight(CodeLanguage::Yaml, "name: demo\n");
-        assert_eq!(colour_of(&yaml, "name"), Some(palette.accent));
+        assert_eq!(colour_of(&yaml, "name"), Some(palette.code_key));
     }
 
     #[test]
     fn plain_text_tints_variables_and_urls() {
         let (job, palette) = highlight(CodeLanguage::Plain, "fetch {{base}}/users then https://example.com/a");
-        assert_eq!(colour_of(&job, "{{base}}"), Some(palette.patch));
-        assert_eq!(colour_of(&job, "https://example.com/a"), Some(palette.info));
+        assert_eq!(colour_of(&job, "{{base}}"), Some(palette.code_variable));
+        assert_eq!(colour_of(&job, "https://example.com/a"), Some(palette.code_string));
     }
 
     #[test]

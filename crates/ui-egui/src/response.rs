@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use egui::{Align, Layout, RichText, ScrollArea, Ui};
+use egui::{Align, Layout, RichText, ScrollArea, Ui, vec2};
 
 use crate::theme::Theme;
 use crate::widgets::{self, CodeLanguage, LargeTextView, menu_item};
@@ -168,27 +168,12 @@ pub fn response_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseV
                 ResponseTab::Headers => Some(data.headers.len()),
                 ResponseTab::Body => None,
             };
-            let text = match count {
-                Some(count) if count > 0 => format!("{label} {count}"),
-                _ => label.to_string(),
-            };
-            let mut rich = RichText::new(text).color(if selected { theme.palette.text } else { theme.palette.text_muted });
-            if selected {
-                rich = rich.strong();
-            }
-            let response = ui.add(egui::Button::new(rich).frame(false));
-            if response.clicked() {
+            if widgets::sub_tab(ui, label, selected, count, false).clicked() {
                 state.tab = tab;
-            }
-            if selected {
-                ui.painter().line_segment(
-                    [egui::pos2(response.rect.left(), response.rect.bottom()), egui::pos2(response.rect.right(), response.rect.bottom())],
-                    egui::Stroke::new(2.0, theme.palette.accent),
-                );
             }
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let menu = ui.add(egui::Button::new("...").frame(false));
+            let menu = widgets::icon_button_with(ui, "ellipsis", "...", "More actions");
             egui::Popup::menu(&menu).close_behavior(egui::PopupCloseBehavior::CloseOnClick).show(|ui| {
                 ui.set_min_width(180.0);
                 if menu_item(ui, None, "Save body to file", None, true).clicked() {
@@ -208,7 +193,7 @@ pub fn response_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseV
                     action = Some(ResponseAction::Clear);
                 }
             });
-            let save = ui.add(egui::Button::new("Save Response"));
+            let save = widgets::text_button(ui, widgets::ButtonKind::Ghost, Some("save"), "Save Response", true);
             if save.clicked() {
                 action = Some(ResponseAction::SaveBody);
             }
@@ -220,6 +205,7 @@ pub fn response_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseV
                     ui.label(format!("Wire body: {} B ({encoding})", format_size(data.body_encoded_bytes as u64)));
                 }
             });
+            ui.label(RichText::new("•").small().color(theme.palette.text_muted));
             let time = ui.label(RichText::new(format!("{} ms", data.total_ms)).small().color(theme.palette.text_muted));
             time.on_hover_ui(|ui| {
                 ui.label(format!("Prepare + connect: {}", data.connect_ms));
@@ -230,7 +216,7 @@ pub fn response_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseV
             let status_color = theme.status_color(data.status);
             let status_text =
                 if data.status_text.trim().is_empty() { data.status.to_string() } else { format!("{} {}", data.status, data.status_text.trim()) };
-            let status = widgets::badge(ui, &status_text, status_color, status_color.gamma_multiply(0.16));
+            let status = widgets::badge(ui, &status_text, status_color, status_color.gamma_multiply(0.12));
             status.on_hover_ui(|ui| {
                 ui.label(format!("{} · {} redirect(s)", data.http_version, data.redirects));
                 if let Some(proxy) = &data.proxy {
@@ -258,23 +244,45 @@ fn body_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseViewerSta
                 BodyMode::Preview => "Preview",
                 BodyMode::Hex => "Hex",
             };
-            let mut rich = RichText::new(label).small().color(if state.mode == mode { theme.palette.text } else { theme.palette.text_muted });
-            if state.mode == mode {
-                rich = rich.strong();
-            }
-            if ui.add(egui::Button::new(rich).frame(false)).clicked() {
+            if widgets::sub_tab_sized(ui, label, state.mode == mode, None, false, 26.0).clicked() {
                 state.mode = mode;
             }
         }
-        ui.separator();
         ui.label(RichText::new(language_label(data)).small().color(theme.palette.text_muted));
-        let mut wrap = state.wrap;
-        if widgets::checkbox(ui, &mut wrap, "Wrap").changed() {
-            state.wrap = wrap;
-        }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let search = ui.add(egui::TextEdit::singleline(&mut state.search).hint_text("Search body…").desired_width(170.0));
-            let _ = search;
+            let palette = theme.palette;
+            let (rect, _) = ui.allocate_exact_size(vec2(170.0, 26.0), egui::Sense::hover());
+            ui.painter().rect(
+                rect,
+                egui::CornerRadius::same(theme.metrics.radius as u8),
+                palette.input_bg,
+                egui::Stroke::new(1.0, palette.input_border),
+                egui::StrokeKind::Inside,
+            );
+            crate::icons::paint(
+                ui.painter(),
+                egui::Rect::from_center_size(egui::pos2(rect.left() + 14.0, rect.center().y), vec2(13.0, 13.0)),
+                "search",
+                palette.text_muted,
+                1.5,
+            );
+            let inner =
+                egui::Rect::from_min_max(egui::pos2(rect.left() + 26.0, rect.top() + 3.0), egui::pos2(rect.right() - 6.0, rect.bottom() - 3.0));
+            // A detached child ui: a scope would move the right-to-left cursor into the box.
+            let mut field = ui.new_child(egui::UiBuilder::new().max_rect(inner));
+            field.add(
+                egui::TextEdit::singleline(&mut state.search)
+                    .hint_text("Search body…")
+                    .desired_width(inner.width())
+                    .margin(egui::Margin::ZERO)
+                    .frame(egui::Frame::NONE),
+            );
+            if widgets::icon_button_with(ui, "copy", "Copy body", "Copy body").clicked()
+                && let Some(text) = data.text()
+            {
+                ui.ctx().copy_text(text);
+            }
+            widgets::icon_toggle(ui, "text-wrap", "Wrap", "Wrap lines", &mut state.wrap);
             if !state.search.trim().is_empty() {
                 let matches = text_for_search(data, state)
                     .map(|text| text.to_ascii_lowercase().matches(&state.search.to_ascii_lowercase()).count())

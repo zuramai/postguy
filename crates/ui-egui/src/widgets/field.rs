@@ -63,6 +63,16 @@ pub fn chip_tint(name: &str, variables: &[VariableInfo], palette: &crate::theme:
 /// The same field with variable metadata: hovering a `{{chip}}` explains its scope and value
 /// (secrets masked unless Cmd/Ctrl is held).
 pub fn variable_field_with(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str, variables: &[VariableInfo]) -> Response {
+    variable_field_impl(ui, id, text, hint, variables, true)
+}
+
+/// [`variable_field_with`] without its own border or fill, for a field that sits inside a
+/// container (the URL bar) which draws them.
+pub fn variable_field_frameless(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str, variables: &[VariableInfo]) -> Response {
+    variable_field_impl(ui, id, text, hint, variables, false)
+}
+
+fn variable_field_impl(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str, variables: &[VariableInfo], frame: bool) -> Response {
     let theme = Theme::current(ui.ctx());
     let palette = theme.palette;
     let font = FontId::proportional(theme.metrics.ui_font);
@@ -87,13 +97,13 @@ pub fn variable_field_with(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &
         }
         ui.fonts_mut(|fonts| fonts.layout_job(job))
     };
-    let output = TextEdit::singleline(text)
-        .id(id)
-        .hint_text(hint)
-        .margin(egui::Margin::symmetric(10, 6))
-        .desired_width(f32::INFINITY)
-        .layouter(&mut layouter)
-        .show(ui);
+    let mut edit =
+        TextEdit::singleline(text).id(id).hint_text(hint).margin(egui::Margin::symmetric(10, 6)).desired_width(f32::INFINITY).layouter(&mut layouter);
+    if !frame {
+        // Embedded in a container that draws the border (the URL bar): fill its height.
+        edit = edit.frame(egui::Frame::NONE).min_size(egui::vec2(0.0, theme.metrics.url_height)).vertical_align(egui::Align::Center);
+    }
+    let output = edit.show(ui);
     let response = output.response.response.clone();
     if response.hovered()
         && let Some(pointer) = ui.input(|input| input.pointer.hover_pos())

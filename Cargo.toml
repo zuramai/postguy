@@ -7,13 +7,20 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
-repository = "https://github.com/postguy/postguy"
+repository = "https://github.com/zuramai/postguy"
 
 [workspace.dependencies]
 # UI stack (L7 only; enforced by cargo xtask layers). The app pulls eframe with the glow
 # backend and egui's default fonts; ui-egui works on plain egui.
 egui = { version = "0.36", default-features = false }
 eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "accesskit", "wayland", "x11"] }
+
+# macOS native menu bar and work-area lookup (apps/postguy only; AGENTS.md: permissive licences,
+# default-features = false). muda's GTK feature is never enabled, so no LGPL code is linked.
+muda = { version = "0.21", default-features = false }
+objc2 = { version = "0.6", default-features = false, features = ["std"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSEnumerator", "NSGeometry"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSScreen", "objc2-core-foundation"] }
 
 # Foundation (PROMPT.md 4.2): key order and number text survive round trips.
 postguy-util = { path = "crates/util", version = "0.1.0" }

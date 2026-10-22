@@ -10,7 +10,7 @@ pub mod table;
 pub mod timeline;
 
 pub use editor::{CodeEditor, CodeLanguage, LargeTextView};
-pub use field::{variable_field, variable_field_with, variable_spans};
+pub use field::{variable_field, variable_field_frameless, variable_field_with, variable_spans};
 pub use table::{TableResponse, TableVariant, automatic_rows, key_value_table};
 pub use timeline::{MessageDirection, Timeline, TimelineEntry};
 
@@ -24,6 +24,8 @@ use crate::icons;
 /// Vertical rhythm of one control row (checkbox/radio/switch).
 const CONTROL_ROW: f32 = 28.0;
 const BOX: f32 = 16.0;
+/// Height of a [`sub_tab`].
+pub const SUB_TAB_HEIGHT: f32 = 30.0;
 
 /// A square checkbox: an outlined square that fills with the accent and draws a check when on.
 /// The whole row is clickable; Space toggles when focused.
@@ -168,16 +170,24 @@ pub fn select(
     groups: &[SelectGroup],
     placeholder: &str,
 ) -> bool {
+    select_colored(ui, id, selected, groups, placeholder, None)
+}
+
+/// [`select`] with a custom trigger text colour (the raw-language select uses the accent).
+pub fn select_colored(
+    ui: &mut Ui,
+    id: impl std::hash::Hash + std::fmt::Debug,
+    selected: &mut Option<String>,
+    groups: &[SelectGroup],
+    placeholder: &str,
+    text_color: Option<Color32>,
+) -> bool {
     let theme = crate::theme::Theme::current(ui.ctx());
     let display = selected
         .as_ref()
         .and_then(|value| groups.iter().flat_map(|group| group.items.iter()).find(|item| item.value == *value).map(|item| item.label.clone()))
         .unwrap_or_else(|| placeholder.to_string());
-    let response = ui.add(
-        egui::Button::new(RichText::new(format!("{display}  v")).color(theme.palette.text))
-            .min_size(vec2(128.0, theme.metrics.control_height))
-            .corner_radius(egui::CornerRadius::same(theme.metrics.radius as u8)),
-    );
+    let response = chevron_trigger(ui, &display, 100.0, text_color);
     let mut changed = false;
     Popup::menu(&response).id(Id::new((id, "select"))).close_behavior(egui::PopupCloseBehavior::CloseOnClick).show(|ui| {
         ui.set_min_width(response.rect.width().max(180.0));
@@ -190,11 +200,7 @@ pub fn select(
                     ui.separator();
                 }
                 let is_selected = selected.as_deref() == Some(item.value.as_str());
-                let label = if is_selected { format!("✓  {}", item.label) } else { format!("    {}", item.label) };
-                let row = ui.add_enabled(
-                    item.enabled,
-                    egui::Button::new(label).selected(is_selected).frame(false).min_size(vec2(ui.available_width(), 28.0)),
-                );
+                let row = popup_row(ui, &item.label, is_selected, item.enabled);
                 if row.clicked() && !is_selected {
                     *selected = Some(item.value.clone());
                     changed = true;
@@ -209,32 +215,79 @@ pub fn select(
 /// A primary action with a caret that opens more choices (`Send` / `Send and Download`).
 pub fn split_button(ui: &mut Ui, main_label: &str, on_main: impl FnOnce(), menu: impl FnOnce(&mut Ui)) -> bool {
     let theme = crate::theme::Theme::current(ui.ctx());
+    let palette = theme.palette;
     let mut clicked = false;
+    let height = theme.metrics.url_height;
+    let radius = theme.metrics.radius as u8;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
-        let main = ui.add(
-            egui::Button::new(RichText::new(main_label).color(contrast_on(theme.palette.accent)).strong())
-                .fill(theme.palette.accent)
-                .min_size(vec2(68.0, theme.metrics.control_height))
-                .corner_radius(egui::CornerRadius { nw: theme.metrics.radius as u8, sw: theme.metrics.radius as u8, ne: 0, se: 0 }),
+        let font = TextStyle::Button.resolve(ui.style());
+        let galley = ui.painter().layout_no_wrap(main_label.to_owned(), font, palette.on_accent);
+        let main_width = (galley.size().x + 28.0).max(76.0);
+        let (main_rect, main) = ui.allocate_exact_size(vec2(main_width, height), Sense::click());
+        let (caret_rect, caret) = ui.allocate_exact_size(vec2(30.0, height), Sense::click());
+        let main_fill = if main.hovered() { palette.accent_fill_hover } else { palette.accent_fill };
+        let caret_fill = if caret.hovered() { palette.accent_fill_hover } else { palette.accent_fill };
+        ui.painter().rect_filled(main_rect, egui::CornerRadius { nw: radius, sw: radius, ne: 0, se: 0 }, main_fill);
+        ui.painter().rect_filled(caret_rect, egui::CornerRadius { nw: 0, sw: 0, ne: radius, se: radius }, caret_fill);
+        ui.painter().galley(main_rect.center() - galley.size() / 2.0, galley, palette.on_accent);
+        ui.painter().line_segment(
+            [pos2(caret_rect.left(), caret_rect.top() + 7.0), pos2(caret_rect.left(), caret_rect.bottom() - 7.0)],
+            Stroke::new(1.0, palette.on_accent.gamma_multiply(0.35)),
         );
+        icons::paint(ui.painter(), Rect::from_center_size(caret_rect.center(), Vec2::splat(14.0)), "chevron-down", palette.on_accent, 1.5);
+        main.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, main_label));
+        caret.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, "Send options"));
         if main.clicked() {
             on_main();
             clicked = true;
         }
-        ui.add_space(1.0);
-        let caret = ui.add(
-            egui::Button::new(RichText::new("v").color(contrast_on(theme.palette.accent)))
-                .fill(theme.palette.accent)
-                .min_size(vec2(28.0, theme.metrics.control_height))
-                .corner_radius(egui::CornerRadius { nw: 0, sw: 0, ne: theme.metrics.radius as u8, se: theme.metrics.radius as u8 }),
-        );
         Popup::menu(&caret).close_behavior(egui::PopupCloseBehavior::CloseOnClick).show(|ui| {
             ui.set_min_width(180.0);
             menu(ui);
         });
     });
     clicked
+}
+
+/// The select-style trigger: `label` followed by a painted chevron. Height 26, radius 6,
+/// `button_bg` fill. `text_color` overrides the label colour.
+pub(crate) fn chevron_trigger(ui: &mut Ui, label: &str, min_width: f32, text_color: Option<Color32>) -> Response {
+    let theme = crate::theme::Theme::current(ui.ctx());
+    let palette = theme.palette;
+    let font = TextStyle::Button.resolve(ui.style());
+    let galley = ui.painter().layout_no_wrap(label.to_owned(), font, Color32::PLACEHOLDER);
+    let width = (galley.size().x + 12.0 + 6.0 + 12.0 + 10.0).max(min_width);
+    let (rect, response) = ui.allocate_exact_size(vec2(width, 26.0), Sense::click());
+    let fill = if response.hovered() { palette.button_hover } else { palette.button_bg };
+    ui.painter().rect_filled(rect, egui::CornerRadius::same(6), fill);
+    let text = text_color.unwrap_or(palette.text);
+    ui.painter().galley(pos2(rect.left() + 12.0, rect.center().y - galley.size().y / 2.0), galley, text);
+    icons::paint(
+        ui.painter(),
+        Rect::from_center_size(pos2(rect.right() - 16.0, rect.center().y), Vec2::splat(12.0)),
+        "chevron-down",
+        palette.text_muted,
+        1.5,
+    );
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), label));
+    response.on_hover_cursor(CursorIcon::PointingHand)
+}
+
+/// One popup list row: height 28, hover fill, a check icon when selected.
+pub(crate) fn popup_row(ui: &mut Ui, label: &str, selected: bool, enabled: bool) -> Response {
+    let theme = crate::theme::Theme::current(ui.ctx());
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), if enabled { Sense::click() } else { Sense::hover() });
+    if enabled && response.hovered() {
+        ui.painter().rect_filled(rect, egui::CornerRadius::same(theme.metrics.radius as u8), theme.palette.hover);
+    }
+    let color = if enabled { theme.palette.text } else { theme.palette.text_muted };
+    if selected {
+        icons::paint(ui.painter(), Rect::from_center_size(pos2(rect.left() + 14.0, rect.center().y), Vec2::splat(13.0)), "check", color, 1.6);
+    }
+    ui.painter().text(pos2(rect.left() + 28.0, rect.center().y), Align2::LEFT_CENTER, label, TextStyle::Body.resolve(ui.style()), color);
+    response.widget_info(|| WidgetInfo::selected(WidgetType::Button, enabled, selected, label));
+    response
 }
 
 /// A searchable popup list (one line per item). Returns true when `selected` changed.
@@ -245,9 +298,8 @@ pub fn searchable_popup(
     items: &[String],
     selected: &mut Option<String>,
 ) -> bool {
-    let theme = crate::theme::Theme::current(ui.ctx());
     let base_id = Id::new(id);
-    let response = ui.add(egui::Button::new(format!("{button_label}  v")));
+    let response = chevron_trigger(ui, button_label, 0.0, None);
     let mut filter = ui.data(|data| data.get_temp::<String>(Id::new((base_id, "filter")))).unwrap_or_default();
     let mut changed = false;
     Popup::menu(&response).id(Id::new((base_id, "popup"))).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
@@ -261,8 +313,7 @@ pub fn searchable_popup(
             let needle = filter.to_ascii_lowercase();
             for item in items.iter().filter(|item| needle.is_empty() || item.to_ascii_lowercase().contains(&needle)) {
                 let is_selected = selected.as_deref() == Some(item.as_str());
-                let label = if is_selected { format!("✓  {item}") } else { format!("    {item}") };
-                if ui.add(egui::Button::new(label).selected(is_selected).frame(false).min_size(vec2(ui.available_width(), 28.0))).clicked() {
+                if popup_row(ui, item, is_selected, true).clicked() {
                     *selected = Some(item.clone());
                     changed = true;
                     ui.close();
@@ -270,7 +321,6 @@ pub fn searchable_popup(
             }
         });
     });
-    let _ = theme;
     changed
 }
 
@@ -291,7 +341,7 @@ pub fn menu_item(ui: &mut Ui, icon: Option<&str>, label: &str, shortcut: Option<
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), height), if enabled { Sense::click() } else { Sense::hover() });
     let hovered = enabled && (response.hovered() || response.has_focus());
     if hovered {
-        ui.painter().rect_filled(rect, egui::CornerRadius::same(theme.metrics.radius as u8), theme.palette.surface_sunken);
+        ui.painter().rect_filled(rect, egui::CornerRadius::same(theme.metrics.radius as u8), theme.palette.hover);
     }
     let color = if enabled { theme.palette.text } else { theme.palette.text_muted };
     let mut x = rect.left() + 10.0;
@@ -322,7 +372,7 @@ pub fn menu_item(ui: &mut Ui, icon: Option<&str>, label: &str, shortcut: Option<
 pub fn badge(ui: &mut Ui, text: &str, fg: Color32, bg: Color32) -> Response {
     let font = TextStyle::Small.resolve(ui.style());
     let galley = ui.painter().layout_no_wrap(text.to_owned(), font.clone(), fg);
-    let padding = Vec2::new(16.0, 8.0);
+    let padding = Vec2::new(16.0, 6.0);
     let size = galley.size() + padding;
     let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
     ui.painter().rect_filled(rect, egui::CornerRadius::same(6), bg);
@@ -493,15 +543,167 @@ pub fn inline_rename(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debug, te
 
 /// A borderless toolbar button showing a Lucide glyph; AccessKit gets the tooltip as its label.
 pub fn icon_button(ui: &mut Ui, icon_name: &str, tooltip: &str) -> Response {
-    let theme = crate::theme::Theme::current(ui.ctx());
-    let (rect, response) = ui.allocate_exact_size(Vec2::splat(theme.metrics.control_height), Sense::click());
-    let color = if response.hovered() { theme.palette.accent } else { theme.palette.text_muted };
-    if response.hovered() {
-        ui.painter().rect_filled(rect, 4.0, theme.palette.surface_sunken);
+    icon_button_with(ui, icon_name, tooltip, tooltip)
+}
+
+/// An icon button whose accessible `label` differs from the hover `tooltip`.
+pub fn icon_button_with(ui: &mut Ui, icon_name: &str, label: &str, tooltip: &str) -> Response {
+    icon_button_impl(ui, icon_name, label, tooltip, false)
+}
+
+/// An icon button that stays highlighted while `on` and flips it on click.
+pub fn icon_toggle(ui: &mut Ui, icon_name: &str, label: &str, tooltip: &str, on: &mut bool) -> Response {
+    let mut response = icon_button_impl(ui, icon_name, label, tooltip, *on);
+    if response.clicked() {
+        *on = !*on;
+        response.mark_changed();
     }
-    icons::paint(ui.painter(), rect.shrink(4.0), icon_name, color, 1.5);
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), tooltip));
+    let enabled = ui.is_enabled();
+    let checked = *on;
+    response.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, enabled, checked, label));
+    response
+}
+
+fn icon_button_impl(ui: &mut Ui, icon_name: &str, label: &str, tooltip: &str, on: bool) -> Response {
+    let theme = crate::theme::Theme::current(ui.ctx());
+    let enabled = ui.is_enabled();
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(theme.metrics.control_height), if enabled { Sense::click() } else { Sense::hover() });
+    let hovered = enabled && response.hovered();
+    let rounding = egui::CornerRadius::same(theme.metrics.radius as u8);
+    if on {
+        ui.painter().rect_filled(rect, rounding, theme.palette.selected);
+    } else if hovered {
+        ui.painter().rect_filled(rect, rounding, theme.palette.hover);
+    }
+    let mut color = if hovered || on { theme.palette.text } else { theme.palette.text_muted };
+    if !enabled {
+        color = color.gamma_multiply(0.5);
+    }
+    icons::paint(ui.painter(), rect.shrink(7.0), icon_name, color, 1.5);
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, label));
     response.on_hover_text(tooltip).on_hover_cursor(CursorIcon::PointingHand)
+}
+
+/// Look of a [`text_button`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ButtonKind {
+    Primary,
+    Secondary,
+    Ghost,
+    /// Destructive secondary action (Cancel): tinted danger fill and text.
+    Danger,
+}
+
+/// A compact text button with an optional leading icon. The accessible label is `label`.
+pub fn text_button(ui: &mut Ui, kind: ButtonKind, icon_name: Option<&str>, label: &str, enabled: bool) -> Response {
+    text_button_with(ui, kind, icon_name, label, enabled, ButtonOptions::default())
+}
+
+/// Tweaks for [`text_button_with`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ButtonOptions {
+    /// Height override (default: the theme's control height).
+    pub height: Option<f32>,
+    /// Use the small text style (bottom bar).
+    pub small: bool,
+    /// Paint the `selected` fill (a toggled panel).
+    pub selected: bool,
+    /// Text/icon colour override for the resting state.
+    pub color: Option<Color32>,
+}
+
+/// [`text_button`] with [`ButtonOptions`].
+pub fn text_button_with(ui: &mut Ui, kind: ButtonKind, icon_name: Option<&str>, label: &str, enabled: bool, options: ButtonOptions) -> Response {
+    let theme = crate::theme::Theme::current(ui.ctx());
+    let font = if options.small { TextStyle::Small } else { TextStyle::Button }.resolve(ui.style());
+    let galley = ui.painter().layout_no_wrap(label.to_owned(), font, Color32::PLACEHOLDER);
+    let width = galley.size().x + 20.0 + if icon_name.is_some() { 20.0 } else { 0.0 };
+    let height = options.height.unwrap_or(theme.metrics.control_height);
+    let (rect, response) = ui.allocate_exact_size(vec2(width, height), if enabled { Sense::click() } else { Sense::hover() });
+    let hovered = enabled && response.hovered();
+    let palette = theme.palette;
+    let rounding = egui::CornerRadius::same(theme.metrics.radius as u8);
+    let (fill, stroke, text) = match kind {
+        ButtonKind::Primary => (if hovered { palette.accent_fill_hover } else { palette.accent_fill }, Stroke::NONE, palette.on_accent),
+        ButtonKind::Secondary => {
+            (if hovered { palette.button_hover } else { palette.button_bg }, Stroke::new(1.0, palette.border), options.color.unwrap_or(palette.text))
+        }
+        ButtonKind::Danger => (palette.danger.gamma_multiply(if hovered { 0.2 } else { 0.12 }), Stroke::NONE, palette.danger),
+        ButtonKind::Ghost => {
+            let fill = if hovered {
+                palette.hover
+            } else if options.selected {
+                palette.selected
+            } else {
+                Color32::TRANSPARENT
+            };
+            let text = if hovered || options.selected { palette.text } else { options.color.unwrap_or(palette.text_muted) };
+            (fill, Stroke::NONE, text)
+        }
+    };
+    let text = if enabled { text } else { palette.text_muted.gamma_multiply(0.6) };
+    let fill = if !enabled && kind != ButtonKind::Ghost { palette.button_bg } else { fill };
+    ui.painter().rect(rect, rounding, fill, stroke, StrokeKind::Inside);
+    let mut x = rect.left() + 10.0;
+    if let Some(name) = icon_name {
+        let icon_rect = Rect::from_center_size(pos2(rect.left() + 8.0 + 7.0, rect.center().y), Vec2::splat(14.0));
+        icons::paint(ui.painter(), icon_rect, name, text, 1.5);
+        x += 20.0;
+    }
+    ui.painter().galley(pos2(x, rect.center().y - galley.size().y / 2.0), galley, text);
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, label));
+    if enabled { response.on_hover_cursor(CursorIcon::PointingHand) } else { response }
+}
+
+/// A pill-style sub tab (request builder and response viewer): selected tabs fill with
+/// `selected`; `count` and `dot` annotate the label. The accessible label is `label`.
+pub fn sub_tab(ui: &mut Ui, label: &str, selected: bool, count: Option<usize>, dot: bool) -> Response {
+    sub_tab_sized(ui, label, selected, count, dot, SUB_TAB_HEIGHT)
+}
+
+/// [`sub_tab`] with an explicit height (the body toolbar uses a shorter one).
+pub fn sub_tab_sized(ui: &mut Ui, label: &str, selected: bool, count: Option<usize>, dot: bool, height: f32) -> Response {
+    let theme = crate::theme::Theme::current(ui.ctx());
+    let palette = theme.palette;
+    let font = TextStyle::Body.resolve(ui.style());
+    let small = TextStyle::Small.resolve(ui.style());
+    let galley = ui.painter().layout_no_wrap(label.to_owned(), font, Color32::PLACEHOLDER);
+    let count_galley = count.filter(|count| *count > 0).map(|count| ui.painter().layout_no_wrap(count.to_string(), small, Color32::PLACEHOLDER));
+    let mut width = galley.size().x + 20.0;
+    if let Some(count) = &count_galley {
+        width += count.size().x + 5.0;
+    }
+    if dot {
+        width += 11.0;
+    }
+    let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
+    let hovered = response.hovered();
+    let rounding = egui::CornerRadius::same(theme.metrics.radius as u8);
+    if selected {
+        ui.painter().rect_filled(rect, rounding, palette.selected);
+    } else if hovered {
+        ui.painter().rect_filled(rect, rounding, palette.hover);
+    }
+    let text = if selected { palette.text } else { palette.text_muted };
+    let mut x = rect.left() + 10.0;
+    let label_width = galley.size().x;
+    ui.painter().galley(pos2(x, rect.center().y - galley.size().y / 2.0), galley, text);
+    x += label_width;
+    if let Some(count) = count_galley {
+        x += 5.0;
+        let count_width = count.size().x;
+        ui.painter().galley(pos2(x, rect.center().y - count.size().y / 2.0), count, palette.text_muted);
+        x += count_width;
+    }
+    if dot {
+        ui.painter().circle_filled(pos2(x + 8.0, rect.center().y), 3.0, palette.success);
+    }
+    let accessible = match count.filter(|count| *count > 0) {
+        Some(count) => format!("{label} {count}"),
+        None => label.to_string(),
+    };
+    response.widget_info(|| WidgetInfo::selected(WidgetType::Button, ui.is_enabled(), selected, &accessible));
+    response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
 /// Readable text on a filled colour (white on accent/danger, dark on light fills).
