@@ -149,3 +149,21 @@ fn the_quick_look_groups_mask_secrets_and_copy_values() {
     harness.get_by_label_contains("region").click();
     harness.run();
 }
+
+#[test]
+fn an_environment_without_variables_shows_an_empty_row_that_creates_one_when_typed_in() {
+    let mut harness = harness(false);
+    harness.state_mut().environment.variables.clear();
+    harness.run();
+    // Name, search, then the empty row's Variable and Value cells.
+    let cells = harness.get_all_by_role(egui::accesskit::Role::TextInput).count();
+    assert!(cells >= 4, "the empty row is drawn ({cells} text inputs)");
+    harness.get_all_by_role(egui::accesskit::Role::TextInput).nth(2).expect("variable cell").click();
+    harness.get_all_by_role(egui::accesskit::Role::TextInput).nth(2).expect("variable cell").type_text("host");
+    harness.run();
+    let variables = &harness.state().environment.variables;
+    assert_eq!(variables.len(), 1);
+    assert_eq!(variables[0].key, "host");
+    assert!(variables[0].enabled);
+    assert_eq!(harness.state().last, Some(EnvironmentAction::Save));
+}

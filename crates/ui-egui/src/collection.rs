@@ -235,86 +235,11 @@ impl CollectionDetail<'_> {
 }
 
 fn variable_table(ui: &mut Ui, variables: &mut Vec<Variable>, search: &mut String) -> bool {
-    let theme = Theme::current(ui.ctx());
-    let mut changed = false;
     ui.add(egui::TextEdit::singleline(search).hint_text("Search variables…").desired_width(220.0));
-    ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.add_space(24.0);
-            ui.add_sized([190.0, 18.0], egui::Label::new(RichText::new("VARIABLE").small().color(theme.palette.text_muted)));
-            ui.add_sized([220.0, 18.0], egui::Label::new(RichText::new("VALUE").small().color(theme.palette.text_muted)));
-            ui.add_sized([150.0, 18.0], egui::Label::new(RichText::new("DESCRIPTION").small().color(theme.palette.text_muted)));
-            ui.add_sized([50.0, 18.0], egui::Label::new(RichText::new("SECRET").small().color(theme.palette.text_muted)));
-        });
-        ui.separator();
-        let needle = search.trim().to_ascii_lowercase();
-        let mut remove = None;
-        for (index, variable) in variables.iter_mut().enumerate() {
-            if !needle.is_empty() && !variable.key.to_ascii_lowercase().contains(&needle) && !variable.value.to_ascii_lowercase().contains(&needle) {
-                continue;
-            }
-            ui.horizontal(|ui| {
-                if widgets::compact_checkbox(ui, &mut variable.enabled).changed() {
-                    changed = true;
-                }
-                if ui.add(egui::TextEdit::singleline(&mut variable.key).hint_text("Name").desired_width(186.0).frame(egui::Frame::NONE)).changed() {
-                    changed = true;
-                }
-                if ui
-                    .add(
-                        egui::TextEdit::singleline(&mut variable.value)
-                            .password(variable.secret)
-                            .hint_text("Value")
-                            .desired_width(216.0)
-                            .frame(egui::Frame::NONE),
-                    )
-                    .changed()
-                {
-                    changed = true;
-                }
-                if ui
-                    .add(egui::TextEdit::singleline(&mut variable.description).hint_text("Description").desired_width(146.0).frame(egui::Frame::NONE))
-                    .changed()
-                {
-                    changed = true;
-                }
-                let secret = ui.add(egui::Button::new(if variable.secret { "on" } else { "off" }).frame(false).small());
-                if secret.clicked() {
-                    variable.secret = !variable.secret;
-                    changed = true;
-                }
-                if widgets::icon_button(ui, "x", "Delete variable").clicked() {
-                    remove = Some(index);
-                }
-            });
-            ui.separator();
-        }
-        if let Some(index) = remove {
-            variables.remove(index);
-            changed = true;
-        }
-        let key_id = egui::Id::new("detail-new-key");
-        let value_id = egui::Id::new("detail-new-value");
-        let mut key = ui.data(|data| data.get_temp::<String>(key_id)).unwrap_or_default();
-        let mut value = ui.data(|data| data.get_temp::<String>(value_id)).unwrap_or_default();
-        let key_response = ui.add(egui::TextEdit::singleline(&mut key).hint_text("+ Add variable").desired_width(186.0).frame(egui::Frame::NONE));
-        let value_response = ui.add(egui::TextEdit::singleline(&mut value).hint_text("Value").desired_width(216.0).frame(egui::Frame::NONE));
-        if key_response.changed() {
-            ui.data_mut(|data| data.insert_temp(key_id, key.clone()));
-        }
-        if value_response.changed() {
-            ui.data_mut(|data| data.insert_temp(value_id, value.clone()));
-        }
-        if !key.trim().is_empty() && (key_response.lost_focus() || value_response.lost_focus()) {
-            variables.push(Variable { key: key.trim().to_string(), value, enabled: true, ..Variable::default() });
-            ui.data_mut(|data| {
-                data.insert_temp(key_id, String::new());
-                data.insert_temp(value_id, String::new());
-            });
-            changed = true;
-        }
-    });
-    changed
+    ui.add_space(6.0);
+    let needle = search.trim().to_ascii_lowercase();
+    let grid = widgets::VariableGrid { salt: "collection-variables", show_description: true, reveal: false, search: &needle };
+    ScrollArea::vertical().max_height(420.0).show(ui, |ui| widgets::variable_table(ui, variables, &grid)).inner
 }
 
 fn counts(items: &[Item]) -> (usize, usize) {

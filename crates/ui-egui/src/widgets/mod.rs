@@ -11,7 +11,7 @@ pub mod timeline;
 
 pub use editor::{CodeEditor, CodeLanguage, LargeTextView};
 pub use field::{variable_field, variable_field_frameless, variable_field_with, variable_spans};
-pub use table::{TableResponse, TableVariant, automatic_rows, key_value_table};
+pub use table::{TableResponse, TableVariant, VariableGrid, automatic_rows, key_value_table, variable_table};
 pub use timeline::{MessageDirection, Timeline, TimelineEntry};
 
 use egui::{
