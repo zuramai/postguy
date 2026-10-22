@@ -55,8 +55,7 @@ fn cell_edit(ui: &mut Ui, id: egui::Id, rect: egui::Rect, text: &mut String, hin
         .id(id)
         .hint_text(hint)
         .font(egui::TextStyle::Body)
-        .frame(egui::Frame::NONE)
-        .margin(egui::Margin::symmetric(8, 4))
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 4)))
         .vertical_align(egui::Align::Center)
         .min_size(rect.size())
         .desired_width(rect.width());

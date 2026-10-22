@@ -105,7 +105,10 @@ fn variable_field_impl(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str,
         TextEdit::singleline(text).id(id).hint_text(hint).margin(egui::Margin::symmetric(10, 6)).desired_width(f32::INFINITY).layouter(&mut layouter);
     if !frame {
         // Embedded in a container that draws the border (the URL bar): fill its height.
-        edit = edit.frame(egui::Frame::NONE).min_size(egui::vec2(0.0, theme.metrics.url_height)).vertical_align(egui::Align::Center);
+        edit = edit
+            .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(10, 6)))
+            .min_size(egui::vec2(0.0, theme.metrics.url_height))
+            .vertical_align(egui::Align::Center);
     }
     let output = edit.show(ui);
     let response = output.response.response.clone();
