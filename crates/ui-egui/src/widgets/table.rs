@@ -146,6 +146,9 @@ pub fn key_value_table(ui: &mut Ui, rows: &mut Vec<KeyValue>, variant: TableVari
                     }
                     crate::icons::paint(ui.painter(), pill.shrink(6.0), "x", if delete.hovered() { palette.text } else { palette.text_muted }, 1.5);
                 }
+                if delete.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
                 delete.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "x"));
                 if delete.clicked() {
                     remove_index = Some(index);
@@ -364,6 +367,11 @@ pub fn variable_table(ui: &mut Ui, variables: &mut Vec<Variable>, grid: &Variabl
                             if delete.hovered() { palette.text } else { palette.text_muted },
                             1.5,
                         );
+                    }
+                    if delete.hovered() || secret.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    } else if handle.hovered() || handle.dragged() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                     }
                     delete.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Delete variable"));
                     handle.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Reorder variable"));

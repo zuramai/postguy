@@ -239,6 +239,9 @@ pub fn split_button(ui: &mut Ui, main_label: &str, on_main: impl FnOnce(), menu:
             Stroke::new(1.0, palette.on_accent.gamma_multiply(0.35)),
         );
         icons::paint(ui.painter(), Rect::from_center_size(caret_rect.center(), Vec2::splat(14.0)), "chevron-down", palette.on_accent, 1.5);
+        if main.hovered() || caret.hovered() {
+            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+        }
         main.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, main_label));
         caret.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, "Send options"));
         if main.clicked() {
@@ -520,7 +523,7 @@ pub enum RenameAction {
 /// caller should stop drawing conflicting interactions for that row.
 pub fn inline_rename(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debug, text: &mut String, state: &mut InlineRename) -> RenameAction {
     if !state.editing {
-        let response = ui.add(egui::Label::new(text.as_str()).sense(Sense::click()));
+        let response = ui.add(egui::Label::new(text.as_str()).sense(Sense::click())).on_hover_cursor(CursorIcon::PointingHand);
         if response.double_clicked() {
             state.editing = true;
             state.buffer = text.clone();

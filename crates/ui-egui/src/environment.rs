@@ -100,7 +100,7 @@ impl EnvironmentEditor<'_> {
         let color = self.environment.color.as_deref().and_then(parse_hex).unwrap_or(theme.palette.accent);
         let (rect, response) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::click());
         ui.painter().circle_filled(rect.center(), 6.0, color);
-        response.clone().on_hover_text("Environment colour");
+        response.clone().on_hover_text("Environment colour").on_hover_cursor(egui::CursorIcon::PointingHand);
         egui::Popup::menu(&response).close_behavior(egui::PopupCloseBehavior::CloseOnClick).show(|ui| {
             ui.set_min_width(150.0);
             ui.horizontal_wrapped(|ui| {
@@ -111,6 +111,7 @@ impl EnvironmentEditor<'_> {
                 }
                 for candidate in ["#2F6FEB", "#1F9D55", "#B7791F", "#D64545", "#7C5CC4", "#2B9C8F", "#C2549B"] {
                     let (dot, response) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
+                    response.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
                     ui.painter().circle_filled(dot.center(), 7.0, parse_hex(candidate).unwrap_or(theme.palette.accent));
                     if response.clicked() {
                         self.environment.color = Some(candidate.to_string());

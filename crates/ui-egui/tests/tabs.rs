@@ -284,3 +284,17 @@ fn the_environment_selector_reports_activation() {
     harness.run();
     assert_eq!(harness.state().last_action, Some(TabAction::SetActiveEnvironment(Some("env2".into()))));
 }
+
+#[test]
+fn hovering_a_tab_or_its_close_button_shows_the_pointing_hand() {
+    let mut harness = harness();
+    harness.state_mut().tabs.open(doc("a"), "Alpha");
+    harness.state_mut().tabs.open(doc("b"), "Beta");
+    harness.run();
+    harness.get_by_label("Alpha").hover();
+    harness.run();
+    assert_eq!(harness.output().platform_output.cursor_icon, egui::CursorIcon::PointingHand, "the tab");
+    harness.get_by_label("Close Beta").hover();
+    harness.run();
+    assert_eq!(harness.output().platform_output.cursor_icon, egui::CursorIcon::PointingHand, "the close button");
+}

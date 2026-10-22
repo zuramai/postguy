@@ -383,6 +383,9 @@ impl PostguyShell {
                 if right - left >= 80.0 {
                     let search_rect = egui::Rect::from_min_max(egui::pos2(left, rect.center().y - 14.0), egui::pos2(right, rect.center().y + 14.0));
                     let search = ui.interact(search_rect, egui::Id::new("header-search"), egui::Sense::click());
+                    if search.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
                     let border = if search.hovered() { palette.input_border_hover } else { palette.input_border };
                     ui.painter().rect(
                         search_rect,

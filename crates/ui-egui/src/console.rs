@@ -112,6 +112,9 @@ pub fn console_view(ui: &mut Ui, rows: &[ConsoleRow], state: &mut ConsoleState) 
                     _ => theme.palette.text,
                 };
                 let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), row_height), Sense::click());
+                if response.hovered() && row.detail.is_some() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
                 response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &row.message));
                 if response.clicked() && row.detail.is_some() {
                     state.expanded = if state.expanded == Some(row.id) { None } else { Some(row.id) };

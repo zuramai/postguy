@@ -660,8 +660,14 @@ fn draw_tab(ui: &mut Ui, theme: &Theme, tab: &Tab, active: bool) -> DrawnTab {
             let tint = if close_response.hovered() { palette.text } else { palette.text_muted };
             crate::icons::paint(ui.painter(), egui::Rect::from_center_size(close.center(), egui::Vec2::splat(12.0)), "x", tint, 1.6);
         }
+        if close_response.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
         close_response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Close {}", tab.title)));
         close_clicked = close_response.clicked();
+    }
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, &tab.title));
     DrawnTab { response, close_clicked }

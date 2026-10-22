@@ -105,6 +105,9 @@ impl Timeline {
                 let expanded_key = egui::Id::new((self.id, "expanded", index));
                 let expanded = ui.data(|data| data.get_temp::<bool>(expanded_key).unwrap_or(false));
                 let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), row_height), Sense::click());
+                if response.hovered() && entry.detail.is_some() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
                 if response.clicked() && entry.detail.is_some() {
                     ui.data_mut(|data| data.insert_temp(expanded_key, !expanded));
                 }

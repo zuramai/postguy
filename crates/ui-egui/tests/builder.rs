@@ -237,3 +237,14 @@ fn the_docs_tab_edits_the_description_and_marks_dirty() {
     assert!(harness.state().description.contains("endpoint"));
     assert!(harness.state().dirty);
 }
+
+#[test]
+fn the_send_button_and_the_request_tabs_show_the_pointing_hand() {
+    let mut harness = harness();
+    harness.run();
+    for label in ["Send", "Send options", "Params", "Authorization", "Body"] {
+        harness.get_by_label(label).hover();
+        harness.run();
+        assert_eq!(harness.output().platform_output.cursor_icon, egui::CursorIcon::PointingHand, "{label}");
+    }
+}
