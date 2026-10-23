@@ -1,7 +1,7 @@
 # Release packaging
 
-`.github/workflows/release.yml` runs on pushes to the `release` branch (or by hand with an
-optional version override) and calls the shared `storytold/craft-common-actions` release workflow,
+`.github/workflows/release.yml` runs when a `v*` tag is pushed (the tag names the version) or by hand with an
+optional version override and calls the shared `storytold/craft-common-actions` release workflow,
 which runs the scripts in this folder:
 
 | Platform | Script | Artifacts in `dist/release/` |
@@ -20,6 +20,9 @@ Signing secrets (set in the repository's `release` environment): `APPLE_CERTIFIC
 `APPLE_CERTIFICATE_PASSWORD`, `KEYCHAIN_PASSWORD`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`;
 `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_SIGNING_ENDPOINT`,
 `AZURE_SIGNING_ACCOUNT`, `AZURE_CERT_PROFILE` (or `WINDOWS_CERTIFICATE` and
-`WINDOWS_CERTIFICATE_PASSWORD`). Outside the `release` branch the scripts warn and ship unsigned.
+`WINDOWS_CERTIFICATE_PASSWORD`). Without them the scripts warn and ship unsigned (ad-hoc signed on macOS), which works because
+the workflow only requires the secrets on the `release` branch, and this one does not run there.
+The workflow creates a draft GitHub Release `v<version>`; publish it by hand. The `release`
+environment must exist (Settings, Environments), even with no secrets in it.
 
 Icons are derived at packaging time from `assets/logo`; no generated icon is committed.

@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    branches: [release]
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       version:
@@ -26,7 +26,8 @@ jobs:
       app-title: Postguy
       # postguy embeds its own Poppins files (assets/fonts); it uses neither craft-fonts nor craft-i18n.
       craft-fonts-ref: ""
-      version: ${{ inputs.version }}
+      # A pushed tag v1.2.3 releases 1.2.3 (the version is applied to Cargo.toml in the build).
+      version: ${{ inputs.version || (startsWith(github.ref, 'refs/tags/v') && github.ref_name || '') }}
       # macOS universal, Windows x64/x86/ARM64 MSI, Linux x86_64/aarch64 (AppImage, deb, rpm, tar.gz).
       # Not built: WebAssembly (AGENTS.md: no web build), riscv64, FreeBSD, Arch.
       has-web: false
