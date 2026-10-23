@@ -1,5 +1,8 @@
 name: Release
 
+# Builds the packages for every platform and attaches them to a DRAFT GitHub Release v<version>.
+# Push a tag v1.2.3 (do not create the release by hand: the workflow creates the draft) or run it
+# manually with a version. Signing secrets are optional; without them builds ship unsigned.
 on:
   push:
     tags: ["v*"]
@@ -11,41 +14,281 @@ on:
         default: ""
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
 jobs:
+  version:
+    name: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      override: ${{ steps.v.outputs.override }}
+      date: ${{ steps.v.outputs.date }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: v
+        name: Resolve version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          . packaging/env.sh
+          # A pushed tag v1.2.3 names the version; a manual run may override it.
+          override="$INPUT_VERSION"
+          if [ -z "$override" ] && [ "$GITHUB_REF_TYPE" = "tag" ]; then override="$GITHUB_REF_NAME"; fi
+          override="${override#v}"
+          v="${override:-$VERSION}"
+          if ! printf '%s' "$v" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'; then
+            echo "::error::'$v' is not a version like 1.2.3 or 1.2.3-rc.1"
+            exit 1
+          fi
+          case "$v" in *-*) pre=true ;; *) pre=false ;; esac
+          {
+            echo "version=$v"
+            echo "override=$override"
+            echo "date=$(date -u +%Y-%m-%d)"
+            echo "prerelease=$pre"
+          } >>"$GITHUB_OUTPUT"
+          printf '### Postguy v%s (`%s`)\n' "$v" "${GITHUB_SHA::9}" >>"$GITHUB_STEP_SUMMARY"
+
+  macos:
+    name: macOS universal
+    needs: [version]
+    # The standard (free on public repositories) Apple Silicon runner; the universal build
+    # cross-compiles x86_64 on it.
+    runs-on: macos-15
+    timeout-minutes: 90
+    environment: release
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      BUILD_DATE: ${{ needs.version.outputs.date }}
+      BUILD_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release-macos-universal
+      - name: Apply version override
+        if: needs.version.outputs.override != ''
+        run: cargo xtask version set "$VERSION"
+      - name: Import signing certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: packaging/macos/import-cert.sh
+      - name: Build, sign, notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: packaging/macos/package.sh --arch universal
+      - name: Verify signatures and notarization
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: packaging/macos/verify.sh --arch universal
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-macos
+          path: dist/release/*
+          if-no-files-found: error
+      - name: Remove temporary keychain
+        if: always()
+        run: |
+          if [ -n "${MACOS_KEYCHAIN:-}" ]; then security delete-keychain "$MACOS_KEYCHAIN" || true; fi
+
+  windows:
+    name: Windows ${{ matrix.arch }}
+    needs: [version]
+    runs-on: windows-latest
+    timeout-minutes: 90
+    environment: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64, target: x86_64-pc-windows-msvc }
+          - { arch: x86, target: i686-pc-windows-msvc }
+          - { arch: arm64, target: aarch64-pc-windows-msvc }
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      BUILD_DATE: ${{ needs.version.outputs.date }}
+      BUILD_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release-windows-${{ matrix.arch }}
+      - name: Apply version override
+        if: needs.version.outputs.override != ''
+        shell: bash
+        run: cargo xtask version set "$VERSION"
+      - name: Install WiX
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g "WixToolset.UI.wixext/5.0.2" "WixToolset.Util.wixext/5.0.2"
+      - name: Build, sign, package
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
+        run: ./packaging/windows/package.ps1 -Arch ${{ matrix.arch }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-windows-${{ matrix.arch }}
+          path: dist/release/*
+          if-no-files-found: error
+
+  linux:
+    name: Linux ${{ matrix.arch }}
+    needs: [version]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-22.04, deb: amd64 }
+          - { arch: aarch64, runner: ubuntu-22.04-arm, deb: arm64 }
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      BUILD_DATE: ${{ needs.version.outputs.date }}
+      BUILD_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Build libraries, AppImage and appstream tools, and nfpm (checksum-verified there).
+      - uses: storytold/craft-common-actions/actions/install-linux-deps@main
+        with:
+          deb-arch: ${{ matrix.deb }}
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release-linux-${{ matrix.arch }}
+      - name: Apply version override
+        if: needs.version.outputs.override != ''
+        run: cargo xtask version set "$VERSION"
+      - name: Build and package (AppImage, deb, rpm, tar.gz)
+        run: packaging/linux/package.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-linux-${{ matrix.arch }}
+          path: dist/release/*
+          if-no-files-found: error
+
+  flatpak:
+    name: Flatpak ${{ matrix.arch }}
+    needs: [version, linux]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-24.04 }
+          - { arch: aarch64, runner: ubuntu-24.04-arm }
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      BUILD_DATE: ${{ needs.version.outputs.date }}
+      BUILD_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-linux-${{ matrix.arch }}
+          path: dist/linux
+      - name: Install flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder librsvg2-common
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Build the Flatpak bundle
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          shopt -s nullglob
+          # The app's own tarball, not the CLI one (postguy-cli-*).
+          tarballs=()
+          for f in dist/linux/*-"${VERSION}"-linux-"${ARCH}".tar.gz; do
+            case "${f##*/}" in *-cli-*) ;; *) tarballs+=("$f") ;; esac
+          done
+          if [ "${#tarballs[@]}" -ne 1 ]; then
+            echo "::error::expected one app tarball for ${VERSION} (${ARCH}), found ${#tarballs[@]}: ${tarballs[*]}"
+            exit 1
+          fi
+          packaging/linux/flatpak-bundle.sh "${tarballs[0]}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-flatpak-${{ matrix.arch }}
+          path: dist/release/*.flatpak
+          if-no-files-found: error
+
   release:
-    # Tracked at @main (not SHA-pinned), like the other apps, so shared CI improvements propagate.
-    uses: storytold/craft-common-actions/.github/workflows/release.yml@main
-    with:
-      app-name: postguy
-      app-title: Postguy
-      # postguy embeds its own Poppins files (assets/fonts); it uses neither craft-fonts nor craft-i18n.
-      craft-fonts-ref: ""
-      # A pushed tag v1.2.3 releases 1.2.3 (the version is applied to Cargo.toml in the build).
-      version: ${{ inputs.version || (startsWith(github.ref, 'refs/tags/v') && github.ref_name || '') }}
-      # macOS universal, Windows x64/x86/ARM64 MSI, Linux x86_64/aarch64 (AppImage, deb, rpm, tar.gz).
-      # Not built: WebAssembly (AGENTS.md: no web build), riscv64, FreeBSD, Arch.
-      has-web: false
-      has-riscv64: false
-      has-freebsd: false
-      has-arch: false
-    secrets:
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-      AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
-      AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
-      AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
+    name: Draft GitHub Release
+    needs: [version, macos, windows, linux, flatpak]
+    if: "!cancelled() && !contains(needs.*.result, 'failure')"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: artifacts
+          merge-multiple: true
+      - name: Create or update the draft release
+        working-directory: artifacts
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sha256sum -- * | tee SHA256SUMS.txt
+          tag="v$VERSION"
+          title="Postguy v$VERSION"
+          pre=()
+          if [ "$PRERELEASE" = "true" ]; then pre=(--prerelease); fi
+          if draft="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [ "$draft" != "true" ]; then
+              echo "::error::Release $tag is already published. Delete it (and push only the tag), or use a new version."
+              exit 1
+            fi
+            gh release view "$tag" --json assets --jq '.assets[].name' | while read -r asset; do
+              gh release delete-asset "$tag" "$asset" --yes
+            done
+            gh release edit "$tag" --draft --title "$title" --target "$GITHUB_SHA" --prerelease="$PRERELEASE"
+            gh release upload "$tag" --clobber -- *
+          else
+            gh release create "$tag" --draft --title "$title" --target "$GITHUB_SHA" --generate-notes "${pre[@]}" -- *
+          fi
