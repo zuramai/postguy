@@ -354,3 +354,14 @@ fn resolve_variables_uses_the_active_environment_and_globals() {
     let resolution = engine.resolve_variables("{{name}} {{edition}} {{nope}}").expect("resolve");
     assert_eq!(resolution.text, "postguy desktop {{nope}}");
 }
+
+#[test]
+fn global_follow_redirects_off_returns_the_redirect() {
+    let server = Server::start();
+    let fixture = Fixture::new();
+    let engine = fixture.engine();
+    engine.update_settings(postguy_model::Settings { follow_redirects: false, ..engine.settings() }).expect("settings");
+    let request = HttpRequest { method: HttpMethod::Get, url: format!("{}/redirect?to=/echo&code=302", server.base_url()), ..HttpRequest::default() };
+    let outcome = engine.send(inline(request), SendOptions::default()).expect("send");
+    assert_eq!(outcome.response.status, 302);
+}

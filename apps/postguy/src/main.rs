@@ -288,6 +288,7 @@ impl App {
                 app.shell.settings_value = app.engine.as_ref().map(|engine| engine.settings()).unwrap_or_default();
                 app.refresh();
                 app.restore_session();
+                app.shell.state.theme_mode = theme_mode_for(app.shell.settings_value.theme);
                 app
             }
             Err(message) => {
@@ -560,13 +561,14 @@ impl App {
                 Ok(serde_json::json!({"ok": true, "key": key, "value": open}))
             }
             "theme" => {
-                let mode = match value.as_str() {
-                    Some("light") => ThemeMode::Light,
-                    Some("dark") => ThemeMode::Dark,
-                    Some("system") => ThemeMode::System,
+                let theme = match value.as_str() {
+                    Some("light") => postguy_model::Theme::Light,
+                    Some("dark") => postguy_model::Theme::Dark,
+                    Some("system") => postguy_model::Theme::System,
                     _ => return Err("`theme` is light, dark or system".into()),
                 };
-                self.shell.state.theme_mode = mode;
+                self.shell.settings_value.theme = theme;
+                self.apply_settings(SettingsAction::Save);
                 Ok(serde_json::json!({"ok": true, "theme": value}))
             }
             "url" => {
@@ -1184,11 +1186,8 @@ impl App {
             self.shell.sidebar_state.section_heights = stored.sidebar_heights;
         }
         self.shell.sidebar_state.sections = stored.sidebar_sections;
-        self.shell.state.theme_mode = match stored.theme.as_str() {
-            "light" => ThemeMode::Light,
-            "dark" => ThemeMode::Dark,
-            _ => ThemeMode::System,
-        };
+        // The theme lives in Settings, not in the session file.
+        self.shell.state.theme_mode = theme_mode_for(self.shell.settings_value.theme);
         if !stored.clean_exit {
             self.shell.state.status = "Session restored after an unexpected exit".into();
         }
@@ -2355,18 +2354,17 @@ impl App {
     }
 
     fn apply_settings(&mut self, action: SettingsAction) {
-        let Some(engine) = self.engine.clone() else { return };
+        let Some(engine) = self.engine.clone() else {
+            self.shell.state.status = "Settings could not be saved: the workspace engine is not running".into();
+            return;
+        };
         if action == SettingsAction::ResetSettings {
             self.shell.settings_value = postguy_model::Settings::default();
         }
         let settings = self.shell.settings_value.clone();
         match engine.update_settings(settings.clone()) {
             Ok(()) => {
-                self.shell.state.theme_mode = match settings.theme {
-                    postguy_model::Theme::System => ThemeMode::System,
-                    postguy_model::Theme::Light => ThemeMode::Light,
-                    postguy_model::Theme::Dark => ThemeMode::Dark,
-                };
+                self.shell.state.theme_mode = theme_mode_for(settings.theme);
                 self.shell.state.status = "Settings saved".into();
             }
             Err(err) => self.shell.state.status = format!("Settings save failed: {err}"),
@@ -2577,6 +2575,15 @@ impl App {
                 self.shell.state.status = format!("Reopened {doc:?}");
             }
         }
+    }
+}
+
+/// The shell's theme mode for a stored Settings theme.
+fn theme_mode_for(theme: postguy_model::Theme) -> ThemeMode {
+    match theme {
+        postguy_model::Theme::System => ThemeMode::System,
+        postguy_model::Theme::Light => ThemeMode::Light,
+        postguy_model::Theme::Dark => ThemeMode::Dark,
     }
 }
 

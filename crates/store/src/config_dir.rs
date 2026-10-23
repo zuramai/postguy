@@ -21,8 +21,8 @@ pub fn load_settings(paths: &crate::paths::StorePaths) -> Result<ConfigOutcome> 
         }
         Err(other) => return Err(other),
     };
-    match serde_json::from_slice::<TolerantSettings>(&bytes) {
-        Ok(tolerant) => Ok(ConfigOutcome { settings: tolerant.settings, quarantined_to: None }),
+    match serde_json::from_slice::<Settings>(&bytes) {
+        Ok(settings) => Ok(ConfigOutcome { settings, quarantined_to: None }),
         Err(_parse_err) => {
             let quarantined_to = crate::workspace_file::quarantine(&path)?;
             let note = format!("settings file corrupt; moved to {}", quarantined_to.display());
@@ -69,13 +69,6 @@ pub fn save_session(paths: &crate::paths::StorePaths, session: &SessionFile) -> 
     let bytes =
         serde_json::to_vec_pretty(session).map_err(|err| postguy_util::Error::JsonSyntax { what: "serializing session".to_string(), source: err })?;
     atomic_write(&paths.session_file(), &bytes)
-}
-
-/// The tolerant read: unknown fields ride along; `#[serde(default)]` everywhere like the
-/// model's settings.
-#[derive(Deserialize)]
-struct TolerantSettings {
-    settings: Settings,
 }
 
 #[cfg(test)]

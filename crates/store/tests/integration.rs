@@ -15,6 +15,27 @@ fn sample_collection(name: &str) -> Collection {
 }
 
 #[test]
+fn settings_round_trip_through_save_and_load() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let paths = fresh_paths(dir.path());
+    let settings = postguy_model::Settings { editor_font_size: 15.5, theme: postguy_model::Theme::Dark, ..Default::default() };
+    config_dir::save_settings(&paths, &settings)?;
+    let loaded = config_dir::load_settings(&paths)?;
+    assert!(loaded.quarantined_to.is_none(), "a file we just wrote is not corrupt");
+    assert_eq!(loaded.settings.editor_font_size, 15.5);
+    assert_eq!(loaded.settings.theme, postguy_model::Theme::Dark);
+
+    // An unknown key written by a newer version survives a load and save.
+    let mut value: serde_json::Value = serde_json::from_slice(&std::fs::read(paths.settings_file())?)?;
+    value["futureKey"] = serde_json::json!(1);
+    std::fs::write(paths.settings_file(), serde_json::to_vec(&value)?)?;
+    let reloaded = config_dir::load_settings(&paths)?;
+    assert!(reloaded.quarantined_to.is_none());
+    assert_eq!(reloaded.settings.extras.get("futureKey"), Some(&serde_json::json!(1)));
+    Ok(())
+}
+
+#[test]
 fn the_full_store_story_round_trips() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let paths = fresh_paths(dir.path());

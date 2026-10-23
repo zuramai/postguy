@@ -330,9 +330,9 @@ title = "Per-request Settings tab (HTTP version, redirects, size, timeout...)"
 area = "C"
 tier = "P1"
 status = "shipped"
-notes = "Per-request HTTP version, SSL verification, redirects/method/auth rules, redirect cap, timeout and max response size, with tests."
+notes = "Per-request HTTP version, SSL verification, redirects/method/auth rules, redirect cap, timeout and max response size, with tests. The global Settings (SSL verification, redirects, timeout, size cap, cookies) apply to requests that keep the per-request defaults."
 
-evidence = ["crates/ui-egui/tests/builder.rs::settings_toggles_persist_into_the_request_settings"]
+evidence = ["crates/ui-egui/tests/builder.rs::settings_toggles_persist_into_the_request_settings", "crates/engine/src/lib.rs::effective_settings_apply_global_defaults"]
 [[feature]]
 id = "c.response-viewer"
 title = "Response viewer: Pretty/Raw/Preview/Hex, strip chips"
