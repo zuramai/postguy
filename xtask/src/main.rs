@@ -29,7 +29,7 @@ const COMMANDS: &[(&str, &str, Command)] = &[
     ("logo", "Rasterize assets/logo/postguy.svg into the packaging PNG sizes (--check verifies)", logo::run),
     ("fuzz", "Mutation-fuzz the parsers and importers in child processes; findings in fuzz-out/ (--time 300)", fuzz::run),
     ("screenshots", "Regenerate the docs screenshots from our own UI with demo data", screenshots::run),
-    ("version", "Print the workspace version", version::run),
+    ("version", "Print the workspace version, or `version set X.Y.Z` to change it", version::run),
     ("ci", "fmt --check, clippy -D warnings, test, layers, assets, parity, deny (stops at first failure)", gates::ci),
 ];
 

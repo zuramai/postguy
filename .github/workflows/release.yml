@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    branches: [release]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version override for a test run, e.g. 0.2.0-rc.1 (empty: Cargo.toml)"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # Tracked at @main (not SHA-pinned), like the other apps, so shared CI improvements propagate.
+    uses: storytold/craft-common-actions/.github/workflows/release.yml@main
+    with:
+      app-name: postguy
+      app-title: Postguy
+      # postguy embeds its own Poppins files (assets/fonts); it uses neither craft-fonts nor craft-i18n.
+      craft-fonts-ref: ""
+      version: ${{ inputs.version }}
+      # macOS universal, Windows x64/x86/ARM64 MSI, Linux x86_64/aarch64 (AppImage, deb, rpm, tar.gz).
+      # Not built: WebAssembly (AGENTS.md: no web build), riscv64, FreeBSD, Arch.
+      has-web: false
+      has-riscv64: false
+      has-freebsd: false
+      has-arch: false
+    secrets:
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+      AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+      AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}

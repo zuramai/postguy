@@ -23,19 +23,19 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSScreen", "objc2-core-foundation"] }
 
 # Foundation: key order and number text survive round trips.
-postguy-util = { path = "crates/util", version = "0.1.0" }
-postguy-model = { path = "crates/model", version = "0.1.0" }
-postguy-auth = { path = "crates/auth", version = "0.1.0" }
-postguy-urlkit = { path = "crates/urlkit", version = "0.1.0" }
-postguy-vars = { path = "crates/vars", version = "0.1.0" }
-postguy-interop = { path = "crates/interop", version = "0.1.0" }
-postguy-store = { path = "crates/store", version = "0.1.0" }
-postguy-automation = { path = "crates/automation", version = "0.1.0" }
-postguy-http = { path = "crates/http", version = "0.1.0" }
-postguy-engine = { path = "crates/engine", version = "0.1.0" }
-postguy-snippets = { path = "crates/snippets", version = "0.1.0" }
-postguy-ws = { path = "crates/ws", version = "0.1.0" }
-postguy-grpc = { path = "crates/grpc", version = "0.1.0" }
+postguy-util = { path = "crates/util" }
+postguy-model = { path = "crates/model" }
+postguy-auth = { path = "crates/auth" }
+postguy-urlkit = { path = "crates/urlkit" }
+postguy-vars = { path = "crates/vars" }
+postguy-interop = { path = "crates/interop" }
+postguy-store = { path = "crates/store" }
+postguy-automation = { path = "crates/automation" }
+postguy-http = { path = "crates/http" }
+postguy-engine = { path = "crates/engine" }
+postguy-snippets = { path = "crates/snippets" }
+postguy-ws = { path = "crates/ws" }
+postguy-grpc = { path = "crates/grpc" }
 tonic = { version = "0.14", default-features = false, features = ["channel", "tls-native-roots"] }
 prost = { version = "0.14", default-features = false, features = ["std"] }
 prost-reflect = { version = "0.16", default-features = false, features = ["serde"] }
@@ -43,8 +43,8 @@ prost-types = { version = "0.14", default-features = false }
 tonic-reflection = { version = "0.14", default-features = false }
 protox = { version = "0.10", default-features = false }
 tower = { version = "0.5", default-features = false, features = ["util"] }
-postguy-platform = { path = "crates/platform", version = "0.1.0" }
-postguy-testkit = { path = "crates/testkit", version = "0.1.0" }
+postguy-platform = { path = "crates/platform" }
+postguy-testkit = { path = "crates/testkit" }
 serde = { version = "1", default-features = false, features = ["std", "derive"] }
 serde_json = { version = "1", features = ["preserve_order", "unbounded_depth"] }
 thiserror = "2"
