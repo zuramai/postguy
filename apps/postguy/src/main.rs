@@ -2963,6 +2963,10 @@ impl eframe::App for App {
                 None
             }
         });
+        if let Some(progress) = progress {
+            // The elapsed time lives in the status bar so the request bar never changes size.
+            self.shell.state.status = format!("Sending… {:.1}s", progress.elapsed_ms as f64 / 1000.0);
+        }
         let panel_result = {
             let cookie_data = std::mem::take(&mut self.shell.cookie_data);
             let mut cookie_state = std::mem::take(&mut self.shell.cookie_state);

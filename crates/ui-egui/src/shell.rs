@@ -451,7 +451,8 @@ impl PostguyShell {
             .show(ui, |ui| {
                 let full = ui.max_rect().expand2(egui::vec2(8.0, 2.0));
                 edge_line(ui, full.x_range(), full.top() + 0.5, palette.border);
-                let item = |selected: bool| widgets::ButtonOptions { height: Some(bar_height - 4.0), small: true, selected, color: None };
+                let item =
+                    |selected: bool| widgets::ButtonOptions { height: Some(bar_height - 4.0), small: true, selected, color: None, min_width: None };
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
                     let sidebar = self.state.sidebar_open;

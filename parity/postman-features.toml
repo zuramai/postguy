@@ -231,8 +231,8 @@ title = "Request line: method dropdown, URL field, Send/Cancel with timer"
 area = "C"
 tier = "P0"
 status = "partial"
-notes = "Method menu with REST colours in a 76x32 rounded button, a padded URL field with {{var}} chips (unresolved names tinted danger) and variable autocomplete, cURL paste detection (the app imports through interop), Enter sends, split Send with Send and Download, Cancel with elapsed timer, dirty dot/Save. Missing: the inline post-paste undo hint and a visible resolved-URL preview."
-evidence = ["crates/ui-egui/tests/builder.rs::send_and_save_emit_their_intents", "crates/ui-egui/tests/builder.rs::enter_in_the_url_sends", "crates/ui-egui/tests/builder.rs::pasting_a_curl_command_emits_the_parse_intent", "crates/ui-egui/tests/builder.rs::autocomplete_inserts_a_variable"]
+notes = "Method menu with REST colours in a 76x32 rounded button, a padded URL field with {{var}} chips (unresolved names tinted danger) and variable autocomplete, cURL paste detection (the app imports through interop), Enter sends, split Send with Send and Download, Cancel (same width as Send, so nothing moves while sending) with the elapsed timer in the status bar and a progress line over the URL bar, dirty dot/Save. Missing: the inline post-paste undo hint and a visible resolved-URL preview."
+evidence = ["crates/ui-egui/tests/builder.rs::send_and_save_emit_their_intents", "crates/ui-egui/tests/builder.rs::enter_in_the_url_sends", "crates/ui-egui/tests/builder.rs::pasting_a_curl_command_emits_the_parse_intent", "crates/ui-egui/tests/builder.rs::autocomplete_inserts_a_variable", "crates/ui-egui/tests/builder.rs::sending_keeps_the_layout_in_place"]
 [[feature]]
 id = "c.params-tab"
 title = "Params tab: query params and path variables two-way sync"

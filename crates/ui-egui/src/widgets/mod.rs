@@ -278,6 +278,13 @@ pub fn select_colored(
     changed
 }
 
+/// Total width of a [`split_button`] with this main label (main part plus caret).
+pub(crate) fn split_button_width(ui: &Ui, main_label: &str) -> f32 {
+    let font = TextStyle::Button.resolve(ui.style());
+    let label_width = ui.painter().layout_no_wrap(main_label.to_owned(), font, Color32::PLACEHOLDER).size().x;
+    (label_width + 28.0).max(76.0) + 30.0
+}
+
 /// A primary action with a caret that opens more choices (`Send` / `Send and Download`).
 pub fn split_button(ui: &mut Ui, main_label: &str, on_main: impl FnOnce(), menu: impl FnOnce(&mut Ui)) -> bool {
     let theme = crate::theme::Theme::current(ui.ctx());
@@ -285,8 +292,7 @@ pub fn split_button(ui: &mut Ui, main_label: &str, on_main: impl FnOnce(), menu:
     let mut clicked = false;
     let height = theme.metrics.url_height;
     let radius = theme.metrics.radius as u8;
-    let label_width = ui.painter().layout_no_wrap(main_label.to_owned(), TextStyle::Button.resolve(ui.style()), palette.on_accent).size().x;
-    let total_width = (label_width + 28.0).max(76.0) + 30.0;
+    let total_width = split_button_width(ui, main_label);
     // Explicit direction: `ui.horizontal` would mirror inside a right-to-left parent.
     ui.allocate_ui_with_layout(vec2(total_width, height), egui::Layout::left_to_right(egui::Align::Min), |ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
@@ -693,6 +699,8 @@ pub struct ButtonOptions {
     pub selected: bool,
     /// Text/icon colour override for the resting state.
     pub color: Option<Color32>,
+    /// Minimum width; the label stays centred when this widens the button.
+    pub min_width: Option<f32>,
 }
 
 /// [`text_button`] with [`ButtonOptions`].
@@ -700,7 +708,7 @@ pub fn text_button_with(ui: &mut Ui, kind: ButtonKind, icon_name: Option<&str>, 
     let theme = crate::theme::Theme::current(ui.ctx());
     let font = if options.small { TextStyle::Small } else { TextStyle::Button }.resolve(ui.style());
     let galley = ui.painter().layout_no_wrap(label.to_owned(), font, Color32::PLACEHOLDER);
-    let width = galley.size().x + 20.0 + if icon_name.is_some() { 20.0 } else { 0.0 };
+    let width = (galley.size().x + 20.0 + if icon_name.is_some() { 20.0 } else { 0.0 }).max(options.min_width.unwrap_or(0.0));
     let height = options.height.unwrap_or(theme.metrics.control_height);
     let (rect, response) = ui.allocate_exact_size(vec2(width, height), if enabled { Sense::click() } else { Sense::hover() });
     let hovered = enabled && response.hovered();
@@ -727,9 +735,10 @@ pub fn text_button_with(ui: &mut Ui, kind: ButtonKind, icon_name: Option<&str>, 
     let text = if enabled { text } else { palette.text_muted.gamma_multiply(0.6) };
     let fill = if !enabled && kind != ButtonKind::Ghost { palette.button_bg } else { fill };
     ui.painter().rect(rect, rounding, fill, stroke, StrokeKind::Inside);
-    let mut x = rect.left() + 10.0;
+    let content_width = galley.size().x + if icon_name.is_some() { 20.0 } else { 0.0 };
+    let mut x = rect.left() + (rect.width() - content_width) / 2.0;
     if let Some(name) = icon_name {
-        let icon_rect = Rect::from_center_size(pos2(rect.left() + 8.0 + 7.0, rect.center().y), Vec2::splat(14.0));
+        let icon_rect = Rect::from_center_size(pos2(x + 5.0, rect.center().y), Vec2::splat(14.0));
         icons::paint(ui.painter(), icon_rect, name, text, 1.5);
         x += 20.0;
     }
