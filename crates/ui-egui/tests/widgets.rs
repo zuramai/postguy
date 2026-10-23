@@ -457,3 +457,33 @@ fn the_shell_draws_its_regions_and_opens_settings() {
     let state: &ShellState = &harness.state().state;
     assert!(state.sidebar_open);
 }
+
+#[test]
+fn the_modal_close_button_and_escape_dismiss_it() {
+    let mut harness = Harness::new_ui_state(
+        |ui, state: &mut ModalState| {
+            if ui.button("Open").clicked() {
+                state.open = true;
+            }
+            let ctx = ui.ctx().clone();
+            widgets::modal(&ctx, "demo", "Rename collection", &mut state.open, |ui| {
+                ui.label("Modal body");
+            });
+        },
+        ModalState::default(),
+    );
+    harness.run();
+    harness.get_by_label("Open").click();
+    harness.run();
+    assert!(harness.query_by_label("Modal body").is_some());
+    harness.get_by_label("Close dialog").click();
+    harness.run();
+    assert!(harness.query_by_label("Modal body").is_none(), "the close button dismisses the dialog");
+
+    harness.get_by_label("Open").click();
+    harness.run();
+    assert!(harness.query_by_label("Modal body").is_some());
+    harness.key_press(egui::Key::Escape);
+    harness.run();
+    assert!(harness.query_by_label("Modal body").is_none(), "Escape dismisses the dialog");
+}

@@ -130,3 +130,86 @@ fn the_error_pane_shows_the_code_message_and_retry() {
     harness.run();
     assert!(harness.state().retry);
 }
+
+#[test]
+fn headers_render_as_a_left_aligned_table() {
+    let mut harness = harness();
+    let long = "x".repeat(600);
+    harness.state_mut().data.headers.push(("x-long".into(), long.clone()));
+    harness.set_size(egui::vec2(800.0, 600.0));
+    harness.run();
+    harness.get_by_label_contains("Headers 3").click();
+    harness.run();
+    let first_key = harness.get_by_label("content-type").rect();
+    let second_key = harness.get_by_label("set-cookie").rect();
+    let value = harness.get_by_label("application/json").rect();
+    let long_value = harness.get_by_label(long.as_str()).rect();
+    assert!((first_key.left() - second_key.left()).abs() < 0.5, "keys share a left edge: {first_key:?} vs {second_key:?}");
+    assert!(first_key.right() < value.left(), "the value column starts right of the keys: {first_key:?} vs {value:?}");
+    assert!((long_value.left() - value.left()).abs() < 0.5, "values share a left edge");
+    assert!(long_value.right() <= 800.0, "a long value wraps inside the pane: {long_value:?}");
+}
+
+#[test]
+fn a_long_line_does_not_widen_the_body() {
+    let mut harness = harness();
+    harness.state_mut().data.body = format!("{{\"k\":\"{}\"}}", "x".repeat(5000)).into_bytes();
+    harness.state_mut().data.revision += 1;
+    harness.set_size(egui::vec2(800.0, 600.0));
+    harness.run();
+    harness.run();
+    let body = harness.get_by_label("Response body").rect();
+    assert!(body.right() <= 800.0, "the body overflowed the pane: {body:?}");
+    assert!(body.width() > 300.0, "the body should still fill the pane: {body:?}");
+}
+
+/// The text the last frame asked the platform to copy.
+fn copied(harness: &Harness<'_, State>) -> Option<String> {
+    harness.output().platform_output.commands.iter().find_map(|command| match command {
+        egui::OutputCommand::CopyText(text) => Some(text.clone()),
+        _ => None,
+    })
+}
+
+fn harness_with_body(body: &str) -> Harness<'static, State> {
+    let mut harness = harness();
+    harness.state_mut().data.body = body.as_bytes().to_vec();
+    harness.state_mut().data.revision += 1;
+    harness.set_size(egui::vec2(800.0, 600.0));
+    harness.run();
+    harness
+}
+
+#[test]
+fn cmd_d_selects_every_occurrence_and_copy_joins_them() {
+    let mut harness = harness_with_body("{\"a\":\"x\",\"b\":\"x\"}");
+    // Click the first row's text area (the caret lands at the end of the line), then walk back
+    // onto the `x`.
+    harness.get_by_label_contains("\"a\": \"x\"").click();
+    harness.run();
+    for _ in 0..3 {
+        harness.key_press(egui::Key::ArrowLeft);
+        harness.run();
+    }
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
+    harness.run();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
+    harness.run();
+    harness.event(egui::Event::Copy);
+    harness.step();
+    assert_eq!(copied(&harness).as_deref(), Some("x\nx"), "both occurrences are selected and joined");
+}
+
+#[test]
+fn select_all_copies_the_whole_body() {
+    let mut harness = harness_with_body("{\"a\":\"x\",\"b\":\"x\"}");
+    harness.get_by_label_contains("\"a\": \"x\"").click();
+    harness.run();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    harness.run();
+    harness.event(egui::Event::Copy);
+    harness.step();
+    let pretty = copied(&harness).expect("select all then copy puts text on the clipboard");
+    assert!(pretty.contains("\"a\": \"x\"") && pretty.contains("\"b\": \"x\""), "{pretty}");
+    assert!(pretty.starts_with('{') && pretty.trim_end().ends_with('}'), "{pretty}");
+}

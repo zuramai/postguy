@@ -265,7 +265,7 @@ impl PostguyShell {
                         builder_action = panel(ui, &tab.doc);
                     }
                 }
-                TabDoc::Settings => self.settings(ui, &theme),
+                TabDoc::Settings => self.settings(ui),
                 TabDoc::Request { .. }
                 | TabDoc::Collection { .. }
                 | TabDoc::Folder { .. }
@@ -451,7 +451,8 @@ impl PostguyShell {
             .show(ui, |ui| {
                 let full = ui.max_rect().expand2(egui::vec2(8.0, 2.0));
                 edge_line(ui, full.x_range(), full.top() + 0.5, palette.border);
-                let item = |selected: bool| widgets::ButtonOptions { height: Some(bar_height - 4.0), small: true, selected, color: None };
+                let item =
+                    |selected: bool| widgets::ButtonOptions { height: Some(bar_height - 4.0), small: true, selected, color: None, min_width: None };
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
                     let sidebar = self.state.sidebar_open;
@@ -514,27 +515,11 @@ impl PostguyShell {
         });
     }
 
-    fn settings(&mut self, ui: &mut egui::Ui, theme: &Theme) {
-        ui.heading("Settings");
-        ui.separator();
-        ui.label("Theme");
-        let mut selected = match self.state.theme_mode {
-            ThemeMode::System => "System".to_string(),
-            ThemeMode::Light => "Light".to_string(),
-            ThemeMode::Dark => "Dark".to_string(),
-        };
-        ui.horizontal(|ui| {
-            widgets::radio(ui, &mut selected, "System", "System");
-            widgets::radio(ui, &mut selected, "Light", "Light");
-            widgets::radio(ui, &mut selected, "Dark", "Dark");
-        });
-        self.state.theme_mode = match selected.as_str() {
-            "Light" => ThemeMode::Light,
-            "Dark" => ThemeMode::Dark,
-            _ => ThemeMode::System,
-        };
-        ui.add_space(8.0);
-        ui.label(RichText::new("Settings are not available here yet.").color(theme.palette.text_muted));
+    fn settings(&mut self, ui: &mut egui::Ui) {
+        let mut editor = crate::settings::SettingsEditor { settings: &mut self.settings_value, state: &mut self.settings };
+        if editor.show(ui).is_some() {
+            self.state.theme_mode = ThemeMode::from(self.settings_value.theme);
+        }
     }
 }
 

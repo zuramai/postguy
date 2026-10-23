@@ -355,17 +355,58 @@ fn body_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseViewerSta
 }
 
 fn headers_view(ui: &mut Ui, data: &ResponseData, theme: &Theme) {
+    let palette = theme.palette;
+    if data.headers.is_empty() {
+        ui.label(RichText::new("No headers.").color(palette.text_muted));
+        return;
+    }
+    let radius = theme.metrics.radius as u8;
     ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        for (name, value) in &data.headers {
-            egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.add_sized([180.0, 20.0], egui::Label::new(RichText::new(name).strong().color(theme.palette.text_muted)));
-                    ui.add(egui::Label::new(RichText::new(value).color(theme.palette.text)).selectable(true));
-                });
+        let key_width = (ui.available_width() * 0.32).clamp(140.0, 320.0);
+        egui::Frame::new()
+            .fill(palette.input_bg)
+            .stroke(egui::Stroke::new(1.0, palette.border))
+            .corner_radius(egui::CornerRadius::same(radius))
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+                let width = ui.available_width();
+                let key_width = key_width.min(width * 0.6);
+                let line = egui::Stroke::new(1.0, palette.border);
+                let (head, _) = ui.allocate_exact_size(egui::vec2(width, 28.0), egui::Sense::hover());
+                ui.painter().rect_filled(head, egui::CornerRadius { nw: radius, ne: radius, sw: 0, se: 0 }, palette.surface_alt);
+                for (x, label) in [(head.left() + 8.0, "Key"), (head.left() + key_width + 8.0, "Value")] {
+                    ui.painter().text(
+                        egui::pos2(x, head.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        label,
+                        theme.semibold_font(12.0),
+                        palette.text_muted,
+                    );
+                }
+                ui.painter().hline(head.x_range(), head.bottom(), line);
+                for (name, value) in &data.headers {
+                    let row = ui
+                        .horizontal_top(|ui| {
+                            for (cell_width, text, font, color) in [
+                                (key_width, name, theme.semibold_font(13.0), palette.text_muted),
+                                (width - key_width, value, egui::TextStyle::Body.resolve(ui.style()), palette.text),
+                            ] {
+                                ui.allocate_ui_with_layout(egui::vec2(cell_width, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                                    ui.set_width(cell_width);
+                                    egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
+                                        ui.set_width(cell_width - 16.0);
+                                        ui.add(egui::Label::new(RichText::new(text).font(font).color(color)).wrap().selectable(true));
+                                    });
+                                });
+                            }
+                        })
+                        .response
+                        .rect;
+                    ui.painter().hline(row.x_range(), row.bottom(), line);
+                    ui.painter().vline(row.left() + key_width, row.y_range(), line);
+                }
             });
-        }
     });
-    let _ = data;
 }
 
 fn cookies_view(ui: &mut Ui, data: &ResponseData, theme: &Theme) {

@@ -4,7 +4,7 @@
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use postguy_model::{AuthConfig, Body, HttpRequest, RawLanguage};
-use postguy_ui_egui::builder::{BodyDrafts, BuilderAction, BuilderTab, RequestBuilder};
+use postguy_ui_egui::builder::{BodyDrafts, BuilderAction, BuilderTab, RequestBuilder, SendProgress};
 use postguy_ui_egui::widgets::field::VariableInfo;
 
 struct State {
@@ -19,6 +19,7 @@ struct State {
     variables: Vec<VariableInfo>,
     undo_paste: bool,
     inherited: Option<String>,
+    sending: Option<SendProgress>,
 }
 
 fn harness() -> Harness<'static, State> {
@@ -34,7 +35,7 @@ fn harness() -> Harness<'static, State> {
                 dirty: &mut state.dirty,
                 tab: &mut state.tab,
                 variables: &state.variables,
-                sending: None,
+                sending: state.sending,
                 undo_paste: state.undo_paste,
                 inherited_auth: state.inherited.as_deref(),
                 oauth2_action: &mut oauth2_action,
@@ -61,6 +62,7 @@ fn harness() -> Harness<'static, State> {
             ],
             undo_paste: false,
             inherited: None,
+            sending: None,
         },
     )
 }
@@ -247,4 +249,24 @@ fn the_send_button_and_the_request_tabs_show_the_pointing_hand() {
         harness.run();
         assert_eq!(harness.output().platform_output.cursor_icon, egui::CursorIcon::PointingHand, "{label}");
     }
+}
+
+#[test]
+fn sending_keeps_the_layout_in_place() {
+    let mut harness = harness();
+    harness.set_size(egui::vec2(900.0, 500.0));
+    harness.run();
+    let params_before = harness.get_by_label("Params").rect();
+    let url_before = harness.get_all_by_role(egui::accesskit::Role::TextInput).nth(1).expect("url field").rect();
+    let send_width = harness.get_by_label("Send").rect().width();
+
+    harness.state_mut().sending = Some(SendProgress { elapsed_ms: 600 });
+    harness.run();
+    let params_after = harness.get_by_label("Params").rect();
+    let url_after = harness.get_all_by_role(egui::accesskit::Role::TextInput).nth(1).expect("url field").rect();
+    assert!((params_before.min.y - params_after.min.y).abs() < 0.5, "the tabs moved: {params_before:?} -> {params_after:?}");
+    assert!((url_before.min.y - url_after.min.y).abs() < 0.5, "the URL field moved: {url_before:?} -> {url_after:?}");
+    assert!((url_before.max.x - url_after.max.x).abs() < 0.5, "the URL field resized: {url_before:?} -> {url_after:?}");
+    let cancel = harness.get_by_label("Cancel").rect();
+    assert!(cancel.width() >= send_width - 0.5, "Cancel ({}) is narrower than Send ({send_width})", cancel.width());
 }

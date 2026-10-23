@@ -386,3 +386,49 @@ pub use postguy_http::Cancel as SendCancel;
 pub fn new_cancel() -> Cancel {
     Cancel::new()
 }
+
+/// The settings a send actually uses: the request's own values, with the global Settings
+/// applied wherever the request keeps its default. Turning verification, redirects or cookies
+/// off on either side wins; a request timeout or size cap of its own overrides the global one.
+pub fn effective_request_settings(request: &RequestSettings, global: &Settings) -> RequestSettings {
+    let defaults = RequestSettings::default();
+    RequestSettings {
+        http_version: request_version(request, global),
+        verify_ssl: request.verify_ssl && global.verify_ssl,
+        follow_redirects: request.follow_redirects && global.follow_redirects,
+        timeout_ms: if request.timeout_ms == 0 { global.request_timeout_ms } else { request.timeout_ms },
+        max_response_mb: if request.max_response_mb == defaults.max_response_mb { global.max_response_mb } else { request.max_response_mb },
+        cookie_jar_disabled: request.cookie_jar_disabled || global.disable_cookies,
+        ..request.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn effective_settings_apply_global_defaults() {
+        let global = Settings {
+            verify_ssl: false,
+            follow_redirects: false,
+            request_timeout_ms: 5000,
+            max_response_mb: 10,
+            disable_cookies: true,
+            ..Settings::default()
+        };
+        let effective = effective_request_settings(&RequestSettings::default(), &global);
+        assert!(!effective.verify_ssl);
+        assert!(!effective.follow_redirects);
+        assert_eq!(effective.timeout_ms, 5000);
+        assert_eq!(effective.max_response_mb, 10);
+        assert!(effective.cookie_jar_disabled);
+
+        let own = RequestSettings { timeout_ms: 200, max_response_mb: 1, ..RequestSettings::default() };
+        let effective = effective_request_settings(&own, &global);
+        assert_eq!((effective.timeout_ms, effective.max_response_mb), (200, 1));
+
+        let strict = effective_request_settings(&RequestSettings::default(), &Settings::default());
+        assert!(strict.verify_ssl && strict.follow_redirects && !strict.cookie_jar_disabled);
+    }
+}

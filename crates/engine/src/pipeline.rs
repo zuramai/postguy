@@ -140,7 +140,8 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
 
     // 4. URL: resolve, path vars, enabled query params, encoding.
     let mut request = located.http.clone();
-    let url = build_url(&request, &resolver, request.settings.encode_url_automatically)?;
+    let effective = crate::effective_request_settings(&request.settings, &global);
+    let url = build_url(&request, &resolver, effective.encode_url_automatically)?;
 
     // 5. Auth needs the final body bytes (OAuth 1.0 form parameters, AWS/Hawk payload hashes),
     // so it is applied after the body is built below.
@@ -164,15 +165,15 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
     // 7. Cookies are merged inside `send_with_cookies` (jar first, then a manual Cookie row).
 
     // 8. Send: proxy aware, manual redirects, cookies on every hop.
-    let client = engine.client_for(&request.settings, &global)?;
+    let client = engine.client_for(&effective, &global)?;
     let mut built = built;
     let mut spec = RequestSpec {
         method: hyper::Method::from_bytes(built.method.as_bytes()).unwrap_or(hyper::Method::GET),
         url: built.url.clone(),
         headers: built.headers.clone(),
         body: built.body.clone(),
-        timeout_ms: request.settings.timeout_ms,
-        max_body_bytes: max_body_bytes(request.settings.max_response_mb),
+        timeout_ms: effective.timeout_ms,
+        max_body_bytes: max_body_bytes(effective.max_response_mb),
         decode_compression: true,
     };
     if let Some(auth) = &auth
@@ -183,18 +184,18 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
         built.headers = spec.headers.clone();
     }
     let policy = RedirectPolicy {
-        follow: request.settings.follow_redirects,
-        follow_original_method: request.settings.follow_original_method,
-        follow_authorization_on_redirect: request.settings.follow_authorization_on_redirect,
-        remove_referer_on_redirect: request.settings.remove_referer_on_redirect,
-        max_redirects: request.settings.max_redirects,
+        follow: effective.follow_redirects,
+        follow_original_method: effective.follow_original_method,
+        follow_authorization_on_redirect: effective.follow_authorization_on_redirect,
+        remove_referer_on_redirect: effective.remove_referer_on_redirect,
+        max_redirects: effective.max_redirects,
     };
     let prepare_ms = millis(started.elapsed());
     let send_started = std::time::Instant::now();
     let cancel = options.cancel.clone().unwrap_or_default();
     let mut outcome = {
         let jar = engine.jar();
-        client.send_with_cookies(spec.clone(), policy, jar, request.settings.cookie_jar_disabled, &cancel).await?
+        client.send_with_cookies(spec.clone(), policy, jar, effective.cookie_jar_disabled, &cancel).await?
     };
     if outcome.response.status == hyper::StatusCode::UNAUTHORIZED
         && let Some(AuthConfig::Digest(digest)) = &auth
@@ -218,7 +219,7 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
         retry.headers.push(("Authorization".into(), answer.authorization));
         warnings.push("Digest challenge accepted; request retried once".into());
         let jar = engine.jar();
-        outcome = client.send_with_cookies(retry, policy, jar, request.settings.cookie_jar_disabled, &cancel).await?;
+        outcome = client.send_with_cookies(retry, policy, jar, effective.cookie_jar_disabled, &cancel).await?;
         auth_placement = Some(postguy_http::AuthPlacement::Header);
     }
 

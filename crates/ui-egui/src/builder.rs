@@ -161,10 +161,16 @@ impl RequestBuilder<'_> {
         let bar_height = theme.metrics.url_height;
         // Right-to-left so Send / Cancel sit at the container's right edge and the URL bar
         // takes everything left of them; both are exactly `url_height` tall and top-aligned.
+        let mut bar_rect: Option<egui::Rect> = None;
         ui.allocate_ui_with_layout(vec2(ui.available_width(), bar_height), Layout::right_to_left(Align::Min), |ui| {
-            if let Some(progress) = self.sending {
-                ui.label(RichText::new(format!("{:.1}s", progress.elapsed_ms as f64 / 1000.0)).small().color(palette.text_muted));
-                if widgets::text_button(ui, widgets::ButtonKind::Danger, None, "Cancel", true).clicked() {
+            if self.sending.is_some() {
+                // Cancel takes Send's exact width so the URL bar does not resize while sending.
+                let options = widgets::ButtonOptions {
+                    height: Some(bar_height),
+                    min_width: Some(widgets::split_button_width(ui, "Send")),
+                    ..Default::default()
+                };
+                if widgets::text_button_with(ui, widgets::ButtonKind::Danger, None, "Cancel", true, options).clicked() {
                     *action = Some(BuilderAction::Cancel);
                 }
             } else {
@@ -190,6 +196,7 @@ impl RequestBuilder<'_> {
             let url_id = egui::Id::new(("builder-url", self.name.as_str()));
             let bar_width = ui.available_width().max(220.0);
             let (bar, _) = ui.allocate_exact_size(vec2(bar_width, bar_height), egui::Sense::hover());
+            bar_rect = Some(bar);
             let focused = ui.memory(|memory| memory.has_focus(url_id));
             let border = if focused {
                 palette.accent
@@ -264,12 +271,14 @@ impl RequestBuilder<'_> {
                 *action = Some(BuilderAction::Send { download: false });
             }
         });
-        if self.sending.is_some() {
-            let fraction = ((self.sending.map(|state| state.elapsed_ms).unwrap_or(0) % 1200) as f32) / 1200.0;
-            let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 2.0), egui::Sense::hover());
-            ui.painter().rect_filled(rect, 0.0, palette.surface_sunken);
-            let filled = egui::Rect::from_min_size(rect.min, vec2(rect.width() * fraction, rect.height()));
-            ui.painter().rect_filled(filled, 0.0, palette.accent);
+        // The progress line is painted over the bottom edge of the URL bar: it takes no layout
+        // space, so starting a send moves nothing.
+        if let (Some(progress), Some(bar)) = (self.sending, bar_rect) {
+            let fraction = ((progress.elapsed_ms % 1200) as f32) / 1200.0;
+            let line = egui::Rect::from_min_max(egui::pos2(bar.left() + 6.0, bar.bottom() - 2.0), egui::pos2(bar.right() - 6.0, bar.bottom()));
+            let painter = ui.painter().with_clip_rect(bar);
+            painter.rect_filled(line, 0.0, palette.surface_sunken);
+            painter.rect_filled(egui::Rect::from_min_size(line.min, vec2(line.width() * fraction, line.height())), 0.0, palette.accent);
         }
     }
 

@@ -118,6 +118,72 @@ usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.r
 sha256 = "4a9cdab38fbb96162e7dace28e33f4ca0e49d8963a6162abc3d4691b7d675117"
 
 [[asset]]
+path = "assets/icons/palette.svg"
+title = "Lucide icon: palette"
+author = "Lucide contributors"
+source = "github.com/lucide-icons/lucide at tag 1.59.0 (icons/palette.svg)"
+licence = "ISC"
+licence_file = "assets/icons/LICENSE-lucide.txt"
+kind = "icon"
+usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.rs)"
+sha256 = "8e7d3fde990cffd10469ba351f27c50202b057a9bb9af5626322e53fd3abc78c"
+
+[[asset]]
+path = "assets/icons/keyboard.svg"
+title = "Lucide icon: keyboard"
+author = "Lucide contributors"
+source = "github.com/lucide-icons/lucide at tag 1.59.0 (icons/keyboard.svg)"
+licence = "ISC"
+licence_file = "assets/icons/LICENSE-lucide.txt"
+kind = "icon"
+usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.rs)"
+sha256 = "f509925ca81964ed06251ad4702e989bb81a566ffc74d15c2226b4f07ded67be"
+
+[[asset]]
+path = "assets/icons/hard-drive.svg"
+title = "Lucide icon: hard-drive"
+author = "Lucide contributors"
+source = "github.com/lucide-icons/lucide at tag 1.59.0 (icons/hard-drive.svg)"
+licence = "ISC"
+licence_file = "assets/icons/LICENSE-lucide.txt"
+kind = "icon"
+usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.rs)"
+sha256 = "324363c40f54e4ca843de0ad1d023b063b70a26a83bb2e0a9e9f4aad9af37378"
+
+[[asset]]
+path = "assets/icons/shield-check.svg"
+title = "Lucide icon: shield-check"
+author = "Lucide contributors"
+source = "github.com/lucide-icons/lucide at tag 1.59.0 (icons/shield-check.svg)"
+licence = "ISC"
+licence_file = "assets/icons/LICENSE-lucide.txt"
+kind = "icon"
+usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.rs)"
+sha256 = "8d4fcdbde5bba4abb1a2f6fe53e37ceb6343a1d5449a9d88f6f97c1971d26c4e"
+
+[[asset]]
+path = "assets/icons/network.svg"
+title = "Lucide icon: network"
+author = "Lucide contributors"
+source = "github.com/lucide-icons/lucide at tag 1.59.0 (icons/network.svg)"
+licence = "ISC"
+licence_file = "assets/icons/LICENSE-lucide.txt"
+kind = "icon"
+usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.rs)"
+sha256 = "626be730feea1e5ea7539fbf78b4a3fcb927ce5d7dc43364f2216908672ac792"
+
+[[asset]]
+path = "assets/icons/info.svg"
+title = "Lucide icon: info"
+author = "Lucide contributors"
+source = "github.com/lucide-icons/lucide at tag 1.59.0 (icons/info.svg)"
+licence = "ISC"
+licence_file = "assets/icons/LICENSE-lucide.txt"
+kind = "icon"
+usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.rs)"
+sha256 = "bc977a64eb96f3e9c1041ffd09a3fceb70e3e65c02b571f76064062ed31f3cb9"
+
+[[asset]]
 path = "crates/vars/src/words.rs"
 title = "Dynamic-variable word lists (first/last names, cities, streets, countries, currencies, colors, lorem, files, user agents)"
 author = "The Postguy authors"

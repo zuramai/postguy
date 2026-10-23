@@ -7,6 +7,7 @@
 pub mod editor;
 pub mod field;
 pub mod table;
+mod text_selection;
 pub mod timeline;
 
 pub use editor::{CodeEditor, CodeLanguage, LargeTextView};
@@ -110,6 +111,17 @@ pub fn radio(ui: &mut Ui, selected: &mut String, value: &str, label: &str) -> Re
     response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
+/// Paint a switch track with its knob inside `track` (any size; the knob follows the height).
+fn paint_switch_track(ui: &Ui, track: Rect, on: bool) {
+    let theme = crate::theme::Theme::current(ui.ctx());
+    let fill = if on { theme.palette.accent_fill } else { theme.palette.surface_sunken };
+    let radius = (track.height() / 2.0).round();
+    ui.painter().rect(track, egui::CornerRadius::same(radius as u8), fill, Stroke::new(1.0, theme.palette.border), StrokeKind::Inside);
+    let knob_radius = track.height() / 2.0 - 2.0;
+    let knob_x = if on { track.right() - knob_radius - 2.0 } else { track.left() + knob_radius + 2.0 };
+    ui.painter().circle_filled(pos2(knob_x, track.center().y), knob_radius, contrast_on(fill));
+}
+
 /// A toggle switch (on = accent track, knob right). AccessKit reports it as a checkbox.
 pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
     let theme = crate::theme::Theme::current(ui.ctx());
@@ -123,10 +135,7 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
         response.mark_changed();
     }
     let track = Rect::from_min_size(pos2(rect.left(), rect.center().y - 9.0), vec2(34.0, 18.0));
-    let track_fill = if *on { theme.palette.accent } else { theme.palette.surface_sunken };
-    ui.painter().rect(track, egui::CornerRadius::same(9), track_fill, Stroke::new(1.0, theme.palette.border), StrokeKind::Inside);
-    let knob_x = if *on { track.right() - 9.0 } else { track.left() + 9.0 };
-    ui.painter().circle_filled(pos2(knob_x, track.center().y), 7.0, contrast_on(track_fill));
+    paint_switch_track(ui, track, *on);
     ui.painter().text(
         pos2(track.right() + 8.0, rect.center().y),
         Align2::LEFT_CENTER,
@@ -136,6 +145,64 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
     );
     response.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, ui.is_enabled(), *on, label));
     response.on_hover_cursor(CursorIcon::PointingHand)
+}
+
+/// A bare 36x20 toggle track for settings rows: the row paints its own label, `label` is the
+/// accessible name. Space toggles when focused.
+pub fn toggle(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
+    let (rect, mut response) = ui.allocate_exact_size(vec2(36.0, 20.0), Sense::click());
+    if response.clicked() || (response.has_focus() && ui.input(|input| input.key_pressed(Key::Space))) {
+        *on = !*on;
+        response.mark_changed();
+    }
+    paint_switch_track(ui, rect, *on);
+    response.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, ui.is_enabled(), *on, label));
+    response.on_hover_cursor(CursorIcon::PointingHand)
+}
+
+/// A 140x30 numeric field with a unit suffix ("ms", "MB") after a divider.
+pub fn number_with_unit(
+    ui: &mut Ui,
+    id: impl std::hash::Hash + std::fmt::Debug,
+    value: &mut u64,
+    range: std::ops::RangeInclusive<u64>,
+    unit: &str,
+    label: &str,
+) -> Response {
+    let theme = crate::theme::Theme::current(ui.ctx());
+    let (rect, _) = ui.allocate_exact_size(vec2(140.0, 30.0), Sense::hover());
+    let hovered = ui.rect_contains_pointer(rect);
+    let border = if hovered { theme.palette.input_border_hover } else { theme.palette.input_border };
+    ui.painter().rect(rect, egui::CornerRadius::same(6), theme.palette.input_bg, Stroke::new(1.0, border), StrokeKind::Inside);
+    let split = rect.left() + 96.0;
+    ui.painter().vline(split, rect.top() + 1.0..=rect.bottom() - 1.0, Stroke::new(1.0, theme.palette.input_border));
+    ui.painter().text(
+        pos2((split + rect.right()) / 2.0, rect.center().y),
+        Align2::CENTER_CENTER,
+        unit,
+        TextStyle::Small.resolve(ui.style()),
+        theme.palette.text_muted,
+    );
+    let inner = Rect::from_min_max(rect.min + vec2(8.0, 0.0), pos2(split - 4.0, rect.bottom()));
+    let mut child = ui.new_child(egui::UiBuilder::new().id_salt(id).max_rect(inner).layout(egui::Layout::left_to_right(egui::Align::Center)));
+    let widgets = &mut child.visuals_mut().widgets;
+    for state in [&mut widgets.inactive, &mut widgets.hovered, &mut widgets.active] {
+        state.bg_fill = Color32::TRANSPARENT;
+        state.weak_bg_fill = Color32::TRANSPARENT;
+        state.bg_stroke = Stroke::NONE;
+    }
+    let response = child.add(egui::DragValue::new(value).range(range));
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::DragValue, true, label));
+    response.on_hover_cursor(CursorIcon::ResizeHorizontal)
+}
+
+/// Plain wrapped text that registers no AccessKit node, for row captions whose control
+/// already carries the accessible name.
+pub fn plain_text(ui: &mut Ui, text: &str, font: egui::FontId, color: Color32) -> Response {
+    let galley = ui.painter().layout(text.to_owned(), font, color, ui.available_width());
+    let (rect, response) = ui.allocate_exact_size(galley.size(), Sense::hover());
+    ui.painter().galley(rect.min, galley, color);
+    response
 }
 
 /// One entry of a grouped select.
@@ -212,6 +279,13 @@ pub fn select_colored(
     changed
 }
 
+/// Total width of a [`split_button`] with this main label (main part plus caret).
+pub(crate) fn split_button_width(ui: &Ui, main_label: &str) -> f32 {
+    let font = TextStyle::Button.resolve(ui.style());
+    let label_width = ui.painter().layout_no_wrap(main_label.to_owned(), font, Color32::PLACEHOLDER).size().x;
+    (label_width + 28.0).max(76.0) + 30.0
+}
+
 /// A primary action with a caret that opens more choices (`Send` / `Send and Download`).
 pub fn split_button(ui: &mut Ui, main_label: &str, on_main: impl FnOnce(), menu: impl FnOnce(&mut Ui)) -> bool {
     let theme = crate::theme::Theme::current(ui.ctx());
@@ -219,8 +293,7 @@ pub fn split_button(ui: &mut Ui, main_label: &str, on_main: impl FnOnce(), menu:
     let mut clicked = false;
     let height = theme.metrics.url_height;
     let radius = theme.metrics.radius as u8;
-    let label_width = ui.painter().layout_no_wrap(main_label.to_owned(), TextStyle::Button.resolve(ui.style()), palette.on_accent).size().x;
-    let total_width = (label_width + 28.0).max(76.0) + 30.0;
+    let total_width = split_button_width(ui, main_label);
     // Explicit direction: `ui.horizontal` would mirror inside a right-to-left parent.
     ui.allocate_ui_with_layout(vec2(total_width, height), egui::Layout::left_to_right(egui::Align::Min), |ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
@@ -398,6 +471,14 @@ pub fn badge(ui: &mut Ui, text: &str, fg: Color32, bg: Color32) -> Response {
     response
 }
 
+/// The frame every dialog uses: the popup frame with roomier padding and the theme's card radius.
+pub(crate) fn modal_frame(ctx: &Context) -> egui::Frame {
+    let theme = crate::theme::Theme::current(ctx);
+    egui::Frame::popup(&ctx.global_style())
+        .inner_margin(egui::Margin::same(20))
+        .corner_radius(egui::CornerRadius::same(theme.metrics.card_radius as u8))
+}
+
 /// A modal dialog. Returns the content's value while open, `None` when the backdrop or the
 /// close button dismissed it (the caller clears its `open` flag).
 pub fn modal<T>(
@@ -411,21 +492,23 @@ pub fn modal<T>(
         return None;
     }
     let mut close = false;
-    let modal = egui::Modal::new(Id::new((id, "modal"))).show(ctx, |ui| {
-        ui.set_min_width(360.0);
+    let theme = crate::theme::Theme::current(ctx);
+    let modal = egui::Modal::new(Id::new((id, "modal"))).frame(modal_frame(ctx)).show(ctx, |ui| {
+        ui.set_min_width(400.0);
         ui.set_max_width(560.0);
         ui.horizontal(|ui| {
-            ui.heading(title);
+            ui.label(RichText::new(title).font(theme.semibold_font(16.0)).color(theme.palette.text));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.add(egui::Button::new("x").frame(false)).clicked() {
+                if icon_button_with(ui, "x", "Close dialog", "Close").clicked() {
                     close = true;
                 }
             });
         });
-        ui.separator();
+        ui.add_space(12.0);
         contents(ui)
     });
-    if modal.backdrop_response.clicked() {
+    // Covers the backdrop click and Escape.
+    if modal.should_close() {
         close = true;
     }
     if close {
@@ -460,7 +543,7 @@ pub fn typed_confirm(
     let theme = crate::theme::Theme::current(ctx);
     let mut typed = ctx.data(|data| data.get_temp::<String>(Id::new((&id, "typed"))).unwrap_or_default());
     let mut outcome = ConfirmOutcome::Pending;
-    egui::Modal::new(Id::new((&id, "typed-modal"))).show(ctx, |ui| {
+    egui::Modal::new(Id::new((&id, "typed-modal"))).frame(modal_frame(ctx)).show(ctx, |ui| {
         ui.set_min_width(380.0);
         ui.heading(title);
         ui.separator();
@@ -587,7 +670,7 @@ fn icon_button_impl(ui: &mut Ui, icon_name: &str, label: &str, tooltip: &str, on
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(theme.metrics.control_height), if enabled { Sense::click() } else { Sense::hover() });
     let hovered = enabled && response.hovered();
     let rounding = egui::CornerRadius::same(theme.metrics.radius as u8);
-    if on {
+    if on || (enabled && response.is_pointer_button_down_on()) {
         ui.painter().rect_filled(rect, rounding, theme.palette.selected);
     } else if hovered {
         ui.painter().rect_filled(rect, rounding, theme.palette.hover);
@@ -627,6 +710,8 @@ pub struct ButtonOptions {
     pub selected: bool,
     /// Text/icon colour override for the resting state.
     pub color: Option<Color32>,
+    /// Minimum width; the label stays centred when this widens the button.
+    pub min_width: Option<f32>,
 }
 
 /// [`text_button`] with [`ButtonOptions`].
@@ -634,7 +719,7 @@ pub fn text_button_with(ui: &mut Ui, kind: ButtonKind, icon_name: Option<&str>, 
     let theme = crate::theme::Theme::current(ui.ctx());
     let font = if options.small { TextStyle::Small } else { TextStyle::Button }.resolve(ui.style());
     let galley = ui.painter().layout_no_wrap(label.to_owned(), font, Color32::PLACEHOLDER);
-    let width = galley.size().x + 20.0 + if icon_name.is_some() { 20.0 } else { 0.0 };
+    let width = (galley.size().x + 20.0 + if icon_name.is_some() { 20.0 } else { 0.0 }).max(options.min_width.unwrap_or(0.0));
     let height = options.height.unwrap_or(theme.metrics.control_height);
     let (rect, response) = ui.allocate_exact_size(vec2(width, height), if enabled { Sense::click() } else { Sense::hover() });
     let hovered = enabled && response.hovered();
@@ -661,9 +746,10 @@ pub fn text_button_with(ui: &mut Ui, kind: ButtonKind, icon_name: Option<&str>, 
     let text = if enabled { text } else { palette.text_muted.gamma_multiply(0.6) };
     let fill = if !enabled && kind != ButtonKind::Ghost { palette.button_bg } else { fill };
     ui.painter().rect(rect, rounding, fill, stroke, StrokeKind::Inside);
-    let mut x = rect.left() + 10.0;
+    let content_width = galley.size().x + if icon_name.is_some() { 20.0 } else { 0.0 };
+    let mut x = rect.left() + (rect.width() - content_width) / 2.0;
     if let Some(name) = icon_name {
-        let icon_rect = Rect::from_center_size(pos2(rect.left() + 8.0 + 7.0, rect.center().y), Vec2::splat(14.0));
+        let icon_rect = Rect::from_center_size(pos2(x + 5.0, rect.center().y), Vec2::splat(14.0));
         icons::paint(ui.painter(), icon_rect, name, text, 1.5);
         x += 20.0;
     }

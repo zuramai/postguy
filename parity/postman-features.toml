@@ -231,8 +231,8 @@ title = "Request line: method dropdown, URL field, Send/Cancel with timer"
 area = "C"
 tier = "P0"
 status = "partial"
-notes = "Method menu with REST colours in a 76x32 rounded button, a padded URL field with {{var}} chips (unresolved names tinted danger) and variable autocomplete, cURL paste detection (the app imports through interop), Enter sends, split Send with Send and Download, Cancel with elapsed timer, dirty dot/Save. Missing: the inline post-paste undo hint and a visible resolved-URL preview."
-evidence = ["crates/ui-egui/tests/builder.rs::send_and_save_emit_their_intents", "crates/ui-egui/tests/builder.rs::enter_in_the_url_sends", "crates/ui-egui/tests/builder.rs::pasting_a_curl_command_emits_the_parse_intent", "crates/ui-egui/tests/builder.rs::autocomplete_inserts_a_variable"]
+notes = "Method menu with REST colours in a 76x32 rounded button, a padded URL field with {{var}} chips (unresolved names tinted danger) and variable autocomplete, cURL paste detection (the app imports through interop), Enter sends, split Send with Send and Download, Cancel (same width as Send, so nothing moves while sending) with the elapsed timer in the status bar and a progress line over the URL bar, dirty dot/Save. Missing: the inline post-paste undo hint and a visible resolved-URL preview."
+evidence = ["crates/ui-egui/tests/builder.rs::send_and_save_emit_their_intents", "crates/ui-egui/tests/builder.rs::enter_in_the_url_sends", "crates/ui-egui/tests/builder.rs::pasting_a_curl_command_emits_the_parse_intent", "crates/ui-egui/tests/builder.rs::autocomplete_inserts_a_variable", "crates/ui-egui/tests/builder.rs::sending_keeps_the_layout_in_place"]
 [[feature]]
 id = "c.params-tab"
 title = "Params tab: query params and path variables two-way sync"
@@ -330,17 +330,17 @@ title = "Per-request Settings tab (HTTP version, redirects, size, timeout...)"
 area = "C"
 tier = "P1"
 status = "shipped"
-notes = "Per-request HTTP version, SSL verification, redirects/method/auth rules, redirect cap, timeout and max response size, with tests."
+notes = "Per-request HTTP version, SSL verification, redirects/method/auth rules, redirect cap, timeout and max response size, with tests. The global Settings (SSL verification, redirects, timeout, size cap, cookies) apply to requests that keep the per-request defaults."
 
-evidence = ["crates/ui-egui/tests/builder.rs::settings_toggles_persist_into_the_request_settings"]
+evidence = ["crates/ui-egui/tests/builder.rs::settings_toggles_persist_into_the_request_settings", "crates/engine/src/lib.rs::effective_settings_apply_global_defaults"]
 [[feature]]
 id = "c.response-viewer"
 title = "Response viewer: Pretty/Raw/Preview/Hex, strip chips"
 area = "C"
 tier = "P0"
 status = "partial"
-notes = "Status/time/size chips with phase and size popovers (the status is a rounded tinted badge), Body/Cookies/Headers tabs in sans-serif rows, Pretty/Raw/Preview/Hex, wrap toggle, a search box with a match count that also tints matches in the body, and Save Response/Copy/Clear. Pretty and Raw are syntax-coloured by detected language (JSON/XML/HTML/JavaScript/YAML) through a cached virtualised viewer. Missing: image previews, search navigation/regex/whole-word, clickable URLs and a file-picker save dialog."
-evidence = ["crates/ui-egui/tests/response.rs::the_strip_shows_status_time_size_and_the_json_pretty_view", "crates/ui-egui/tests/response.rs::raw_hex_headers_and_cookies_are_reachable", "crates/ui-egui/tests/response.rs::the_menu_saves_and_clears_and_the_popovers_explain_the_numbers", "apps/postguy/src/main.rs::sending_runs_off_the_ui_thread_and_reports_the_status"]
+notes = "Status/time/size chips with phase and size popovers (the status is a rounded tinted badge), Body/Cookies tabs in sans-serif rows, Headers as a two-column table with wrapped, selectable values, Pretty/Raw/Preview/Hex, wrap toggle, a search box with a match count that also tints matches in the body, and Save Response/Copy/Clear. Pretty and Raw are syntax-coloured by detected language (JSON/XML/HTML/JavaScript/YAML) through a cached virtualised viewer that behaves like a read-only editor: caret, click/drag/double/triple-click selection, several selections at once (Cmd/Ctrl+D adds the next occurrence, Alt-click adds a caret), Cmd/Ctrl+A, copy and a context menu. Missing: image previews, search navigation/regex/whole-word, clickable URLs and a file-picker save dialog."
+evidence = ["crates/ui-egui/tests/response.rs::the_strip_shows_status_time_size_and_the_json_pretty_view", "crates/ui-egui/tests/response.rs::raw_hex_headers_and_cookies_are_reachable", "crates/ui-egui/tests/response.rs::the_menu_saves_and_clears_and_the_popovers_explain_the_numbers", "apps/postguy/src/main.rs::sending_runs_off_the_ui_thread_and_reports_the_status", "crates/ui-egui/tests/response.rs::headers_render_as_a_left_aligned_table", "crates/ui-egui/tests/response.rs::cmd_d_selects_every_occurrence_and_copy_joins_them", "crates/ui-egui/tests/response.rs::select_all_copies_the_whole_body"]
 [[feature]]
 id = "c.large-bodies"
 title = "Large bodies: off-thread line index, virtualised rows"
@@ -821,8 +821,8 @@ title = "Tab strip: preview, dirty dot, drag, overflow, context menu"
 area = "H"
 tier = "P0"
 status = "shipped"
-notes = "Preview tabs replace each other and promote on a permanent open; painted close buttons; dirty dot; middle-click; drag reorder; overflow search over open and recently closed; full context menu; environment selector. Tabs serialise into the session with their drafts."
-evidence = ["crates/ui-egui/tests/tabs.rs::a_preview_replaces_the_previous_preview_and_promotes_in_place", "crates/ui-egui/tests/tabs.rs::closing_and_reopening_restores_the_document", "crates/ui-egui/tests/tabs.rs::a_dirty_close_shows_the_three_way_dialog", "crates/ui-egui/tests/tabs.rs::the_strip_activates_middle_click_closes_and_the_close_button_works", "crates/ui-egui/tests/tabs.rs::the_context_menu_closes_other_tabs_and_reveals_the_document"]
+notes = "Preview tabs replace each other and promote on a permanent open; painted close buttons; dirty dot; middle-click; drag reorder; overflow search over open and recently closed; full context menu; environment selector. Overflowing tabs scroll inside the strip (the wheel scrolls it sideways, the active tab scrolls into view) and never draw under the Tabs or environment controls. Tabs serialise into the session with their drafts."
+evidence = ["crates/ui-egui/tests/tabs.rs::a_preview_replaces_the_previous_preview_and_promotes_in_place", "crates/ui-egui/tests/tabs.rs::closing_and_reopening_restores_the_document", "crates/ui-egui/tests/tabs.rs::a_dirty_close_shows_the_three_way_dialog", "crates/ui-egui/tests/tabs.rs::the_strip_activates_middle_click_closes_and_the_close_button_works", "crates/ui-egui/tests/tabs.rs::the_context_menu_closes_other_tabs_and_reveals_the_document", "crates/ui-egui/tests/tabs.rs::many_tabs_stay_left_of_the_strip_controls"]
 [[feature]]
 id = "h.crash-recovery"
 title = "Crash recovery: drafts in session.json, restored with a notice"
@@ -880,9 +880,9 @@ title = "Cookies manager (see c.cookies-manager); bottom bar; settings tab"
 area = "H"
 tier = "P1"
 status = "shipped"
-notes = "Cookies opens from the bottom bar, the settings tab keeps unknown keys, and the sections are General/Themes/Shortcuts/Data/Certificates/Proxy/About."
+notes = "Cookies opens from the bottom bar. The Settings tab is a categorised page (left navigation with General, Themes, Shortcuts, Data, Certificates, Proxy and About; headed groups of label, description and control rows), and it keeps unknown keys. Settings that nothing reads yet are not shown."
 
-evidence = ["crates/ui-egui/tests/panels.rs::cookies_delete_clear_and_allowlist", "apps/postguy/src/main.rs::settings_save_persists_theme_and_proxy"]
+evidence = ["crates/ui-egui/tests/panels.rs::cookies_delete_clear_and_allowlist", "apps/postguy/src/main.rs::settings_save_persists_theme_and_proxy", "crates/ui-egui/tests/panels.rs::the_settings_nav_switches_pages"]
 [[feature]]
 id = "h.themes"
 title = "Theme tokens: light, dark, system (live on macOS/Windows)"
