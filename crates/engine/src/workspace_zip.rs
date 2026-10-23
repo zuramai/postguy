@@ -224,7 +224,7 @@ mod tests {
         std::fs::write(root.join(".postguy/secrets.json"), "{}").expect("secrets");
         let mut files = Vec::new();
         collect(root, root, 0, &mut files).expect("collect");
-        let names: Vec<String> = files.iter().map(|path| path.strip_prefix(root).expect("rel").to_string_lossy().into_owned()).collect();
-        assert_eq!(names, ["collections/c1.json"]);
+        let names: Vec<PathBuf> = files.iter().map(|path| path.strip_prefix(root).expect("rel").to_path_buf()).collect();
+        assert_eq!(names, [PathBuf::from("collections").join("c1.json")]);
     }
 }
