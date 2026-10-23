@@ -138,8 +138,8 @@ function New-IcoFromPng([string[]] $PngPaths, [string] $OutPath) {
     $bytes = [System.IO.File]::ReadAllBytes($p)
     # PNG signature (8) + IHDR length/type (8), then big-endian width and height.
     if ($bytes.Length -lt 24 -or $bytes[0] -ne 0x89 -or $bytes[1] -ne 0x50) { throw "$p is not a PNG" }
-    $w = ($bytes[16] -shl 24) -bor ($bytes[17] -shl 16) -bor ($bytes[18] -shl 8) -bor $bytes[19]
-    $h = ($bytes[20] -shl 24) -bor ($bytes[21] -shl 16) -bor ($bytes[22] -shl 8) -bor $bytes[23]
+    $w = ([int] $bytes[16] -shl 24) -bor ([int] $bytes[17] -shl 16) -bor ([int] $bytes[18] -shl 8) -bor [int] $bytes[19]
+    $h = ([int] $bytes[20] -shl 24) -bor ([int] $bytes[21] -shl 16) -bor ([int] $bytes[22] -shl 8) -bor [int] $bytes[23]
     if ($w -lt 1 -or $w -gt 256 -or $h -lt 1 -or $h -gt 256) { throw "$p is ${w}x${h}; ICO images are at most 256x256" }
     $images += , @{ Width = $w; Height = $h; Bytes = $bytes }
   }

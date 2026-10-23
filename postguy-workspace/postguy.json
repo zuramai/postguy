@@ -1,5 +1,11 @@
 {
   "schema": "postguy/workspace/1",
-  "collectionOrder": [],
-  "environmentOrder": []
+  "collectionOrder": [
+    "89a388a1-6f16-4469-b440-c9794de618e9",
+    "19cbbd7c-f9ec-4fde-a8c6-08e260f300b2"
+  ],
+  "environmentOrder": [
+    "210d8e53-8bd2-4402-a91b-a57e873f1538"
+  ],
+  "activeEnvironmentId": "210d8e53-8bd2-4402-a91b-a57e873f1538"
 }
