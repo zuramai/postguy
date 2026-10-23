@@ -34,6 +34,8 @@ struct DemoState {
     variables: Vec<postguy_ui_egui::widgets::field::VariableInfo>,
     /// Share of the central panel the request builder gets (1.0 hides the response).
     builder_share: f32,
+    settings_value: postguy_model::Settings,
+    settings_state: postguy_ui_egui::settings::SettingsState,
 }
 
 impl DemoState {
@@ -71,6 +73,8 @@ impl DemoState {
             import: ImportState::default(),
             export: ExportState::default(),
             builder_share: 0.46,
+            settings_value: postguy_model::Settings::default(),
+            settings_state: postguy_ui_egui::settings::SettingsState::default(),
             variables: vec![
                 postguy_ui_egui::widgets::field::VariableInfo {
                     name: "baseUrl".into(),
@@ -327,6 +331,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     };
                     editor.show(ui).map(PanelAction::Environment)
                 }
+                TabDoc::Settings => {
+                    let mut editor =
+                        postguy_ui_egui::settings::SettingsEditor { settings: &mut state.settings_value, state: &mut state.settings_state };
+                    let _ = editor.show(ui);
+                    None
+                }
                 _ => None,
             };
             state.shell.ui_with(ui, Some(&mut panel));
@@ -339,6 +349,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         {
             let mut demo = DemoState::new(shell);
+            if let Some(section) = base.strip_prefix("settings") {
+                use postguy_ui_egui::settings::SettingsSection;
+                demo.settings_state.section = match section.trim_start_matches('-') {
+                    "themes" => SettingsSection::Themes,
+                    "shortcuts" => SettingsSection::Shortcuts,
+                    "data" => SettingsSection::Data,
+                    "certificates" => SettingsSection::Certificates,
+                    "proxy" => SettingsSection::Proxy,
+                    "about" => SettingsSection::About,
+                    _ => SettingsSection::General,
+                };
+                demo.shell.tabs.open(TabDoc::Settings, "Settings");
+            }
             if base == "export" {
                 export::open(&mut demo.export, ExportTarget::Collection { id: "demo-collection".into(), name: "Payments API".into() });
             }

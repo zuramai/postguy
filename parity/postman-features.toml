@@ -880,9 +880,9 @@ title = "Cookies manager (see c.cookies-manager); bottom bar; settings tab"
 area = "H"
 tier = "P1"
 status = "shipped"
-notes = "Cookies opens from the bottom bar, the settings tab keeps unknown keys, and the sections are General/Themes/Shortcuts/Data/Certificates/Proxy/About."
+notes = "Cookies opens from the bottom bar. The Settings tab is a categorised page (left navigation with General, Themes, Shortcuts, Data, Certificates, Proxy and About; headed groups of label, description and control rows), and it keeps unknown keys. Settings that nothing reads yet are not shown."
 
-evidence = ["crates/ui-egui/tests/panels.rs::cookies_delete_clear_and_allowlist", "apps/postguy/src/main.rs::settings_save_persists_theme_and_proxy"]
+evidence = ["crates/ui-egui/tests/panels.rs::cookies_delete_clear_and_allowlist", "apps/postguy/src/main.rs::settings_save_persists_theme_and_proxy", "crates/ui-egui/tests/panels.rs::the_settings_nav_switches_pages"]
 [[feature]]
 id = "h.themes"
 title = "Theme tokens: light, dark, system (live on macOS/Windows)"

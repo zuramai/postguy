@@ -288,7 +288,7 @@ impl App {
                 app.shell.settings_value = app.engine.as_ref().map(|engine| engine.settings()).unwrap_or_default();
                 app.refresh();
                 app.restore_session();
-                app.shell.state.theme_mode = theme_mode_for(app.shell.settings_value.theme);
+                app.shell.state.theme_mode = ThemeMode::from(app.shell.settings_value.theme);
                 app
             }
             Err(message) => {
@@ -1187,7 +1187,7 @@ impl App {
         }
         self.shell.sidebar_state.sections = stored.sidebar_sections;
         // The theme lives in Settings, not in the session file.
-        self.shell.state.theme_mode = theme_mode_for(self.shell.settings_value.theme);
+        self.shell.state.theme_mode = ThemeMode::from(self.shell.settings_value.theme);
         if !stored.clean_exit {
             self.shell.state.status = "Session restored after an unexpected exit".into();
         }
@@ -2364,7 +2364,7 @@ impl App {
         let settings = self.shell.settings_value.clone();
         match engine.update_settings(settings.clone()) {
             Ok(()) => {
-                self.shell.state.theme_mode = theme_mode_for(settings.theme);
+                self.shell.state.theme_mode = ThemeMode::from(settings.theme);
                 self.shell.state.status = "Settings saved".into();
             }
             Err(err) => self.shell.state.status = format!("Settings save failed: {err}"),
@@ -2575,15 +2575,6 @@ impl App {
                 self.shell.state.status = format!("Reopened {doc:?}");
             }
         }
-    }
-}
-
-/// The shell's theme mode for a stored Settings theme.
-fn theme_mode_for(theme: postguy_model::Theme) -> ThemeMode {
-    match theme {
-        postguy_model::Theme::System => ThemeMode::System,
-        postguy_model::Theme::Light => ThemeMode::Light,
-        postguy_model::Theme::Dark => ThemeMode::Dark,
     }
 }
 

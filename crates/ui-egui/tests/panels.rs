@@ -144,6 +144,43 @@ fn settings_theme_and_proxy_edit_save() {
     assert!(harness.query_by_label_contains("secret").is_none());
 }
 
+fn settings_harness(section: SettingsSection) -> Harness<'static, SettingsHarness> {
+    let mut harness = Harness::new_ui_state(
+        |ui, state: &mut SettingsHarness| {
+            let mut editor = SettingsEditor { settings: &mut state.settings, state: &mut state.state };
+            if let Some(action) = editor.show(ui) {
+                state.last = Some(action);
+            }
+        },
+        SettingsHarness { settings: Settings::default(), state: SettingsState::default(), last: None },
+    );
+    harness.state_mut().state.section = section;
+    harness.set_size(egui::vec2(1000.0, 800.0));
+    harness.run();
+    harness
+}
+
+#[test]
+fn the_settings_nav_switches_pages() {
+    let mut harness = settings_harness(SettingsSection::General);
+    assert!(harness.query_by_label("SSL certificate verification").is_some(), "General page shows its rows");
+    harness.get_by_label("Proxy").click_accesskit();
+    harness.run();
+    assert_eq!(harness.state().state.section, SettingsSection::Proxy);
+    assert!(harness.query_by_label("SSL certificate verification").is_none(), "the General rows are gone");
+    assert!(harness.query_by_label("Custom proxy").is_some(), "the Proxy rows are shown");
+}
+
+#[test]
+fn general_toggles_save() {
+    let mut harness = settings_harness(SettingsSection::General);
+    assert!(!harness.state().settings.disable_cookies);
+    harness.get_by_label("Disable cookies").click_accesskit();
+    harness.run();
+    assert!(harness.state().settings.disable_cookies);
+    assert_eq!(harness.state().last, Some(SettingsAction::Save));
+}
+
 #[test]
 fn settings_auth_is_unaffected_by_the_editor() {
     // A small guard that the settings struct keeps unrelated fields while editing.

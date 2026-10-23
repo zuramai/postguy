@@ -110,6 +110,17 @@ pub fn radio(ui: &mut Ui, selected: &mut String, value: &str, label: &str) -> Re
     response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
+/// Paint a switch track with its knob inside `track` (any size; the knob follows the height).
+fn paint_switch_track(ui: &Ui, track: Rect, on: bool) {
+    let theme = crate::theme::Theme::current(ui.ctx());
+    let fill = if on { theme.palette.accent_fill } else { theme.palette.surface_sunken };
+    let radius = (track.height() / 2.0).round();
+    ui.painter().rect(track, egui::CornerRadius::same(radius as u8), fill, Stroke::new(1.0, theme.palette.border), StrokeKind::Inside);
+    let knob_radius = track.height() / 2.0 - 2.0;
+    let knob_x = if on { track.right() - knob_radius - 2.0 } else { track.left() + knob_radius + 2.0 };
+    ui.painter().circle_filled(pos2(knob_x, track.center().y), knob_radius, contrast_on(fill));
+}
+
 /// A toggle switch (on = accent track, knob right). AccessKit reports it as a checkbox.
 pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
     let theme = crate::theme::Theme::current(ui.ctx());
@@ -123,10 +134,7 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
         response.mark_changed();
     }
     let track = Rect::from_min_size(pos2(rect.left(), rect.center().y - 9.0), vec2(34.0, 18.0));
-    let track_fill = if *on { theme.palette.accent } else { theme.palette.surface_sunken };
-    ui.painter().rect(track, egui::CornerRadius::same(9), track_fill, Stroke::new(1.0, theme.palette.border), StrokeKind::Inside);
-    let knob_x = if *on { track.right() - 9.0 } else { track.left() + 9.0 };
-    ui.painter().circle_filled(pos2(knob_x, track.center().y), 7.0, contrast_on(track_fill));
+    paint_switch_track(ui, track, *on);
     ui.painter().text(
         pos2(track.right() + 8.0, rect.center().y),
         Align2::LEFT_CENTER,
@@ -136,6 +144,64 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
     );
     response.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, ui.is_enabled(), *on, label));
     response.on_hover_cursor(CursorIcon::PointingHand)
+}
+
+/// A bare 36x20 toggle track for settings rows: the row paints its own label, `label` is the
+/// accessible name. Space toggles when focused.
+pub fn toggle(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
+    let (rect, mut response) = ui.allocate_exact_size(vec2(36.0, 20.0), Sense::click());
+    if response.clicked() || (response.has_focus() && ui.input(|input| input.key_pressed(Key::Space))) {
+        *on = !*on;
+        response.mark_changed();
+    }
+    paint_switch_track(ui, rect, *on);
+    response.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, ui.is_enabled(), *on, label));
+    response.on_hover_cursor(CursorIcon::PointingHand)
+}
+
+/// A 140x30 numeric field with a unit suffix ("ms", "MB") after a divider.
+pub fn number_with_unit(
+    ui: &mut Ui,
+    id: impl std::hash::Hash + std::fmt::Debug,
+    value: &mut u64,
+    range: std::ops::RangeInclusive<u64>,
+    unit: &str,
+    label: &str,
+) -> Response {
+    let theme = crate::theme::Theme::current(ui.ctx());
+    let (rect, _) = ui.allocate_exact_size(vec2(140.0, 30.0), Sense::hover());
+    let hovered = ui.rect_contains_pointer(rect);
+    let border = if hovered { theme.palette.input_border_hover } else { theme.palette.input_border };
+    ui.painter().rect(rect, egui::CornerRadius::same(6), theme.palette.input_bg, Stroke::new(1.0, border), StrokeKind::Inside);
+    let split = rect.left() + 96.0;
+    ui.painter().vline(split, rect.top() + 1.0..=rect.bottom() - 1.0, Stroke::new(1.0, theme.palette.input_border));
+    ui.painter().text(
+        pos2((split + rect.right()) / 2.0, rect.center().y),
+        Align2::CENTER_CENTER,
+        unit,
+        TextStyle::Small.resolve(ui.style()),
+        theme.palette.text_muted,
+    );
+    let inner = Rect::from_min_max(rect.min + vec2(8.0, 0.0), pos2(split - 4.0, rect.bottom()));
+    let mut child = ui.new_child(egui::UiBuilder::new().id_salt(id).max_rect(inner).layout(egui::Layout::left_to_right(egui::Align::Center)));
+    let widgets = &mut child.visuals_mut().widgets;
+    for state in [&mut widgets.inactive, &mut widgets.hovered, &mut widgets.active] {
+        state.bg_fill = Color32::TRANSPARENT;
+        state.weak_bg_fill = Color32::TRANSPARENT;
+        state.bg_stroke = Stroke::NONE;
+    }
+    let response = child.add(egui::DragValue::new(value).range(range));
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::DragValue, true, label));
+    response.on_hover_cursor(CursorIcon::ResizeHorizontal)
+}
+
+/// Plain wrapped text that registers no AccessKit node, for row captions whose control
+/// already carries the accessible name.
+pub fn plain_text(ui: &mut Ui, text: &str, font: egui::FontId, color: Color32) -> Response {
+    let galley = ui.painter().layout(text.to_owned(), font, color, ui.available_width());
+    let (rect, response) = ui.allocate_exact_size(galley.size(), Sense::hover());
+    ui.painter().galley(rect.min, galley, color);
+    response
 }
 
 /// One entry of a grouped select.
