@@ -130,3 +130,22 @@ fn the_error_pane_shows_the_code_message_and_retry() {
     harness.run();
     assert!(harness.state().retry);
 }
+
+#[test]
+fn headers_render_as_a_left_aligned_table() {
+    let mut harness = harness();
+    let long = "x".repeat(600);
+    harness.state_mut().data.headers.push(("x-long".into(), long.clone()));
+    harness.set_size(egui::vec2(800.0, 600.0));
+    harness.run();
+    harness.get_by_label_contains("Headers 3").click();
+    harness.run();
+    let first_key = harness.get_by_label("content-type").rect();
+    let second_key = harness.get_by_label("set-cookie").rect();
+    let value = harness.get_by_label("application/json").rect();
+    let long_value = harness.get_by_label(long.as_str()).rect();
+    assert!((first_key.left() - second_key.left()).abs() < 0.5, "keys share a left edge: {first_key:?} vs {second_key:?}");
+    assert!(first_key.right() < value.left(), "the value column starts right of the keys: {first_key:?} vs {value:?}");
+    assert!((long_value.left() - value.left()).abs() < 0.5, "values share a left edge");
+    assert!(long_value.right() <= 800.0, "a long value wraps inside the pane: {long_value:?}");
+}
