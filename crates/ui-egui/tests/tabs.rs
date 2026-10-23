@@ -298,3 +298,17 @@ fn hovering_a_tab_or_its_close_button_shows_the_pointing_hand() {
     harness.run();
     assert_eq!(harness.output().platform_output.cursor_icon, egui::CursorIcon::PointingHand, "the close button");
 }
+
+#[test]
+fn many_tabs_stay_left_of_the_strip_controls() {
+    let mut harness = harness();
+    for index in 1..=12 {
+        harness.state_mut().tabs.open(doc(&format!("r{index}")), format!("Tab {index}"));
+    }
+    harness.set_size(egui::vec2(700.0, 200.0));
+    harness.run();
+    harness.run();
+    let controls = harness.get_by_label("Tabs").rect();
+    let active = harness.get_by_label("Tab 12").rect();
+    assert!(active.right() <= controls.left() + 0.5, "the active tab {active:?} draws under the Tabs control {controls:?}");
+}

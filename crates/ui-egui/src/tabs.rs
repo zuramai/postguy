@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use egui::{Align, Color32, Id, Layout, RichText, ScrollArea, Sense, Ui, vec2};
+use egui::{Align, Color32, Id, Layout, Rect, RichText, ScrollArea, Sense, Ui, UiBuilder, pos2, vec2};
 use serde::{Deserialize, Serialize};
 
 use crate::sidebar::SidebarData;
@@ -354,94 +354,11 @@ pub fn tab_strip(ui: &mut Ui, tabs: &mut Tabs, data: &SidebarData) -> Option<Tab
     let mut action = None;
     ui.horizontal_centered(|ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
-        ScrollArea::horizontal().id_salt("tab-strip-scroll").scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(
-            ui,
-            |ui| {
-                ui.horizontal_centered(|ui| {
-                    let mut hovered_index: Option<usize> = None;
-                    let mut drag_index: Option<usize> = None;
-                    for index in 0..tabs.tabs.len() {
-                        // A close below shrinks the list; stop instead of indexing past the end.
-                        let Some(tab) = tabs.tabs.get(index).cloned() else { break };
-                        let drawn = draw_tab(ui, &theme, &tab, tabs.active == Some(tab.id));
-                        let response = drawn.response;
-                        if drawn.close_clicked {
-                            tabs.request_close(tab.id);
-                        }
-                        if response.clicked() {
-                            tabs.activate(tab.id);
-                        }
-                        if response.middle_clicked() {
-                            tabs.request_close(tab.id);
-                        }
-                        if response.double_clicked()
-                            && let Some(current) = tabs.tabs.get_mut(index)
-                        {
-                            current.preview = false;
-                        }
-                        if response.drag_started() {
-                            tabs.drag = Some(tab.id);
-                        }
-                        if response.dragged() {
-                            drag_index = Some(index);
-                        }
-                        if tabs.drag.is_some() && response.hovered() {
-                            hovered_index = Some(index);
-                        }
-                        let tab_id = tab.id;
-                        widgets::context_menu(&response, |ui| {
-                            if menu_item(ui, Some("plus"), "New Request", None, true).clicked() {
-                                action = Some(TabAction::NewRequest);
-                            }
-                            if menu_item(ui, None, "Duplicate Tab", None, true).clicked() {
-                                let doc = tabs.tabs.iter().find(|candidate| candidate.id == tab_id).map(|candidate| candidate.doc.clone());
-                                if let Some(doc) = doc {
-                                    tabs.open(doc, tabs.tabs.iter().find(|tab| tab.id == tab_id).map(|tab| tab.title.clone()).unwrap_or_default());
-                                }
-                            }
-                            ui.separator();
-                            if menu_item(ui, None, "Close Tab", Some("Cmd+W"), true).clicked() {
-                                tabs.request_close(tab_id);
-                            }
-                            if menu_item(ui, None, "Force Close Tab", None, true).clicked() {
-                                tabs.force_close(tab_id);
-                            }
-                            if menu_item(ui, None, "Close Other Tabs", None, true).clicked() {
-                                tabs.close_others(tab_id);
-                            }
-                            if menu_item(ui, None, "Close All Tabs", None, true).clicked() {
-                                tabs.close_all();
-                            }
-                            if menu_item(ui, None, "Force Close All Tabs", None, true).clicked() {
-                                let ids: Vec<u64> = tabs.tabs.iter().map(|tab| tab.id).collect();
-                                for id in ids {
-                                    tabs.force_close(id);
-                                }
-                            }
-                            ui.separator();
-                            if let Some(doc) = tabs.tabs.iter().find(|tab| tab.id == tab_id).map(|tab| tab.doc.clone())
-                                && let Some(sidebar_id) = doc.sidebar_id()
-                                && menu_item(ui, None, "Reveal in Sidebar", None, true).clicked()
-                            {
-                                action = Some(TabAction::RevealInSidebar(sidebar_id.to_string()));
-                            }
-                        });
-                    }
-                    if let (Some(dragged), Some(target)) = (tabs.drag, hovered_index)
-                        && let Some(from) = tabs.tabs.iter().position(|tab| Some(tab.id) == Some(dragged))
-                    {
-                        tabs.reorder(from, target);
-                    }
-                    if ui.input(|input| input.pointer.any_released()) {
-                        tabs.drag = None;
-                    }
-                    let _ = drag_index;
-                });
-            },
-        );
 
         // Overflow search (open + recently closed) and the environment selector.
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+        // The right group is laid out first so the tabs can be limited to the space left of it.
+        let full = ui.available_rect_before_wrap();
+        let right = ui.scope_builder(UiBuilder::new().max_rect(full).layout(Layout::right_to_left(Align::Center)), |ui| {
             let active_name = data
                 .active_environment
                 .as_ref()
@@ -568,6 +485,109 @@ pub fn tab_strip(ui: &mut Ui, tabs: &mut Tabs, data: &SidebarData) -> Option<Tab
             });
             ui.add_space(4.0);
         });
+        let boundary = (right.response.rect.left() - 6.0).max(full.left());
+        let strip_rect = Rect::from_min_max(full.min, pos2(boundary, full.max.y));
+        let mut strip = ui.new_child(UiBuilder::new().max_rect(strip_rect).layout(Layout::left_to_right(Align::Center)));
+        let last_active_key = Id::new("tab-strip-last-active");
+        ScrollArea::horizontal()
+            .id_salt("tab-strip-scroll")
+            .auto_shrink([false, false])
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+            .show(&mut strip, |ui| {
+                // A plain mouse wheel scrolls the strip sideways while the pointer is over it.
+                if ui.rect_contains_pointer(ui.clip_rect()) {
+                    let delta = ui.input(|input| input.smooth_scroll_delta);
+                    if delta.x == 0.0 && delta.y != 0.0 {
+                        ui.scroll_with_delta(vec2(delta.y, 0.0));
+                    }
+                }
+                ui.horizontal_centered(|ui| {
+                    let mut hovered_index: Option<usize> = None;
+                    let mut drag_index: Option<usize> = None;
+                    let last_active = ui.data(|data| data.get_temp::<Option<u64>>(last_active_key)).flatten();
+                    for index in 0..tabs.tabs.len() {
+                        // A close below shrinks the list; stop instead of indexing past the end.
+                        let Some(tab) = tabs.tabs.get(index).cloned() else { break };
+                        let drawn = draw_tab(ui, &theme, &tab, tabs.active == Some(tab.id));
+                        let response = drawn.response;
+                        if tabs.active == Some(tab.id) && last_active != Some(tab.id) {
+                            response.scroll_to_me(Some(Align::Center));
+                            ui.data_mut(|data| data.insert_temp(last_active_key, Some(tab.id)));
+                        }
+                        if drawn.close_clicked {
+                            tabs.request_close(tab.id);
+                        }
+                        if response.clicked() {
+                            tabs.activate(tab.id);
+                        }
+                        if response.middle_clicked() {
+                            tabs.request_close(tab.id);
+                        }
+                        if response.double_clicked()
+                            && let Some(current) = tabs.tabs.get_mut(index)
+                        {
+                            current.preview = false;
+                        }
+                        if response.drag_started() {
+                            tabs.drag = Some(tab.id);
+                        }
+                        if response.dragged() {
+                            drag_index = Some(index);
+                        }
+                        if tabs.drag.is_some() && response.hovered() {
+                            hovered_index = Some(index);
+                        }
+                        let tab_id = tab.id;
+                        widgets::context_menu(&response, |ui| {
+                            if menu_item(ui, Some("plus"), "New Request", None, true).clicked() {
+                                action = Some(TabAction::NewRequest);
+                            }
+                            if menu_item(ui, None, "Duplicate Tab", None, true).clicked() {
+                                let doc = tabs.tabs.iter().find(|candidate| candidate.id == tab_id).map(|candidate| candidate.doc.clone());
+                                if let Some(doc) = doc {
+                                    tabs.open(doc, tabs.tabs.iter().find(|tab| tab.id == tab_id).map(|tab| tab.title.clone()).unwrap_or_default());
+                                }
+                            }
+                            ui.separator();
+                            if menu_item(ui, None, "Close Tab", Some("Cmd+W"), true).clicked() {
+                                tabs.request_close(tab_id);
+                            }
+                            if menu_item(ui, None, "Force Close Tab", None, true).clicked() {
+                                tabs.force_close(tab_id);
+                            }
+                            if menu_item(ui, None, "Close Other Tabs", None, true).clicked() {
+                                tabs.close_others(tab_id);
+                            }
+                            if menu_item(ui, None, "Close All Tabs", None, true).clicked() {
+                                tabs.close_all();
+                            }
+                            if menu_item(ui, None, "Force Close All Tabs", None, true).clicked() {
+                                let ids: Vec<u64> = tabs.tabs.iter().map(|tab| tab.id).collect();
+                                for id in ids {
+                                    tabs.force_close(id);
+                                }
+                            }
+                            ui.separator();
+                            if let Some(doc) = tabs.tabs.iter().find(|tab| tab.id == tab_id).map(|tab| tab.doc.clone())
+                                && let Some(sidebar_id) = doc.sidebar_id()
+                                && menu_item(ui, None, "Reveal in Sidebar", None, true).clicked()
+                            {
+                                action = Some(TabAction::RevealInSidebar(sidebar_id.to_string()));
+                            }
+                        });
+                    }
+                    if let (Some(dragged), Some(target)) = (tabs.drag, hovered_index)
+                        && let Some(from) = tabs.tabs.iter().position(|tab| Some(tab.id) == Some(dragged))
+                    {
+                        tabs.reorder(from, target);
+                    }
+                    if ui.input(|input| input.pointer.any_released()) {
+                        tabs.drag = None;
+                    }
+                    let _ = drag_index;
+                });
+            });
+        ui.allocate_rect(full, Sense::hover());
     });
 
     // Dirty-close dialog (its own modal: a click that opened it must not count as a backdrop

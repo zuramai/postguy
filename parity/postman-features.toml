@@ -821,8 +821,8 @@ title = "Tab strip: preview, dirty dot, drag, overflow, context menu"
 area = "H"
 tier = "P0"
 status = "shipped"
-notes = "Preview tabs replace each other and promote on a permanent open; painted close buttons; dirty dot; middle-click; drag reorder; overflow search over open and recently closed; full context menu; environment selector. Tabs serialise into the session with their drafts."
-evidence = ["crates/ui-egui/tests/tabs.rs::a_preview_replaces_the_previous_preview_and_promotes_in_place", "crates/ui-egui/tests/tabs.rs::closing_and_reopening_restores_the_document", "crates/ui-egui/tests/tabs.rs::a_dirty_close_shows_the_three_way_dialog", "crates/ui-egui/tests/tabs.rs::the_strip_activates_middle_click_closes_and_the_close_button_works", "crates/ui-egui/tests/tabs.rs::the_context_menu_closes_other_tabs_and_reveals_the_document"]
+notes = "Preview tabs replace each other and promote on a permanent open; painted close buttons; dirty dot; middle-click; drag reorder; overflow search over open and recently closed; full context menu; environment selector. Overflowing tabs scroll inside the strip (the wheel scrolls it sideways, the active tab scrolls into view) and never draw under the Tabs or environment controls. Tabs serialise into the session with their drafts."
+evidence = ["crates/ui-egui/tests/tabs.rs::a_preview_replaces_the_previous_preview_and_promotes_in_place", "crates/ui-egui/tests/tabs.rs::closing_and_reopening_restores_the_document", "crates/ui-egui/tests/tabs.rs::a_dirty_close_shows_the_three_way_dialog", "crates/ui-egui/tests/tabs.rs::the_strip_activates_middle_click_closes_and_the_close_button_works", "crates/ui-egui/tests/tabs.rs::the_context_menu_closes_other_tabs_and_reveals_the_document", "crates/ui-egui/tests/tabs.rs::many_tabs_stay_left_of_the_strip_controls"]
 [[feature]]
 id = "h.crash-recovery"
 title = "Crash recovery: drafts in session.json, restored with a notice"
