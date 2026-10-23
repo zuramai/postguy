@@ -71,12 +71,23 @@ pub fn parse_lock(text: &str) -> (Option<u32>, Option<std::time::Duration>) {
     (pid, start)
 }
 
-/// Whether `pid` names a LIVE process on THIS machine (macOS/Linux/FreeBSD `ps -p`; other
-/// platforms assume alive, the takeover age still applies).
+/// Whether `pid` names a LIVE process on THIS machine (`ps -p` on unix, `tasklist` on Windows;
+/// when the check can not run the pid is assumed alive, the takeover age still applies).
 pub fn pid_alive(pid: u32) -> bool {
-    match std::process::Command::new("ps").args(["-p", &pid.to_string()]).output() {
-        Ok(output) => output.status.success(),
-        Err(_) => true, // can not know: safer to assume live (refuse rather than clobber)
+    #[cfg(windows)]
+    {
+        // `tasklist` prints a CSV row with the quoted pid when the process exists, and an INFO line otherwise.
+        match std::process::Command::new("tasklist").args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"]).output() {
+            Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).contains(&format!("\"{pid}\"")),
+            _ => true,
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        match std::process::Command::new("ps").args(["-p", &pid.to_string()]).output() {
+            Ok(output) => output.status.success(),
+            Err(_) => true, // can not know: safer to assume live (refuse rather than clobber)
+        }
     }
 }
 
