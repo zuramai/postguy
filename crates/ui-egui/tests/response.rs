@@ -149,3 +149,16 @@ fn headers_render_as_a_left_aligned_table() {
     assert!((long_value.left() - value.left()).abs() < 0.5, "values share a left edge");
     assert!(long_value.right() <= 800.0, "a long value wraps inside the pane: {long_value:?}");
 }
+
+#[test]
+fn a_long_line_does_not_widen_the_body() {
+    let mut harness = harness();
+    harness.state_mut().data.body = format!("{{\"k\":\"{}\"}}", "x".repeat(5000)).into_bytes();
+    harness.state_mut().data.revision += 1;
+    harness.set_size(egui::vec2(800.0, 600.0));
+    harness.run();
+    harness.run();
+    let body = harness.get_by_label("Response body").rect();
+    assert!(body.right() <= 800.0, "the body overflowed the pane: {body:?}");
+    assert!(body.width() > 300.0, "the body should still fill the pane: {body:?}");
+}

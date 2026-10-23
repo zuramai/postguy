@@ -937,74 +937,85 @@ impl LargeTextView {
         let theme = Theme::current(ui.ctx());
         let palette = theme.palette;
         let font = FontId::monospace(theme.metrics.code_font);
-        let row_height = (ui.text_style_height(&egui::TextStyle::Monospace) + 4.0).max(20.0);
+        let row_height = (ui.text_style_height(&egui::TextStyle::Monospace) + 3.0).round();
         let char_w = ui.painter().layout_no_wrap(" ".into(), font.clone(), Color32::PLACEHOLDER).size().x;
         let digits = self.line_starts.len().max(1).ilog10() as usize + 1;
         let gutter = if self.line_numbers { (digits as f32 + 1.0) * char_w + 12.0 } else { 0.0 };
         let tint = palette.warning.gamma_multiply(0.28);
         let guide = egui::Stroke::new(1.0, palette.guide);
         let mut clicked: Option<Response> = None;
-        egui::Frame::new()
-            .fill(palette.input_bg)
-            .stroke(egui::Stroke::new(1.0, palette.border))
-            .corner_radius(egui::CornerRadius::same(theme.metrics.radius as u8))
-            .inner_margin(egui::Margin::symmetric(0, 6))
-            .show(ui, |ui| {
-                ScrollArea::vertical().id_salt((self.id, "scroll")).auto_shrink([false, false]).show_rows(
-                    ui,
-                    row_height,
-                    self.display.len(),
-                    |ui, range| {
-                        ui.spacing_mut().item_spacing.y = 2.0;
-                        for line in range {
-                            let Some(display) = self.display.get(line) else { continue };
-                            let content = self.text.get(display.start..display.end).unwrap_or_default().trim_end_matches('\n');
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 8.0;
-                                if self.line_numbers {
-                                    let (rect, _) = ui.allocate_exact_size(egui::vec2(gutter, row_height), Sense::hover());
-                                    // Continuation chunks of a split line carry no number.
-                                    if self.line_starts.get(display.number.saturating_sub(1)) == Some(&display.start) {
-                                        ui.painter().text(
-                                            egui::pos2(rect.right() - 6.0, rect.center().y),
-                                            egui::Align2::RIGHT_CENTER,
-                                            display.number.to_string(),
-                                            font.clone(),
-                                            palette.line_number,
-                                        );
+        let mut body_rect: Option<egui::Rect> = None;
+        // The frame never grows past the pane: long lines scroll sideways (or wrap) inside it.
+        ui.scope(|ui| {
+            ui.set_max_width(ui.available_width());
+            egui::Frame::new()
+                .fill(palette.input_bg)
+                .stroke(egui::Stroke::new(1.0, palette.border))
+                .corner_radius(egui::CornerRadius::same(theme.metrics.radius as u8))
+                .inner_margin(egui::Margin::symmetric(0, 6))
+                .show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    let area = if self.wrap { ScrollArea::vertical() } else { ScrollArea::both() };
+                    let output =
+                        area.id_salt((self.id, "scroll")).auto_shrink([false, false]).show_rows(ui, row_height, self.display.len(), |ui, range| {
+                            ui.spacing_mut().item_spacing.y = 0.0;
+                            // `horizontal` is at least `interact_size.y` tall; the rows must match `row_height`.
+                            ui.spacing_mut().interact_size.y = row_height;
+                            for line in range {
+                                let Some(display) = self.display.get(line) else { continue };
+                                let content = self.text.get(display.start..display.end).unwrap_or_default().trim_end_matches('\n');
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 8.0;
+                                    if self.line_numbers {
+                                        let (rect, _) = ui.allocate_exact_size(egui::vec2(gutter, row_height), Sense::hover());
+                                        // Continuation chunks of a split line carry no number.
+                                        if self.line_starts.get(display.number.saturating_sub(1)) == Some(&display.start) {
+                                            ui.painter().text(
+                                                egui::pos2(rect.right() - 6.0, rect.center().y),
+                                                egui::Align2::RIGHT_CENTER,
+                                                display.number.to_string(),
+                                                font.clone(),
+                                                palette.line_number,
+                                            );
+                                        }
                                     }
-                                }
-                                let wrap_width = if self.wrap { ui.available_width().max(200.0) } else { f32::INFINITY };
-                                let mut job = highlight_job(self.language, content, &palette, font.clone(), wrap_width);
-                                tint_matches(&mut job, &self.search, tint);
-                                let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
-                                let label = egui::Label::new(galley).sense(Sense::click()).selectable(true);
-                                let response = ui.add(label);
-                                if response.clicked() {
-                                    clicked = Some(response.clone());
-                                }
-                                // Indent guides, one per two leading columns (a tab counts as two).
-                                let mut columns = 0usize;
-                                for byte in content.bytes() {
-                                    match byte {
-                                        b' ' => columns += 1,
-                                        b'\t' => columns += 2,
-                                        _ => break,
+                                    let wrap_width = if self.wrap { ui.available_width().max(200.0) } else { f32::INFINITY };
+                                    let mut job = highlight_job(self.language, content, &palette, font.clone(), wrap_width);
+                                    tint_matches(&mut job, &self.search, tint);
+                                    let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
+                                    let label = egui::Label::new(galley).sense(Sense::click()).selectable(true);
+                                    let response = ui.add(label);
+                                    if response.clicked() {
+                                        clicked = Some(response.clone());
                                     }
-                                }
-                                if columns >= 2 && self.line_starts.get(display.number.saturating_sub(1)) == Some(&display.start) {
-                                    let rect = response.rect;
-                                    let y_range = (rect.top() - 1.0)..=(rect.bottom() + 1.0);
-                                    for level in 1..=columns / 2 {
-                                        let x = rect.left() + (level - 1) as f32 * 2.0 * char_w + char_w * 0.5;
-                                        ui.painter().vline(x, y_range.clone(), guide);
+                                    // Indent guides, one per two leading columns (a tab counts as two).
+                                    let mut columns = 0usize;
+                                    for byte in content.bytes() {
+                                        match byte {
+                                            b' ' => columns += 1,
+                                            b'\t' => columns += 2,
+                                            _ => break,
+                                        }
                                     }
-                                }
-                            });
-                        }
-                    },
-                );
-            });
+                                    if columns >= 2 && self.line_starts.get(display.number.saturating_sub(1)) == Some(&display.start) {
+                                        let rect = response.rect;
+                                        let y_range = (rect.top() - 1.0)..=(rect.bottom() + 1.0);
+                                        for level in 1..=columns / 2 {
+                                            let x = rect.left() + (level - 1) as f32 * 2.0 * char_w + char_w * 0.5;
+                                            ui.painter().vline(x, y_range.clone(), guide);
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                    body_rect = Some(output.inner_rect);
+                });
+        });
+        if let Some(rect) = body_rect {
+            // A named region so tests (and screen readers) can find the body's extent.
+            ui.interact(rect, self.id.with("region"), Sense::hover())
+                .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Response body"));
+        }
         clicked.unwrap_or_else(|| ui.label(""))
     }
 }
