@@ -14,7 +14,9 @@ use egui::text::LayoutJob;
 use egui::{Color32, FontId, Response, ScrollArea, Sense, TextEdit, TextFormat, Ui};
 
 use crate::theme::{Palette, Theme};
+use crate::widgets;
 use crate::widgets::field::variable_spans;
+use crate::widgets::text_selection::{Motion, Sel, Selections, add_next_occurrence, apply_motion, clamp_to_text, copy_text, line_at, word_at};
 
 /// Which token rules to apply. Unknown languages stay plain (no half-correct colouring).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -864,6 +866,68 @@ pub struct LargeTextView {
     pub search: String,
 }
 
+/// One painted row of a [`LargeTextView`] this frame, kept for hit testing.
+struct PaintedRow {
+    rect: egui::Rect,
+    /// Where the galley's top-left sits.
+    origin: egui::Pos2,
+    /// Index into `LargeTextView::display`.
+    line: usize,
+    galley: Arc<egui::Galley>,
+}
+
+/// The char index of the byte offset `rel` inside `content` (floored to a char boundary).
+fn char_of_byte(content: &str, rel: usize) -> usize {
+    content.char_indices().take_while(|(index, _)| *index < rel).count()
+}
+
+/// The byte offset of char `index` inside `content`, or its end.
+fn byte_of_char(content: &str, index: usize) -> usize {
+    content.char_indices().nth(index).map_or(content.len(), |(offset, _)| offset)
+}
+
+/// Fill the part of `selection` (absolute byte range) that falls on this display row. A
+/// selection that runs on past the end of the line also covers a sliver for the newline.
+#[allow(clippy::too_many_arguments)]
+fn paint_selection(
+    painter: &egui::Painter,
+    fill: Color32,
+    origin: egui::Pos2,
+    galley: &egui::Galley,
+    content: &str,
+    display: &DisplayLine,
+    selection: std::ops::Range<usize>,
+    char_w: f32,
+) {
+    let content_end = display.start + content.len();
+    if selection.end <= display.start || selection.start >= display.end.max(display.start + 1) {
+        return;
+    }
+    let total = content.chars().count();
+    let first = char_of_byte(content, selection.start.saturating_sub(display.start)).min(total);
+    let last = if selection.end >= content_end { total } else { char_of_byte(content, selection.end - display.start) };
+    let covers_newline = selection.end > content_end && display.end > content_end;
+    let mut row_start = 0usize;
+    let row_count = galley.rows.len();
+    for (index, placed) in galley.rows.iter().enumerate() {
+        let chars = placed.row.glyphs.len();
+        let low = first.max(row_start);
+        let high = last.min(row_start + chars);
+        let is_last_row = index + 1 == row_count;
+        let extra = if is_last_row && covers_newline { char_w * 0.5 } else { 0.0 };
+        if low < high || extra > 0.0 {
+            let x0 = placed.row.x_offset(egui::epaint::text::CharIndex(low.saturating_sub(row_start).min(chars)));
+            let x1 = placed.row.x_offset(egui::epaint::text::CharIndex(high.max(low).saturating_sub(row_start).min(chars)));
+            let rect = egui::Rect::from_min_max(
+                egui::pos2(origin.x + placed.pos.x + x0, origin.y + placed.min_y()),
+                egui::pos2(origin.x + placed.pos.x + x1 + extra, origin.y + placed.max_y()),
+            );
+            painter.rect_filled(rect, 0.0, fill);
+        }
+        row_start += chars + usize::from(placed.ends_with_newline);
+    }
+}
+
 impl LargeTextView {
     pub fn new(text: Arc<str>) -> LargeTextView {
         let mut line_starts = Vec::with_capacity(text.len() / 32 + 1);
@@ -932,7 +996,10 @@ impl LargeTextView {
         &self.text
     }
 
-    /// The visible-line renderer. Selection works per row (labels are selectable).
+    /// The visible-line renderer: a read-only editor. Rows are painted by hand (one galley per
+    /// visible row) so a 10 MB body stays virtualised. On top sit a caret, click / drag / double
+    /// and triple click selection, Shift and Alt clicks, several selections at once (Cmd/Ctrl+D
+    /// adds the next occurrence), Cmd/Ctrl+A, copy and a context menu.
     pub fn show(&self, ui: &mut Ui) -> Response {
         let theme = Theme::current(ui.ctx());
         let palette = theme.palette;
@@ -943,7 +1010,13 @@ impl LargeTextView {
         let gutter = if self.line_numbers { (digits as f32 + 1.0) * char_w + 12.0 } else { 0.0 };
         let tint = palette.warning.gamma_multiply(0.28);
         let guide = egui::Stroke::new(1.0, palette.guide);
-        let mut clicked: Option<Response> = None;
+        let text_id = self.id.with("text");
+        let selections_id = self.id.with("selections");
+        let mut sels = ui.data(|data| data.get_temp::<Selections>(selections_id)).unwrap_or_default();
+        clamp_to_text(&self.text, &mut sels);
+        let focused = ui.memory(|memory| memory.has_focus(text_id));
+        let selection_fill = ui.visuals().selection.bg_fill;
+        let mut text_response: Option<Response> = None;
         let mut body_rect: Option<egui::Rect> = None;
         // The frame never grows past the pane: long lines scroll sideways (or wrap) inside it.
         ui.scope(|ui| {
@@ -955,68 +1028,220 @@ impl LargeTextView {
                 .inner_margin(egui::Margin::symmetric(0, 6))
                 .show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
+                    let pane_width = ui.available_width();
                     let area = if self.wrap { ScrollArea::vertical() } else { ScrollArea::both() };
                     let output =
                         area.id_salt((self.id, "scroll")).auto_shrink([false, false]).show_rows(ui, row_height, self.display.len(), |ui, range| {
                             ui.spacing_mut().item_spacing.y = 0.0;
-                            // `horizontal` is at least `interact_size.y` tall; the rows must match `row_height`.
-                            ui.spacing_mut().interact_size.y = row_height;
+                            let mut rows: Vec<PaintedRow> = Vec::with_capacity(range.len());
                             for line in range {
                                 let Some(display) = self.display.get(line) else { continue };
                                 let content = self.text.get(display.start..display.end).unwrap_or_default().trim_end_matches('\n');
-                                ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = 8.0;
-                                    if self.line_numbers {
-                                        let (rect, _) = ui.allocate_exact_size(egui::vec2(gutter, row_height), Sense::hover());
-                                        // Continuation chunks of a split line carry no number.
-                                        if self.line_starts.get(display.number.saturating_sub(1)) == Some(&display.start) {
-                                            ui.painter().text(
-                                                egui::pos2(rect.right() - 6.0, rect.center().y),
-                                                egui::Align2::RIGHT_CENTER,
-                                                display.number.to_string(),
-                                                font.clone(),
-                                                palette.line_number,
+                                let wrap_width = if self.wrap { (pane_width - gutter - 16.0).max(200.0) } else { f32::INFINITY };
+                                let mut job = highlight_job(self.language, content, &palette, font.clone(), wrap_width);
+                                tint_matches(&mut job, &self.search, tint);
+                                let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
+                                let height = if self.wrap { galley.size().y.max(row_height) } else { row_height };
+                                let width = (gutter + 8.0 + galley.size().x + 8.0).max(pane_width);
+                                let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), Sense::hover());
+                                if !content.is_empty() {
+                                    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, content));
+                                }
+                                let origin =
+                                    egui::pos2(rect.left() + gutter + 8.0, rect.top() + (row_height - galley.size().y.min(row_height)) / 2.0);
+                                let painter = ui.painter();
+                                let first_chunk = self.line_starts.get(display.number.saturating_sub(1)) == Some(&display.start);
+                                // Continuation chunks of a split line carry no number.
+                                if self.line_numbers && first_chunk {
+                                    painter.text(
+                                        egui::pos2(rect.left() + gutter - 6.0, rect.top() + row_height / 2.0),
+                                        egui::Align2::RIGHT_CENTER,
+                                        display.number.to_string(),
+                                        font.clone(),
+                                        palette.line_number,
+                                    );
+                                }
+                                for sel in sels.sels.iter().filter(|sel| !sel.is_empty()) {
+                                    paint_selection(painter, selection_fill, origin, &galley, content, display, sel.range(), char_w);
+                                }
+                                painter.galley(origin, galley.clone(), palette.text);
+                                // Indent guides, one per two leading columns (a tab counts as two).
+                                let mut columns = 0usize;
+                                for byte in content.bytes() {
+                                    match byte {
+                                        b' ' => columns += 1,
+                                        b'\t' => columns += 2,
+                                        _ => break,
+                                    }
+                                }
+                                if columns >= 2 && first_chunk {
+                                    let y_range = rect.top()..=rect.bottom();
+                                    for level in 1..=columns / 2 {
+                                        let x = origin.x + (level - 1) as f32 * 2.0 * char_w + char_w * 0.5;
+                                        painter.vline(x, y_range.clone(), guide);
+                                    }
+                                }
+                                if focused {
+                                    for sel in &sels.sels {
+                                        let at_end = sel.head == display.end && display.end == self.text.len();
+                                        if sel.head >= display.start && (sel.head < display.end || at_end) {
+                                            let index = char_of_byte(content, sel.head - display.start);
+                                            let caret = galley.pos_from_cursor(egui::text::CCursor::new(index));
+                                            let x = origin.x + caret.min.x;
+                                            painter.vline(
+                                                x,
+                                                (origin.y + caret.min.y)..=(origin.y + caret.max.y),
+                                                egui::Stroke::new(1.5, palette.text),
                                             );
                                         }
                                     }
-                                    let wrap_width = if self.wrap { ui.available_width().max(200.0) } else { f32::INFINITY };
-                                    let mut job = highlight_job(self.language, content, &palette, font.clone(), wrap_width);
-                                    tint_matches(&mut job, &self.search, tint);
-                                    let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
-                                    let label = egui::Label::new(galley).sense(Sense::click()).selectable(true);
-                                    let response = ui.add(label);
-                                    if response.clicked() {
-                                        clicked = Some(response.clone());
-                                    }
-                                    // Indent guides, one per two leading columns (a tab counts as two).
-                                    let mut columns = 0usize;
-                                    for byte in content.bytes() {
-                                        match byte {
-                                            b' ' => columns += 1,
-                                            b'\t' => columns += 2,
-                                            _ => break,
-                                        }
-                                    }
-                                    if columns >= 2 && self.line_starts.get(display.number.saturating_sub(1)) == Some(&display.start) {
-                                        let rect = response.rect;
-                                        let y_range = (rect.top() - 1.0)..=(rect.bottom() + 1.0);
-                                        for level in 1..=columns / 2 {
-                                            let x = rect.left() + (level - 1) as f32 * 2.0 * char_w + char_w * 0.5;
-                                            ui.painter().vline(x, y_range.clone(), guide);
-                                        }
-                                    }
-                                });
+                                }
+                                rows.push(PaintedRow { rect, origin, line, galley });
                             }
+                            self.input(ui, text_id, &rows, &mut sels, row_height)
                         });
                     body_rect = Some(output.inner_rect);
+                    text_response = Some(output.inner);
                 });
         });
+        ui.data_mut(|data| data.insert_temp(selections_id, sels));
         if let Some(rect) = body_rect {
             // A named region so tests (and screen readers) can find the body's extent.
             ui.interact(rect, self.id.with("region"), Sense::hover())
                 .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Response body"));
         }
-        clicked.unwrap_or_else(|| ui.label(""))
+        text_response.unwrap_or_else(|| ui.label(""))
+    }
+
+    /// Pointer, keyboard and context-menu handling over the painted rows. Returns the
+    /// interaction response of the viewport.
+    fn input(&self, ui: &mut Ui, text_id: egui::Id, rows: &[PaintedRow], sels: &mut Selections, row_height: f32) -> Response {
+        let response = ui.interact(ui.clip_rect(), text_id, Sense::click_and_drag());
+        let response = response.on_hover_cursor(egui::CursorIcon::Text);
+        let before = sels.clone();
+
+        let offset_at = |pos: egui::Pos2| -> Option<usize> {
+            let first = rows.first()?;
+            let row = if pos.y < first.rect.top() { first } else { rows.iter().find(|row| pos.y < row.rect.bottom()).or(rows.last())? };
+            let display = self.display.get(row.line)?;
+            let content = self.text.get(display.start..display.end).unwrap_or_default().trim_end_matches('\n');
+            let index = row.galley.cursor_from_pos(pos - row.origin).index.0;
+            Some(display.start + byte_of_char(content, index))
+        };
+        let pointer = ui.input(|input| input.pointer.interact_pos());
+        let modifiers = ui.input(|input| input.modifiers);
+        if response.hovered() && ui.input(|input| input.pointer.primary_pressed()) {
+            response.request_focus();
+            if let Some(at) = pointer.and_then(offset_at) {
+                if modifiers.alt {
+                    sels.sels.push(Sel::caret(at));
+                } else if modifiers.shift {
+                    match sels.sels.last_mut() {
+                        Some(primary) => primary.head = at,
+                        None => sels.set(Sel::caret(at)),
+                    }
+                } else {
+                    sels.set(Sel::caret(at));
+                }
+            }
+        } else if response.dragged_by(egui::PointerButton::Primary)
+            && let Some(at) = pointer.and_then(offset_at)
+            && let Some(primary) = sels.sels.last_mut()
+        {
+            primary.head = at;
+        }
+        if (response.double_clicked() || response.triple_clicked())
+            && let Some(at) = pointer.and_then(offset_at)
+        {
+            let range = if response.triple_clicked() { line_at(&self.text, at) } else { word_at(&self.text, at) };
+            sels.set(Sel { anchor: range.start, head: range.end });
+        }
+
+        if ui.memory(|memory| memory.has_focus(text_id)) {
+            ui.memory_mut(|memory| {
+                memory.set_focus_lock_filter(text_id, egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, tab: false, escape: true });
+            });
+            let events = ui.input(|input| input.events.clone());
+            let mut handled: Vec<(egui::Modifiers, egui::Key)> = Vec::new();
+            for event in &events {
+                match event {
+                    egui::Event::Copy | egui::Event::Cut => {
+                        let copied = copy_text(&self.text, sels);
+                        if !copied.is_empty() {
+                            ui.ctx().copy_text(copied);
+                        }
+                    }
+                    egui::Event::Key { key, pressed: true, modifiers, .. } => {
+                        let command = modifiers.command || modifiers.ctrl;
+                        let motion = match key {
+                            egui::Key::ArrowLeft if command => Some(Motion::LineStart),
+                            egui::Key::ArrowRight if command => Some(Motion::LineEnd),
+                            egui::Key::ArrowUp if command => Some(Motion::DocStart),
+                            egui::Key::ArrowDown if command => Some(Motion::DocEnd),
+                            egui::Key::ArrowLeft => Some(Motion::Left),
+                            egui::Key::ArrowRight => Some(Motion::Right),
+                            egui::Key::ArrowUp => Some(Motion::Up),
+                            egui::Key::ArrowDown => Some(Motion::Down),
+                            egui::Key::Home if command => Some(Motion::DocStart),
+                            egui::Key::End if command => Some(Motion::DocEnd),
+                            egui::Key::Home => Some(Motion::LineStart),
+                            egui::Key::End => Some(Motion::LineEnd),
+                            _ => None,
+                        };
+                        if let Some(motion) = motion {
+                            apply_motion(&self.text, sels, motion, modifiers.shift);
+                            handled.push((*modifiers, *key));
+                        } else if *key == egui::Key::A && modifiers.command {
+                            sels.set(Sel { anchor: 0, head: self.text.len() });
+                            handled.push((*modifiers, *key));
+                        } else if *key == egui::Key::D && command {
+                            add_next_occurrence(&self.text, sels);
+                            handled.push((*modifiers, *key));
+                        } else if *key == egui::Key::Escape
+                            && let Some(primary) = sels.primary()
+                        {
+                            sels.set(Sel::caret(primary.head));
+                            handled.push((*modifiers, *key));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            ui.input_mut(|input| {
+                for (modifiers, key) in handled {
+                    input.consume_key(modifiers, key);
+                }
+            });
+        }
+
+        // Keep the primary caret in view after any change that did not come from the pointer.
+        if *sels != before
+            && let Some(primary) = sels.primary()
+            && !response.dragged()
+            && !response.is_pointer_button_down_on()
+        {
+            let index = self.display.partition_point(|display| display.start <= primary.head).saturating_sub(1);
+            if let Some(first) = rows.first() {
+                let top = first.rect.top() + (index as f32 - first.line as f32) * row_height;
+                ui.scroll_to_rect(egui::Rect::from_min_size(egui::pos2(first.rect.left(), top), egui::vec2(8.0, row_height)), None);
+            }
+        }
+        if *sels != before {
+            ui.ctx().request_repaint();
+        }
+
+        widgets::context_menu(&response, |ui| {
+            let copied = copy_text(&self.text, sels);
+            let copy_shortcut = crate::menu::display_shortcut("Cmd+C", cfg!(target_os = "macos"));
+            if widgets::menu_item(ui, Some("copy"), "Copy", Some(copy_shortcut.as_str()), !copied.is_empty()).clicked() {
+                ui.ctx().copy_text(copied);
+            }
+            let select_all_shortcut = crate::menu::display_shortcut("Cmd+A", cfg!(target_os = "macos"));
+            if widgets::menu_item(ui, None, "Select all", Some(select_all_shortcut.as_str()), true).clicked() {
+                sels.set(Sel { anchor: 0, head: self.text.len() });
+            }
+        });
+        response
     }
 }
 

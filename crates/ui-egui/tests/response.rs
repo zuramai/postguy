@@ -162,3 +162,54 @@ fn a_long_line_does_not_widen_the_body() {
     assert!(body.right() <= 800.0, "the body overflowed the pane: {body:?}");
     assert!(body.width() > 300.0, "the body should still fill the pane: {body:?}");
 }
+
+/// The text the last frame asked the platform to copy.
+fn copied(harness: &Harness<'_, State>) -> Option<String> {
+    harness.output().platform_output.commands.iter().find_map(|command| match command {
+        egui::OutputCommand::CopyText(text) => Some(text.clone()),
+        _ => None,
+    })
+}
+
+fn harness_with_body(body: &str) -> Harness<'static, State> {
+    let mut harness = harness();
+    harness.state_mut().data.body = body.as_bytes().to_vec();
+    harness.state_mut().data.revision += 1;
+    harness.set_size(egui::vec2(800.0, 600.0));
+    harness.run();
+    harness
+}
+
+#[test]
+fn cmd_d_selects_every_occurrence_and_copy_joins_them() {
+    let mut harness = harness_with_body("{\"a\":\"x\",\"b\":\"x\"}");
+    // Click the first row's text area (the caret lands at the end of the line), then walk back
+    // onto the `x`.
+    harness.get_by_label_contains("\"a\": \"x\"").click();
+    harness.run();
+    for _ in 0..3 {
+        harness.key_press(egui::Key::ArrowLeft);
+        harness.run();
+    }
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
+    harness.run();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
+    harness.run();
+    harness.event(egui::Event::Copy);
+    harness.step();
+    assert_eq!(copied(&harness).as_deref(), Some("x\nx"), "both occurrences are selected and joined");
+}
+
+#[test]
+fn select_all_copies_the_whole_body() {
+    let mut harness = harness_with_body("{\"a\":\"x\",\"b\":\"x\"}");
+    harness.get_by_label_contains("\"a\": \"x\"").click();
+    harness.run();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    harness.run();
+    harness.event(egui::Event::Copy);
+    harness.step();
+    let pretty = copied(&harness).expect("select all then copy puts text on the clipboard");
+    assert!(pretty.contains("\"a\": \"x\"") && pretty.contains("\"b\": \"x\""), "{pretty}");
+    assert!(pretty.starts_with('{') && pretty.trim_end().ends_with('}'), "{pretty}");
+}

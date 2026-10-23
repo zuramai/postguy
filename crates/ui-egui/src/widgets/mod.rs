@@ -7,6 +7,7 @@
 pub mod editor;
 pub mod field;
 pub mod table;
+mod text_selection;
 pub mod timeline;
 
 pub use editor::{CodeEditor, CodeLanguage, LargeTextView};
