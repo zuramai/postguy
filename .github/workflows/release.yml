@@ -218,6 +218,8 @@ jobs:
           - { arch: aarch64, runner: ubuntu-24.04-arm }
     env:
       VERSION: ${{ needs.version.outputs.version }}
+      # packaging/env.sh reads Cargo.toml, which this job does not rewrite: pass the version in.
+      POSTGUY_VERSION: ${{ needs.version.outputs.version }}
       BUILD_DATE: ${{ needs.version.outputs.date }}
       BUILD_SHA: ${{ github.sha }}
     steps:
