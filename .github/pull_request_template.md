@@ -1,5 +1,5 @@
 <!--
-One task id per commit (e.g. `M2.3: redirect loop with cookie capture`). CI must be green
+Conventional commits (e.g. `feat(http): follow redirects with cookie capture`). CI must be green
 before merge; a reviewer asks for provenance first, then safety, then completeness.
 -->
 

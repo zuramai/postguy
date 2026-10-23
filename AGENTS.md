@@ -67,7 +67,7 @@ Anything else is forbidden, including assets whose licence you cannot prove from
 
 ### 1.4 Fonts
 
-- **Never commit a font file to this repository** without the owner's decision on where fonts live. The owner has not made that decision yet, so v1 uses the default fonts that ship inside egui (listed in `ATTRIBUTION.toml` as Cargo-dependency assets).
+- **Poppins is the one approved embedded font.** The owner approved Poppins (OFL-1.1) under `assets/fonts/`, embedded by `crates/ui-egui/src/theme.rs` and listed in `ATTRIBUTION.toml`. Any other font file still needs the owner's decision on where fonts live; otherwise use the default fonts that ship inside egui (listed in `ATTRIBUTION.toml` as Cargo-dependency assets).
 - The desktop app may read one font **already installed on the user's machine** at runtime, as the last interface fallback for characters no embedded face has (CJK, Arabic, emoji and so on). That font is never embedded, shipped, committed or copied, and never appears in published screenshots (`POSTGUY_SYSTEM_FONTS=0`, which `cargo xtask screenshots` sets). It is not a way around section 1.2: nothing from it may enter a package or the repository.
 
 ### 1.5 Procedure for adding or changing an asset
@@ -156,7 +156,7 @@ Before every commit: `cargo fmt --check`, clippy with `-D warnings`, the tests, 
 
 ### 5.4 Commits and PRs
 
-`main` is the only integration branch and is **never pushed to directly**. Branch from an up-to-date `main` as `<type>/<slug>` (`feat/`, `fix/`, `docs/`, `chore/`, `refactor/`), one task id per commit (for example `M2.3: redirect loop with cookie capture`), commit only green states, and open a PR into `main` using `.github/pull_request_template.md`. Merge only when CI is green. Rebase your own branch the same day `main` moves under it, and ask the author to rebase theirs; never rewrite a contributor's branch. Conflict risk tracks how contested the files are: tooling, tests and docs are nearly free, while `ui-egui` and shared widgets are where several people collide at once.
+`main` is the only integration branch and is **never pushed to directly**. Branch from an up-to-date `main` as `<type>/<slug>` (`feat/`, `fix/`, `docs/`, `chore/`, `refactor/`), use conventional commit messages (for example `feat(http): follow redirects with cookie capture`), commit only green states, and open a PR into `main` using `.github/pull_request_template.md`. Merge only when CI is green. Rebase your own branch the same day `main` moves under it, and ask the author to rebase theirs; never rewrite a contributor's branch. Conflict risk tracks how contested the files are: tooling, tests and docs are nearly free, while `ui-egui` and shared widgets are where several people collide at once.
 
 ### 5.5 Running and looking at the app
 

@@ -143,18 +143,12 @@ mod tests {
         let path = dir.join("data.json");
         atomic_write(&path, b"good").unwrap();
 
-        // Force the staging write to fail: staging into a read-only directory.
-        let readonly = dir.join("readonly");
-        fs::create_dir_all(&readonly).unwrap();
-        let mut perms = fs::metadata(&readonly).unwrap().permissions();
-        #[allow(clippy::permissions_set_readonly_false)]
-        {
-            perms.set_readonly(true);
-        }
-        fs::set_permissions(&readonly, perms).unwrap();
-        let target = readonly.join("data.json");
+        // Force the write to fail on every platform: the target's parent is a regular file.
+        let blocker = dir.join("blocker");
+        fs::write(&blocker, b"not a directory").unwrap();
+        let target = blocker.join("data.json");
         let err = atomic_write(&target, b"nope");
-        assert!(err.is_err(), "must fail on a read-only dir");
+        assert!(err.is_err(), "must fail when the parent is a file");
         match err.unwrap_err() {
             Error::Io { .. } => {}
             other => panic!("expected Io, got {other:?}"),

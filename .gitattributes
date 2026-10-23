@@ -1,0 +1,2 @@
+# Check text out with LF on every platform: golden files and include_str! fixtures are compared byte for byte.
+* text=auto eol=lf

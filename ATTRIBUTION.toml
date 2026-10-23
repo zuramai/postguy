@@ -369,7 +369,7 @@ sha256 = "d3bf1bdaf0550e83da9ac0b1d1d9fe6db086835a83aa28578e609a394b9a0286"
 
 # ==========================================================================================
 # Bundled by Cargo dependencies ([[bundled]]): files a crates.io dependency compiles into
-# Postguy. egui's default fonts (v1 uses them per AGENTS.md 1.4; no font files are committed).
+# Postguy. egui's default fonts (the fallback faces behind the approved Poppins files, see AGENTS.md 1.4).
 # ==========================================================================================
 
 [[bundled]]

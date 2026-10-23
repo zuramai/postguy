@@ -194,20 +194,18 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn symlinks_cannot_escape_when_resolving_existing() {
         let dir = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
         let link = dir.path().join("escape");
-        #[cfg(unix)]
-        {
-            std::os::unix::fs::symlink(outside.path(), &link).unwrap();
-            let root = Root::new(dir.path()).unwrap();
-            let err = root.resolve_existing("escape/secret.txt").unwrap_err();
-            assert!(matches!(err, AutomationError::OutsideRoot { .. }), "{err}");
-            // A missing path under the symlink ALSO refuses: canonicalize of the parent.
-            let err = root.resolve_existing("escape/ghost.txt").unwrap_err();
-            assert!(err.to_string().contains("outside the allowed directory"), "{err}");
-        }
+        std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+        let root = Root::new(dir.path()).unwrap();
+        let err = root.resolve_existing("escape/secret.txt").unwrap_err();
+        assert!(matches!(err, AutomationError::OutsideRoot { .. }), "{err}");
+        // A missing path under the symlink ALSO refuses: canonicalize of the parent.
+        let err = root.resolve_existing("escape/ghost.txt").unwrap_err();
+        assert!(err.to_string().contains("outside the allowed directory"), "{err}");
     }
 
     #[test]

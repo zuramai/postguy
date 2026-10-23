@@ -3463,13 +3463,17 @@ mod tests {
         let tab = editor_for(&mut app, &collection.id, &request.id);
         app.editors.get_mut(&tab).expect("editor").draft.url = "http://127.0.0.1:9/nope".into();
         app.start_send(tab, false);
-        for _ in 0..200 {
+        // Windows retries a refused loopback connect for about two seconds before it
+        // reports the refusal, so wait on a deadline instead of a fixed short count.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while std::time::Instant::now() < deadline {
             app.poll_send();
             if app.sending.is_none() {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
+        assert!(app.sending.is_none(), "the send finished");
         let error = app.send_errors.get(&tab).expect("the failure is shown in the response pane");
         assert_eq!(error.kind(), "NETWORK", "{}", error.message);
         assert!(error.message.contains("refused") || error.message.contains("connect"), "{}", error.message);
