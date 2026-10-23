@@ -155,7 +155,7 @@ fn serve(listener: TcpListener, token: String, queue: ControlQueue, wake: Arc<Mu
     while !stop.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((mut stream, _peer)) => {
-                if active.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| (count < MAX_HANDLERS).then_some(count + 1)).is_err() {
+                if active.try_update(Ordering::SeqCst, Ordering::SeqCst, |count| (count < MAX_HANDLERS).then_some(count + 1)).is_err() {
                     let _ = respond(&mut stream, 429, &serde_json::json!({"error": "too many concurrent control connections"}));
                     continue;
                 }
