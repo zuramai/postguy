@@ -470,6 +470,14 @@ pub fn badge(ui: &mut Ui, text: &str, fg: Color32, bg: Color32) -> Response {
     response
 }
 
+/// The frame every dialog uses: the popup frame with roomier padding and the theme's card radius.
+pub(crate) fn modal_frame(ctx: &Context) -> egui::Frame {
+    let theme = crate::theme::Theme::current(ctx);
+    egui::Frame::popup(&ctx.global_style())
+        .inner_margin(egui::Margin::same(20))
+        .corner_radius(egui::CornerRadius::same(theme.metrics.card_radius as u8))
+}
+
 /// A modal dialog. Returns the content's value while open, `None` when the backdrop or the
 /// close button dismissed it (the caller clears its `open` flag).
 pub fn modal<T>(
@@ -483,21 +491,23 @@ pub fn modal<T>(
         return None;
     }
     let mut close = false;
-    let modal = egui::Modal::new(Id::new((id, "modal"))).show(ctx, |ui| {
-        ui.set_min_width(360.0);
+    let theme = crate::theme::Theme::current(ctx);
+    let modal = egui::Modal::new(Id::new((id, "modal"))).frame(modal_frame(ctx)).show(ctx, |ui| {
+        ui.set_min_width(400.0);
         ui.set_max_width(560.0);
         ui.horizontal(|ui| {
-            ui.heading(title);
+            ui.label(RichText::new(title).font(theme.semibold_font(16.0)).color(theme.palette.text));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.add(egui::Button::new("x").frame(false)).clicked() {
+                if icon_button_with(ui, "x", "Close dialog", "Close").clicked() {
                     close = true;
                 }
             });
         });
-        ui.separator();
+        ui.add_space(12.0);
         contents(ui)
     });
-    if modal.backdrop_response.clicked() {
+    // Covers the backdrop click and Escape.
+    if modal.should_close() {
         close = true;
     }
     if close {
@@ -532,7 +542,7 @@ pub fn typed_confirm(
     let theme = crate::theme::Theme::current(ctx);
     let mut typed = ctx.data(|data| data.get_temp::<String>(Id::new((&id, "typed"))).unwrap_or_default());
     let mut outcome = ConfirmOutcome::Pending;
-    egui::Modal::new(Id::new((&id, "typed-modal"))).show(ctx, |ui| {
+    egui::Modal::new(Id::new((&id, "typed-modal"))).frame(modal_frame(ctx)).show(ctx, |ui| {
         ui.set_min_width(380.0);
         ui.heading(title);
         ui.separator();
@@ -659,7 +669,7 @@ fn icon_button_impl(ui: &mut Ui, icon_name: &str, label: &str, tooltip: &str, on
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(theme.metrics.control_height), if enabled { Sense::click() } else { Sense::hover() });
     let hovered = enabled && response.hovered();
     let rounding = egui::CornerRadius::same(theme.metrics.radius as u8);
-    if on {
+    if on || (enabled && response.is_pointer_button_down_on()) {
         ui.painter().rect_filled(rect, rounding, theme.palette.selected);
     } else if hovered {
         ui.painter().rect_filled(rect, rounding, theme.palette.hover);

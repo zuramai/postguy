@@ -595,7 +595,7 @@ pub fn tab_strip(ui: &mut Ui, tabs: &mut Tabs, data: &SidebarData) -> Option<Tab
     if let Some(id) = tabs.pending_close {
         let title = tabs.tabs.iter().find(|tab| tab.id == id).map(|tab| tab.title.clone()).unwrap_or_default();
         let mut choice: Option<CloseChoice> = None;
-        egui::Modal::new(Id::new(("close-tab", id))).show(ui.ctx(), |ui| {
+        egui::Modal::new(Id::new(("close-tab", id))).frame(widgets::modal_frame(ui.ctx())).show(ui.ctx(), |ui| {
             ui.set_min_width(360.0);
             ui.heading("Unsaved changes");
             ui.separator();
