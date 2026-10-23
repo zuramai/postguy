@@ -1,0 +1,8 @@
+#!/bin/sh
+# Flatpak launcher. The app's default workspace is a path relative to the working directory,
+# which is not writable in the sandbox, so point it at the app's data directory unless the user
+# passed --workspace.
+for arg in "$@"; do
+  if [ "$arg" = "--workspace" ]; then exec postguy "$@"; fi
+done
+exec postguy --workspace "${XDG_DATA_HOME:-$HOME/.local/share}/postguy-workspace" "$@"

@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Postguy MSI (WiX Toolset v5: `dotnet tool install -g wix`, plus the UI extension). Built by
+  package.ps1:
+
+    wix build postguy.wxs -ext WixToolset.UI.wixext -arch x64 -d Version=1.2.3 \
+        -d BinDir=... -d DocsDir=... -d IconPath=... -d LicenseRtf=... -o out.msi
+
+  Per-machine install into Program Files: postguy.exe (the app), postguy-cli.exe (the headless
+  CLI), the project licences and notices, a Start menu shortcut, and an optional feature that
+  adds the install folder to the system PATH so `postguy-cli` runs from any terminal.
+
+  Nothing here starts a service, registers an MCP server or opens a port (AGENTS.md section 3),
+  and the installer contacts no network. Unattended installs: `msiexec /i postguy.msi /qn`
+  (everything), or `ADDLOCAL=Main` to leave the PATH entry out.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package
+      Name="Postguy"
+      Manufacturer="Postguy maintainers"
+      Version="$(var.Version)"
+      UpgradeCode="F02C007E-98C9-4C00-B66A-D6CACDB629A0"
+      Scope="perMachine"
+      Compressed="yes"
+      Language="1033">
+    <SummaryInformation Description="Postguy offline API client" Manufacturer="Postguy maintainers" />
+    <!-- MSI versions are numeric (a.b.c), so successive pre-releases of one X.Y.Z are the same
+         version; allow them to replace each other. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+        DowngradeErrorMessage="A newer version of Postguy is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- Windows Installer needs an Icon id ending in .ico (or .exe) for shortcuts and
+         Add/Remove Programs. The .ico is built from assets/logo at package time. -->
+    <Icon Id="PostguyIcon.ico" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="PostguyIcon.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/zuramai/postguy" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/zuramai/postguy/issues" />
+
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />
+    <ui:WixUI Id="WixUI_FeatureTree" />
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="Postguy" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <Feature Id="Main" Title="Postguy" Description="The Postguy app, the postguy-cli command-line tool and the licences." Level="1" AllowAbsent="no" Display="expand" ConfigurableDirectory="INSTALLFOLDER">
+      <ComponentGroupRef Id="PostguyFiles" />
+      <ComponentGroupRef Id="PostguyDocs" />
+      <Feature Id="CliPath" Title="Add postguy-cli to PATH" Description="Add the install folder to the system PATH so postguy-cli runs from any terminal." Level="1" AllowAbsent="yes">
+        <ComponentRef Id="PostguyPathEntry" />
+      </Feature>
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="PostguyFiles" Directory="INSTALLFOLDER">
+      <Component Id="PostguyApp">
+        <File Id="PostguyExe" Source="$(var.BinDir)\postguy.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="PostguyCli">
+        <File Id="PostguyCliExe" Source="$(var.BinDir)\postguy-cli.exe" KeyPath="yes" />
+      </Component>
+
+      <!-- A plain (non-advertised) Start menu shortcut with its own component and an HKLM key
+           path, so uninstall removes it. The package is per-machine: this is the all-users
+           Start menu. -->
+      <Component Id="PostguyStartMenuShortcut" Directory="ProgramMenuFolder">
+        <Shortcut Id="StartMenuShortcut" Name="Postguy" Description="Postguy offline API client"
+            Target="[#PostguyExe]" WorkingDirectory="INSTALLFOLDER" Icon="PostguyIcon.ico" IconIndex="0" />
+        <RegistryValue Root="HKLM" Key="Software\Postguy\Shortcuts" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Optional PATH entry: appended to the system PATH on install, removed on uninstall. -->
+    <Component Id="PostguyPathEntry" Directory="INSTALLFOLDER">
+      <Environment Id="PostguyPath" Name="PATH" Value="[INSTALLFOLDER]" Part="last" Action="set" System="yes" Permanent="no" />
+      <RegistryValue Root="HKLM" Key="Software\Postguy\Features" Name="Path" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <!-- Licences and notices staged by package.ps1 (LICENSE-MIT, LICENSE-APACHE, NOTICE,
+         OFL-Poppins.txt for the embedded Poppins font, README.md, ATTRIBUTION.md where present):
+         one component per file, so adding a document needs no change here. -->
+    <ComponentGroup Id="PostguyDocs" Directory="INSTALLFOLDER">
+      <Files Include="$(var.DocsDir)\*" />
+    </ComponentGroup>
+  </Fragment>
+</Wix>

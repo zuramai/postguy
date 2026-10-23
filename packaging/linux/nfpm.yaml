@@ -1,0 +1,67 @@
+# .deb and .rpm packages (nfpm: https://nfpm.goreleaser.com). Run by package.sh, which stages
+# the file tree, substitutes its path for ${STAGE} (nfpm doesn't expand env vars in `src`) and
+# exports VERSION, RELEASE, NFPM_ARCH and POSTGUY_MAINTAINER.
+#
+#   nfpm package -f packaging/linux/nfpm.yaml -p deb -t dist/release/
+name: postguy
+arch: ${NFPM_ARCH}
+platform: linux
+version: ${VERSION}
+# semver: 0.2.0-rc.1 becomes 0.2.0~rc.1 in deb/rpm, so pre-releases sort before the release.
+version_schema: semver
+release: ${RELEASE}
+section: devel
+priority: optional
+maintainer: ${POSTGUY_MAINTAINER}
+homepage: https://github.com/zuramai/postguy
+license: MIT OR Apache-2.0
+description: |-
+  Offline API client for HTTP, gRPC and WebSocket.
+  Includes postguy-cli, a headless command runner (the MCP server is opt-in).
+
+# The binaries link glibc and libgcc_s directly. Windowing (X11/Wayland, xkbcommon) and the GPU
+# (EGL/GL) are loaded at runtime, so they are dependencies/recommendations rather than ELF NEEDED
+# entries. File dialogs go through the xdg-desktop-portal.
+overrides:
+  deb:
+    depends:
+      - libc6 (>= 2.35)
+      - libgcc-s1
+      - libxkbcommon0
+      - libegl1 | libgl1
+    recommends:
+      - libwayland-client0
+      - libx11-6
+      - libxcursor1
+      - libxi6
+      - libxrandr2
+      - xdg-desktop-portal
+  rpm:
+    depends:
+      - libc.so.6()(64bit)
+      - libm.so.6(GLIBC_2.35)(64bit)
+      - libgcc_s.so.1()(64bit)
+      - libxkbcommon.so.0()(64bit)
+      - (libEGL.so.1()(64bit) or libGL.so.1()(64bit))
+    recommends:
+      - libwayland-client
+      - libX11
+      - libXcursor
+      - libXi
+      - libXrandr
+      - xdg-desktop-portal
+
+contents:
+  - src: ${STAGE}/usr/bin/postguy
+    dst: /usr/bin/postguy
+    file_info: { mode: 0755 }
+  - src: ${STAGE}/usr/bin/postguy-cli
+    dst: /usr/bin/postguy-cli
+    file_info: { mode: 0755 }
+  - src: ${STAGE}/usr/share/
+    dst: /usr/share/
+    type: tree
+
+scripts:
+  postinstall: packaging/linux/postinst.sh
+  postremove: packaging/linux/postinst.sh

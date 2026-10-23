@@ -1,0 +1,72 @@
+# Flatpak manifest for Postguy, ready for a Flathub submission.
+#
+# Flatpak builds run offline, so the crate sources must be vendored first. From the repo root:
+#
+#   curl -fsSLO https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py
+#   python3 flatpak-cargo-generator.py Cargo.lock -o packaging/linux/flatpak/cargo-sources.json
+#   flatpak-builder --user --install --force-clean build-flatpak packaging/linux/flatpak/io.github.zuramai.postguy.yml
+#   flatpak run io.github.zuramai.postguy
+#
+# (cargo-sources.json is generated, never committed.) For Flathub, replace the `dir` source with a
+# `git` source pinned to a release tag and commit. The single-file .flatpak attached to each
+# release comes from io.github.zuramai.postguy.bundle.yml, which repackages the prebuilt release
+# binaries. Keep runtime-version and finish-args identical.
+id: io.github.zuramai.postguy
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: postguy-flatpak
+finish-args:
+  # Display: Wayland first; X11 only when no Wayland compositor is running.
+  - --socket=wayland
+  - --socket=fallback-x11
+  # X11 shared memory (MIT-SHM). Without it the X11 fallback is slow or fails.
+  - --share=ipc
+  # GPU access for the OpenGL renderer.
+  - --device=dri
+  # Postguy is an API client: requests the user sends need the network. Nothing else uses it
+  # (no telemetry, no update check).
+  - --share=network
+  # Deliberately not granted: any filesystem access. Open/Save dialogs go through the file-chooser
+  # portal (rfd's xdg-portal backend), so files and workspace folders the user picks work anywhere.
+  # The default workspace lives in the app's own data directory (see postguy-flatpak).
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+modules:
+  - name: postguy
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_HOME: /run/build/postguy/cargo
+        CARGO_NET_OFFLINE: 'true'
+    build-commands:
+      - cargo --offline build --release --locked -p postguy -p postguy-cli
+      - install -Dm755 target/release/postguy /app/bin/postguy
+      - install -Dm755 target/release/postguy-cli /app/bin/postguy-cli
+      - install -Dm755 packaging/linux/flatpak/postguy-flatpak /app/bin/postguy-flatpak
+      - install -Dm644 packaging/linux/io.github.zuramai.postguy.desktop /app/share/applications/io.github.zuramai.postguy.desktop
+      - sed -i 's/^Exec=postguy$/Exec=postguy-flatpak/;/^TryExec=/d' /app/share/applications/io.github.zuramai.postguy.desktop
+      - >-
+        for size in 16 32 64 128 256 512; do
+        install -Dm644 assets/logo/postguy-$size.png /app/share/icons/hicolor/${size}x${size}/apps/io.github.zuramai.postguy.png;
+        done;
+        install -Dm644 assets/logo/postguy.svg /app/share/icons/hicolor/scalable/apps/io.github.zuramai.postguy.svg
+      - >-
+        version=$(awk '/^\[/{p=($0=="[workspace.package]");next} p&&$1=="version"{gsub(/[" ]/,"",$3);print $3;exit}' Cargo.toml);
+        install -d /app/share/metainfo;
+        sed -e "s/@VERSION@/$version/" -e "s/@DATE@/$(date -u +%Y-%m-%d)/"
+        packaging/linux/io.github.zuramai.postguy.metainfo.xml.in > /app/share/metainfo/io.github.zuramai.postguy.metainfo.xml
+      - install -d /app/share/doc/postguy && cp LICENSE-MIT LICENSE-APACHE NOTICE ATTRIBUTION.md /app/share/doc/postguy/ && cp assets/fonts/LICENSE-poppins.txt /app/share/doc/postguy/OFL-Poppins.txt
+    sources:
+      - type: dir
+        path: ../../..
+        skip:
+          - target
+          - dist
+          - build-flatpak
+          - .flatpak-builder
+          - fuzz-out
+          - postguy-workspace
+      - cargo-sources.json

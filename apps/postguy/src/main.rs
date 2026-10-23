@@ -6,6 +6,8 @@
 //! an action changed it (one revision), not every frame.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
+// A GUI app on Windows: no console window behind it (the headless CLI is postguy-cli).
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -3212,7 +3214,11 @@ fn control_argument() -> Option<PathBuf> {
 
 fn main() -> eframe::Result<()> {
     let workspace = workspace_argument();
-    let viewport = egui::ViewportBuilder::default().with_inner_size([1280.0, 800.0]).with_min_inner_size([900.0, 560.0]).with_title("Postguy");
+    let viewport = egui::ViewportBuilder::default()
+        .with_inner_size([1280.0, 800.0])
+        .with_min_inner_size([900.0, 560.0])
+        .with_title("Postguy")
+        .with_app_id("io.github.zuramai.postguy");
     // macOS: the header row is the title bar, beside the traffic lights.
     #[cfg(target_os = "macos")]
     let viewport = viewport.with_fullsize_content_view(true).with_titlebar_shown(false).with_title_shown(false);

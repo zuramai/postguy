@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Postguy
+GenericName=API Client
+Comment=Offline API client for HTTP, gRPC and WebSocket
+Exec=postguy
+TryExec=postguy
+Icon=io.github.zuramai.postguy
+Terminal=false
+StartupNotify=true
+# The app sets no explicit window class, so the window manager sees the binary name.
+StartupWMClass=io.github.zuramai.postguy
+Categories=Development;Network;
+Keywords=api;http;rest;grpc;websocket;request;client;

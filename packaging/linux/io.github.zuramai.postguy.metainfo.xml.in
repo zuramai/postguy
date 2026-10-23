@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata (software centres, Flathub). Template: package.sh substitutes @VERSION@
+     and @DATE@ from Cargo.toml and the build date. -->
+<component type="desktop-application">
+  <id>io.github.zuramai.postguy</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>Postguy</name>
+  <summary>Offline API client for HTTP, gRPC and WebSocket</summary>
+  <developer id="io.github.zuramai">
+    <name>Postguy maintainers</name>
+  </developer>
+  <description>
+    <p>
+      Postguy is an open-source, offline API client. Build and send HTTP, gRPC and WebSocket
+      requests, organize them in collections with environments and variables, and inspect the
+      responses.
+    </p>
+    <p>
+      It makes no network request you did not start: no telemetry, no update check and no cloud sync.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.zuramai.postguy.desktop</launchable>
+  <icon type="stock">io.github.zuramai.postguy</icon>
+  <!-- Only url types known to appstream 0.15 (Ubuntu 22.04, where CI validates): no vcs-browser. -->
+  <url type="homepage">https://github.com/zuramai/postguy</url>
+  <url type="bugtracker">https://github.com/zuramai/postguy/issues</url>
+  <url type="help">https://github.com/zuramai/postguy</url>
+  <categories>
+    <category>Development</category>
+    <category>Network</category>
+  </categories>
+  <keywords>
+    <keyword>api</keyword>
+    <keyword>http</keyword>
+    <keyword>grpc</keyword>
+    <keyword>websocket</keyword>
+    <keyword>rest</keyword>
+  </keywords>
+  <requires>
+    <display_length compare="ge">900</display_length>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <provides>
+    <binary>postguy</binary>
+    <binary>postguy-cli</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>
