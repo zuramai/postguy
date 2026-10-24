@@ -8,7 +8,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 /// Registered target names (keeps the xtask table and this dispatch one source).
-pub const NAMES: &[&str] = &["url", "vars", "curl", "script"];
+pub const NAMES: &[&str] = &["url", "vars", "curl", "script", "data"];
 
 /// Run one target over one file; `Ok(())` = the crate survived. Any panic escapes and the
 /// driver records a finding.
@@ -20,6 +20,7 @@ pub fn run(name: &str, file: &std::path::Path) -> Result<(), String> {
         "vars" => vars_target(&text),
         "curl" => curl_target(&text),
         "script" => script_target(&text),
+        "data" => data_target(&bytes),
         other => Err(format!("unknown fuzz target `{other}` (registered: {NAMES:?})")),
     }
 }
@@ -53,6 +54,13 @@ fn curl_target(text: &str) -> Result<(), String> {
     for parsed in postguy_interop::parse_curl_from_str(text).map_err(|e| format!("{e}"))? {
         let _ = postguy_interop::generate_curl(&parsed.request, 120);
     }
+    Ok(())
+}
+
+/// Both parsers get every input: the file name only picks the format for ambiguous bytes.
+fn data_target(bytes: &[u8]) -> Result<(), String> {
+    let _ = postguy_runner::parse_data(bytes, "x.csv");
+    let _ = postguy_runner::parse_data(bytes, "x.json");
     Ok(())
 }
 

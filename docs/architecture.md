@@ -17,7 +17,7 @@
 | L3 | postguy-script | rquickjs (QuickJS) sandbox with the `pm` API, Chai-style `pm.expect` and hard wall-clock, memory, stack and cancel limits. The `pm` API is Rust closures; `Settings.disable_scripts` is the off switch. |
 | L3 | postguy-snippets | Code generation (cURL, fetch, requests, Go, reqwest, PowerShell, axios, grpcurl). Pure. |
 | L3 | postguy-testkit | Loopback servers for tests only; dev-dependency, never shipped. |
-| L4 | postguy-runner | Collection runs: ordering, iterations, data files, stop-on-error, results model, reporters. |
+| L4 | postguy-runner | Collection runs: plans, iterations, CSV/JSON data files, `setNextRequest` sequencing, results model, CLI/JSON/JUnit/HTML reporters. Pure. |
 | L6 | postguy-engine | Façade and session: workspace handle, edits/undo, send pipeline (12 steps), command registry, console, history, runtime. |
 | L7 | postguy-platform | OS services: dirs, dialogs, reveal, open URL, clipboard, system proxy, system font fallback. |
 | L7 | postguy-ui-egui | The egui shell (eframe + glow); widgets and screens. |

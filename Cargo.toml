@@ -33,6 +33,7 @@ postguy-store = { path = "crates/store" }
 postguy-automation = { path = "crates/automation" }
 postguy-http = { path = "crates/http" }
 postguy-script = { path = "crates/script" }
+postguy-runner = { path = "crates/runner" }
 postguy-engine = { path = "crates/engine" }
 postguy-snippets = { path = "crates/snippets" }
 postguy-ws = { path = "crates/ws" }
@@ -74,6 +75,8 @@ brotli = { version = "8", default-features = false, features = ["std"] }
 ruzstd = { version = "0.9", default-features = false, features = ["std"] }
 sha2 = "0.10"
 md-5 = "0.10"
+# CSV data files for the collection runner (Unlicense OR MIT).
+csv = { version = "1.4", default-features = false }
 base64 = { version = "0.22", default-features = false, features = ["std"] }
 # Embedded JavaScript (QuickJS, MIT). No `rust-alloc`: it would turn set_memory_limit into a no-op.
 rquickjs = { version = "0.14", default-features = false, features = ["std", "properties"] }
