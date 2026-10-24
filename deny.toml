@@ -32,7 +32,6 @@ multiple-versions = "allow"
 wildcards = "deny"
 allow-wildcard-paths = true
 
-[bans.workspaces]
 # Internal dependencies of another team; a dependency on them is a rules breach.
 deny = [
     { name = "craft-ui" },
