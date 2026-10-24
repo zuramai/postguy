@@ -90,6 +90,8 @@ fn response() {
         download_ms: 1,
         redirects: 0,
         proxy: None,
+        tests: Vec::new(),
+        script_failures: Vec::new(),
     };
     let mut state = ResponseViewerState::default();
     state.mode = BodyMode::Raw;

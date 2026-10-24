@@ -21,6 +21,10 @@ pub enum EngineError {
     Panicked { message: String },
     /// An import could not be parsed or written; the message is user-presentable.
     Import { message: String },
+    /// A pre-request script threw, timed out or ran out of memory, so nothing was sent.
+    Script { phase: String, origin: String, message: String, line: Option<u32> },
+    /// A pre-request script called `pm.execution.skipRequest()`; not a failure.
+    Skipped { reason: String },
 }
 
 impl std::fmt::Display for EngineError {
@@ -33,6 +37,14 @@ impl std::fmt::Display for EngineError {
             EngineError::Unsupported { what } => write!(f, "not supported yet: {what}"),
             EngineError::Panicked { message } => write!(f, "the send failed unexpectedly: {message}"),
             EngineError::Import { message } => write!(f, "{message}"),
+            EngineError::Script { phase, origin, message, line } => {
+                write!(f, "{phase} script in {origin} failed")?;
+                if let Some(line) = line {
+                    write!(f, " at line {line}")?;
+                }
+                write!(f, ": {message}")
+            }
+            EngineError::Skipped { reason } => write!(f, "{reason}"),
         }
     }
 }

@@ -7,8 +7,7 @@ use base64::Engine as _;
 use postguy_engine::{Engine, SendOptions, SendTarget};
 use postguy_model::auth::BasicAuth;
 use postguy_model::{
-    AuthConfig, Body, Collection, Environment, Folder, HttpMethod, HttpRequest, Id, Item, KeyValue, RawLanguage, Request, RequestKind, Script,
-    Scripts, Variable,
+    AuthConfig, Body, Collection, Environment, Folder, HttpMethod, HttpRequest, Id, Item, KeyValue, RawLanguage, Request, RequestKind, Variable,
 };
 use postguy_store::StorePaths;
 use postguy_testkit::Server;
@@ -274,29 +273,6 @@ fn the_response_cap_is_enforced_with_an_actionable_error() {
     request.settings.max_response_mb = 1;
     let error = engine.send(inline(request), SendOptions::default()).expect_err("too large");
     assert!(error.to_string().contains("cap"), "{error}");
-}
-
-#[test]
-fn scripts_are_an_explicit_no_op_hook_not_a_silent_drop() {
-    let server = Server::start();
-    let fixture = Fixture::new();
-    let engine = fixture.engine();
-    let mut collection = Collection { id: Id("col1".into()), name: "scripts".into(), ..Collection::default() };
-    collection.scripts = Scripts { prerequest: Some(Script { text: "pm.test('x')".into(), ..Script::default() }), ..Scripts::default() };
-    let mut request = HttpRequest { method: HttpMethod::Get, url: format!("{}/echo", server.base_url()), ..HttpRequest::default() };
-    request.scripts = Scripts { test: Some(Script { text: "pm.test('y')".into(), ..Script::default() }), ..Scripts::default() };
-    collection.items = vec![Item::Request(Box::new(Request {
-        id: Id("req1".into()),
-        name: "scripted".into(),
-        kind: RequestKind::Http(request),
-        ..Request::default()
-    }))];
-    engine.workspace().save_collection(&collection).expect("save");
-    let outcome =
-        engine.send(SendTarget::Stored { collection: Id("col1".into()), request: Id("req1".into()) }, SendOptions::default()).expect("send");
-    assert_eq!(outcome.response.status, 200);
-    assert!(outcome.warnings.iter().any(|warning| warning.contains("not executed")), "{:?}", outcome.warnings);
-    assert!(engine.console_entries(0).iter().any(|entry| entry.message.contains("skipped")));
 }
 
 #[test]

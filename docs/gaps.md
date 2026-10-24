@@ -75,7 +75,7 @@ someone deciding what to build next.
 | Collections and folders | **shipped** | `a.tree-view`, `a.create-organise`, `a.keyboard-and-multiselect`, `a.filter`, `a.collection-auth`, `a.overview-tab` |
 | Native Git | **na** | A Postguy workspace is plain files in a folder, so any Git client versions it; a built-in Git UI is not planned |
 | Postman Vault (cloud secrets) | **na** | Local equivalent: `.postguy/secrets.json` at 0600 with masking (`b.secrets`) |
-| Tests, scripts and assertions | **planned** | `f.scripts`, `f.expect`, `f.test-results`, `f.script-ui`, `f.sandbox-hardening`. Until then scripts are an explicit no-op hook, and History/Console record that |
+| Tests, scripts and assertions | **partial** | `f.expect` and `f.sandbox-hardening` are shipped; `f.scripts`, `f.test-results` and `f.script-ui` are partial (gRPC/WebSocket script phases, re-running tests from a saved response and autocomplete are missing) |
 | Collection Runner and data-driven runs | **planned** | `f.runner`; deterministic order, iterations, delay, stop-on-error. Performance/load testing (Postman's cloud runners) is `na` |
 | Postman CLI / Newman: run collections from CI | **planned** | `f.runner-cli` with cli/json/junit/html reporters and exit codes; `f.run-script` already drives the engine |
 | Import (collections, environments, specs, other clients) | **partial** | `g.postman-collection`, `g.postman-env`, `g.curl`, `g.import-dialog` shipped. OpenAPI/Swagger, HAR and `.proto` importers are planned (`g.openapi`, `g.har`, `g.proto-import`) |

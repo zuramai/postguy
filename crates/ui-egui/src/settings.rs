@@ -257,6 +257,14 @@ fn general(ui: &mut Ui, settings: &mut Settings) -> bool {
 
     group(ui, "History");
     changed |= toggle_row(ui, "Save response bodies in history", None, &mut settings.save_history_responses);
+
+    group(ui, "Scripts");
+    changed |= toggle_row(
+        ui,
+        "Disable scripts",
+        Some("Skip pre-request and post-response scripts for every request and collection run."),
+        &mut settings.disable_scripts,
+    );
     changed
 }
 

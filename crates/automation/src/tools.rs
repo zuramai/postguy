@@ -98,7 +98,7 @@ impl Automation {
             cancels.insert(request.0.clone(), cancel.clone());
             cancels.insert("last".to_string(), cancel.clone());
         }
-        let options = SendOptions { environment, cancel: Some(cancel), run_scripts: true };
+        let options = SendOptions { environment, cancel: Some(cancel), run_scripts: true, ..SendOptions::default() };
         let outcome = engine.send(SendTarget::Stored { collection, request: request.clone() }, options);
         if let Ok(mut cancels) = self.cancels.lock() {
             cancels.remove(&request.0);
@@ -110,6 +110,7 @@ impl Automation {
             request: outcome.request.clone(),
             response: outcome.response.clone(),
             warnings: outcome.warnings.clone(),
+            script: outcome.script.clone(),
         });
         if let Some(object) = value.as_object_mut() {
             object.insert("warnings".into(), serde_json::to_value(&outcome.warnings).map_err(json_error)?);
@@ -1503,6 +1504,7 @@ fn cached_json(cached: &postguy_engine::CachedResponse) -> Value {
             "timings": cached.response.timings,
         },
         "warnings": cached.warnings,
+        "script": cached.script,
     })
 }
 

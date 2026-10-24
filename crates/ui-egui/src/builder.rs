@@ -554,19 +554,12 @@ impl RequestBuilder<'_> {
     }
 
     fn scripts(&mut self, ui: &mut Ui, theme: &Theme) {
-        ui.label(RichText::new("Scripts are kept in the file untouched; they are not executed.").color(theme.palette.text_muted));
-        for (label, script) in [("Pre-request", &mut self.draft.scripts.prerequest), ("Tests", &mut self.draft.scripts.test)] {
-            ui.label(RichText::new(label).small().color(theme.palette.text_muted));
-            let mut text = script.as_ref().map(|script| script.text.clone()).unwrap_or_default();
-            if CodeEditor::new(CodeLanguage::JavaScript).rows(6).id(egui::Id::new(("script", label))).show(ui, &mut text).changed() {
-                if script.is_none() {
-                    *script = Some(postguy_model::Script::default());
-                }
-                if let Some(script) = script {
-                    script.text = text;
-                }
-                *self.dirty = true;
-            }
+        use crate::script_snippets::{POST_RESPONSE, PRE_REQUEST, script_editor};
+        let scripts = &mut self.draft.scripts;
+        let mut changed = script_editor(ui, theme, "Pre-request", egui::Id::new(("script", "Pre-request")), 6, &mut scripts.prerequest, PRE_REQUEST);
+        changed |= script_editor(ui, theme, "Post-response", egui::Id::new(("script", "Post-response")), 6, &mut scripts.test, POST_RESPONSE);
+        if changed {
+            *self.dirty = true;
         }
     }
 

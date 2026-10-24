@@ -90,7 +90,7 @@ title = "Folder variables, auth and scripts"
 area = "A"
 tier = "P1"
 status = "partial"
-notes = "Folder variables resolve in the request scope chain and folder detail edits auth/variables; scripts are still an explicit no-op hook (the sandbox is not wired in yet)."
+notes = "Folder variables resolve in the request scope chain and folder detail edits auth/variables; folder scripts run between the collection and request scripts."
 
 evidence = ["crates/engine/tests/pipeline.rs::a_sent_request_records_history_console_and_resolves_scopes", "crates/ui-egui/tests/collection.rs::folder_detail_has_no_runs_tab_and_edits_the_folder"]
 [[feature]]
@@ -215,8 +215,8 @@ title = "12-step send pipeline with history, console and runtime ownership"
 area = "C"
 tier = "P0"
 status = "shipped"
-notes = "Steps unit-testable; scripts are explicit no-op hooks until the script engine is wired in; panic-to-error wrapping; History and Console recorded with secret masking."
-evidence = ["crates/engine/tests/pipeline.rs::a_sent_request_records_history_console_and_resolves_scopes", "crates/engine/tests/pipeline.rs::scripts_are_an_explicit_no_op_hook_not_a_silent_drop"]
+notes = "Steps unit-testable; scripts run in the pipeline (pre-request before auth and URL building, post-response after the response model); panic-to-error wrapping; History and Console recorded with secret masking."
+evidence = ["crates/engine/tests/pipeline.rs::a_sent_request_records_history_console_and_resolves_scopes", "crates/engine/tests/scripts.rs::pre_request_scripts_run_collection_then_folder_then_request"]
 [[feature]]
 id = "c.connector"
 title = "HTTP connector: DNS/TCP/TLS phases, ALPN h1/h2, rustls"
@@ -355,8 +355,8 @@ title = "Response tabs: Headers, Cookies, Test Results, Timeline"
 area = "C"
 tier = "P1"
 status = "partial"
-notes = "Headers and Cookies (parsed Set-Cookie display) tabs exist; header values are selectable. Test Results needs scripts; the Timeline tab is P2; hover details for header rows are not drawn."
-evidence = ["crates/ui-egui/tests/response.rs::raw_hex_headers_and_cookies_are_reachable"]
+notes = "Headers and Cookies (parsed Set-Cookie display) tabs exist; header values are selectable. Test Results lists pm.test outcomes; the Timeline tab is P2; hover details for header rows are not drawn."
+evidence = ["crates/ui-egui/tests/response.rs::raw_hex_headers_and_cookies_are_reachable", "crates/ui-egui/tests/response.rs::test_results_tab_lists_and_filters_tests"]
 [[feature]]
 id = "c.timings"
 title = "Phase timings with hover breakdown"
@@ -584,40 +584,46 @@ id = "f.scripts"
 title = "Pre-request and post-response scripts with the pm API subset"
 area = "F"
 tier = "P1"
-status = "planned"
-notes = "boa sandbox; wall-clock 5 s default, loop/recursion/memory limits; sync order collection > folders > request."
+status = "partial"
+notes = "QuickJS (rquickjs) sandbox; pre-request and post-response scripts run for HTTP requests in the order collection > folders > request, with the pm API (variables in every scope, request edits, response, cookies, sendRequest, setNextRequest, skipRequest, console). Missing: gRPC and WebSocket script phases, pm.cookies.jar(), pm.visualizer."
+evidence = ["crates/engine/tests/scripts.rs::pre_request_scripts_run_collection_then_folder_then_request", "crates/script/tests/sandbox.rs::variables_set_unset_and_precedence"]
 
 [[feature]]
 id = "f.expect"
 title = "pm.test with Chai-compatible expect"
 area = "F"
 tier = "P1"
-status = "planned"
-notes = "Rust-native, no JS prelude; Chai wording on failures; a passing test counts once."
+status = "shipped"
+notes = "Chai subset in Rust (no JS prelude): equal/eql/deep, above/below/least/most/within, a/an, include, property, lengthOf, keys, members, oneOf, match, string, ok/true/false/null/undefined/NaN/exist/empty, not/deep chains; pm.response.to.* helpers; Chai wording on failures."
+evidence = ["crates/script/tests/sandbox.rs::expect_chains_report_chai_wording", "crates/script/tests/sandbox.rs::response_assertions_check_status_headers_and_json"]
 
 [[feature]]
 id = "f.test-results"
 title = "Test results model and response-area tab"
 area = "F"
 tier = "P1"
-status = "planned"
-notes = "Passed/failed/skipped filters, badges, messages, refresh re-runs post-response scripts."
+status = "partial"
+notes = "Test Results tab with passed/total in the label, All/Passed/Skipped/Failed filters, PASS/FAIL/SKIP badges, failure messages and a script-failure banner. Refresh does not re-run post-response scripts yet."
+evidence = ["crates/ui-egui/tests/response.rs::test_results_tab_lists_and_filters_tests", "crates/ui-egui/tests/response.rs::test_results_explain_an_empty_list_and_show_script_failures"]
 
 [[feature]]
 id = "f.script-ui"
 title = "Script editors: numbers, colouring, snippets, autocomplete"
 area = "F"
 tier = "P1"
-status = "planned"
-notes = "Error banner with phase, level and line; console integration."
+status = "partial"
+notes = "Script editors with a Snippets menu (pre-request and post-response), a phase/origin/line error banner in the Test Results tab and Console lines. No autocomplete or line numbers yet."
+evidence = ["crates/ui-egui/tests/response.rs::test_results_explain_an_empty_list_and_show_script_failures"]
 
 [[feature]]
 id = "f.sandbox-hardening"
 title = "Sandbox limits and hostile-script regression tests"
 area = "F"
 tier = "P1"
-status = "planned"
-notes = "Infinite loop, memory blowup, deep recursion; fuzzing; disable-scripts global switch."
+status = "shipped"
+notes = "Wall-clock (5 s), heap (64 MiB), stack and cancel limits; infinite loop, memory bomb and deep recursion regression tests; the Settings > Scripts switch skips scripts with a warning; script fuzz target."
+tools = ["request_send"]
+evidence = ["crates/script/tests/sandbox.rs::a_memory_bomb_stops_at_the_memory_limit", "crates/script/tests/sandbox.rs::an_infinite_loop_stops_at_the_wall_clock", "crates/script/tests/sandbox.rs::deep_recursion_stops_cleanly", "crates/engine/tests/scripts.rs::disabled_scripts_are_skipped_with_a_warning", "crates/ui-egui/tests/panels.rs::disable_scripts_toggle_saves"]
 
 [[feature]]
 id = "f.runner"

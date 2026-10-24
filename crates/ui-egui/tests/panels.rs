@@ -183,6 +183,16 @@ fn general_toggles_save() {
 }
 
 #[test]
+fn disable_scripts_toggle_saves() {
+    let mut harness = settings_harness(SettingsSection::General);
+    assert!(!harness.state().settings.disable_scripts);
+    harness.get_by_label("Disable scripts").click_accesskit();
+    harness.run();
+    assert!(harness.state().settings.disable_scripts);
+    assert_eq!(harness.state().last, Some(SettingsAction::Save));
+}
+
+#[test]
 fn settings_auth_is_unaffected_by_the_editor() {
     // A small guard that the settings struct keeps unrelated fields while editing.
     let mut settings = Settings::default();

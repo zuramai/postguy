@@ -122,6 +122,8 @@ impl DemoState {
                 download_ms: 26,
                 redirects: 0,
                 proxy: None,
+                tests: Vec::new(),
+                script_failures: Vec::new(),
             },
             viewer: {
                 let mut viewer = ResponseViewerState::default();
@@ -277,7 +279,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             time_ms: 1_790_000_000_500,
             level: "warning".into(),
             kind: "warning".into(),
-            message: "scripts were skipped: the script sandbox is not built yet".into(),
+            message: "[post-response] status code checked".into(),
             detail: None,
         },
     ];

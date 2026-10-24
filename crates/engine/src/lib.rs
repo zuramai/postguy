@@ -15,6 +15,7 @@ pub mod import;
 pub mod oauth2;
 pub mod pipeline;
 pub mod runtime;
+pub mod scripts;
 pub mod workspace_zip;
 pub mod ws_session;
 pub use postguy_grpc::{StreamResult, UnaryResult};
@@ -27,7 +28,8 @@ pub use error::{EngineError, Result};
 pub use exports::CollectionFormat;
 pub use import::{Detected, IMPORT_FILE_CAP, ImportKind, ImportOptions, ImportOutcome, detect, walk_import_paths};
 pub use oauth2::{OAuth2Callback, StoredToken};
-pub use pipeline::{ResponseView, SendOptions, SendOutcome, SendTarget, SentRequest};
+pub use pipeline::{IterationScope, ResponseView, SendOptions, SendOutcome, SendTarget, SentRequest};
+pub use scripts::ScriptReport;
 
 pub use postguy_http::Cancel;
 use postguy_http::{Client, ClientConfig, ClientIdentity, CookieJar, HttpVersionPreference, ProxyRoute, StoredCookie, TlsMode};
@@ -62,6 +64,7 @@ pub struct CachedResponse {
     pub request: SentRequest,
     pub response: ResponseView,
     pub warnings: Vec<String>,
+    pub script: ScriptReport,
 }
 
 /// How many finished sends stay addressable by history id.
@@ -237,6 +240,7 @@ impl Engine {
                 request: outcome.request.clone(),
                 response: outcome.response.clone(),
                 warnings: outcome.warnings.clone(),
+                script: outcome.script.clone(),
             });
             while responses.len() > RESPONSE_CACHE_CAP {
                 responses.pop_front();

@@ -1,6 +1,6 @@
-//! The send pipeline with scripts as explicit no-op hooks: scope chain → script hook → auth inheritance/resolution → URL build →
-//! auth application → body/automatic headers → cookies → send → cookie update → response model → post-script hook →
-//! history/console record. Each step lives in its own function so it is unit-testable, and the
+//! The send pipeline: scope chain → pre-request scripts → auth inheritance/resolution → URL build →
+//! auth application → body/automatic headers → cookies → send → cookie update → response model →
+//! post-response scripts → history/console record. Each step lives in its own function so it is unit-testable, and the
 //! whole run is wrapped in `catch_unwind` by [`crate::Engine::send`].
 
 use std::collections::BTreeMap;
@@ -8,7 +8,10 @@ use std::path::{Path, PathBuf};
 
 use postguy_http::client::ResponseSize;
 use postguy_http::{AuthPlacement, Cancel, RedirectHop, RedirectPolicy, RequestSpec, ResponseData, ResponseTimings};
-use postguy_model::{AuthConfig, Body, Collection, Folder, HistoryEntry, HttpRequest, Id, Item, KeyValue, Request, RequestKind, Variable};
+use postguy_model::{
+    AuthConfig, Body, Collection, Folder, HistoryEntry, HttpRequest, Id, Item, KeyValue, NextRequest, Request, RequestKind, ScriptFailure,
+    ScriptPhase, Variable,
+};
 use postguy_urlkit::{Param, Url, encode_component, encode_query, host_to_ascii, query_of_params};
 use postguy_vars::{Resolver, Scope, ScopeKind};
 use serde::Serialize;
@@ -16,6 +19,7 @@ use serde::Serialize;
 use crate::Engine;
 use crate::console::{ConsoleKind, ConsoleLevel, truncate_for_log};
 use crate::error::{EngineError, Result};
+use crate::scripts::{self, PhaseInput, ScriptReport};
 
 /// Where a send starts.
 #[derive(Debug, Clone)]
@@ -36,8 +40,20 @@ pub struct SendOptions {
     pub environment: Option<Id>,
     /// The caller's cancellation handle (Esc in the UI, `request_cancel` from a tool).
     pub cancel: Option<Cancel>,
-    /// Run pre-request and test scripts when the sandbox exists. Today a no-op that warns.
+    /// Run pre-request and post-response scripts (unless Settings disables them).
     pub run_scripts: bool,
+    /// The collection runner's iteration: its data row joins the variable scopes.
+    pub iteration: Option<IterationScope>,
+}
+
+/// One iteration of a data-driven run.
+#[derive(Debug, Clone, Default)]
+pub struct IterationScope {
+    /// 0-based.
+    pub index: u32,
+    pub count: u32,
+    /// The data row: column name and value (strings resolve as-is, other JSON as its text).
+    pub data: Vec<(String, serde_json::Value)>,
 }
 
 /// The request exactly as it went on the wire (secrets masked in the history snapshot).
@@ -89,6 +105,7 @@ pub struct SendOutcome {
     pub history: HistoryEntry,
     pub warnings: Vec<String>,
     pub timings: PipelineTimings,
+    pub script: ScriptReport,
 }
 
 /// The request plus everything that supplies scopes, auth and scripts around it.
@@ -96,6 +113,15 @@ pub(crate) struct Located {
     pub(crate) collection: Collection,
     pub(crate) folders: Vec<Folder>,
     pub(crate) http: HttpRequest,
+    pub(crate) request_name: String,
+    pub(crate) request_id: String,
+}
+
+/// The loaded variable scopes in precedence order, plus the environment they include.
+pub(crate) struct ScopeSet {
+    pub(crate) scopes: Vec<Scope>,
+    /// `(id, name)` of the environment whose scope is in `scopes`.
+    pub(crate) environment: Option<(Id, String)>,
 }
 
 /// Run one send (async core; [`Engine::send`] adds panic protection and a blocking facade).
@@ -105,16 +131,51 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
     let mut warnings: Vec<String> = Vec::new();
 
     // 1. Scope chain and request location.
-    let located = locate(engine, &target)?;
-    let resolver = build_resolver(engine, &located, options.environment.as_ref())?;
+    let mut located = locate(engine, &target)?;
+    let mut scopes = load_scopes(engine, &located, options.environment.as_ref(), options.iteration.as_ref())?;
+    let mut locals: BTreeMap<String, String> = BTreeMap::new();
+    let mut report = ScriptReport::default();
 
-    // 2. Pre-request scripts (collection, folders outer→inner, request): the explicit no-op.
-    let scripts_present = scripts_present(&located);
-    if scripts_present {
-        warnings.push("scripts are saved but not executed in this build (scripting is not implemented yet)".to_string());
-        engine.console().push(ConsoleLevel::Warning, ConsoleKind::Warning, "scripts were skipped: the script sandbox is not built yet");
+    // 2. Pre-request scripts (collection, folders outer→inner, request).
+    let scripts_on = options.run_scripts && !global.disable_scripts;
+    if options.run_scripts && global.disable_scripts && scripts_present(&located) {
+        warnings.push("scripts are disabled in Settings; pre-request and post-response scripts were skipped".to_string());
     }
-    let _ = options.run_scripts;
+    if scripts_on {
+        let before = scripts::script_request(&located);
+        let input = PhaseInput {
+            phase: ScriptPhase::PreRequest,
+            scopes: &scopes,
+            options: &options,
+            locals: &locals,
+            request: before.clone(),
+            response: None,
+        };
+        if let Some(phase) = scripts::run_phase(engine, &mut located, input, &mut warnings).await? {
+            let outcome = phase.outcome;
+            if let Some(failure) = outcome.failures.first() {
+                let message = postguy_vars::mask_secrets(&failure.message, &scopes.scopes);
+                let error =
+                    EngineError::Script { phase: failure.phase.label().to_string(), origin: failure.origin.clone(), message, line: failure.line };
+                engine.console().push(ConsoleLevel::Error, ConsoleKind::Error, error.to_string());
+                return Err(error);
+            }
+            if outcome.skip_request {
+                return Err(EngineError::Skipped { reason: "the pre-request script called pm.execution.skipRequest()".to_string() });
+            }
+            scripts::apply_request(&mut located.http, &before, &outcome.request, &format!("request {}", located.request_name))?;
+            locals = outcome.variables.locals.clone();
+            report.tests.extend(outcome.tests);
+            if outcome.next_request != NextRequest::Unchanged {
+                report.next_request = outcome.next_request;
+            }
+            if phase.variables_changed {
+                report.variables_changed = true;
+                scopes = load_scopes(engine, &located, options.environment.as_ref(), options.iteration.as_ref())?;
+            }
+        }
+    }
+    let resolver = scripts::resolver_with_locals(&scopes, &locals);
 
     // 3. Auth inheritance and variable resolution.
     let mut auth = resolve_auth(&resolved_auth_chain(&located), &resolver)?;
@@ -241,7 +302,56 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
     let size_bytes = u64::try_from(response.size.body_decoded_bytes).unwrap_or(u64::MAX);
     let proxy = client.proxy_route_for(&built.url).map(|route| route.address());
 
-    // 11. Post-response scripts/tests: the same explicit no-op hook (the warning above covers it).
+    // 11. Post-response scripts and tests. A failure here never discards the response.
+    if scripts_on {
+        let script_request = js_request_sent(&located, &built, &request, resolver.scopes());
+        let script_response = postguy_script::ScriptResponse {
+            code: response.status,
+            status: response.status_text.clone(),
+            headers: response.headers.clone(),
+            body: response.body.clone(),
+            response_time_ms: duration_ms,
+            size: size_bytes,
+        };
+        let input = PhaseInput {
+            phase: ScriptPhase::PostResponse,
+            scopes: &scopes,
+            options: &options,
+            locals: &locals,
+            request: script_request,
+            response: Some(script_response),
+        };
+        match scripts::run_phase(engine, &mut located, input, &mut warnings).await {
+            Ok(Some(phase)) => {
+                let outcome = phase.outcome;
+                report.tests.extend(outcome.tests);
+                for failure in outcome.failures {
+                    warnings.push(format!("post-response script in {} failed: {}", failure.origin, failure.message));
+                    report.failures.push(failure);
+                }
+                if outcome.next_request != NextRequest::Unchanged {
+                    report.next_request = outcome.next_request;
+                }
+                report.variables_changed |= phase.variables_changed;
+            }
+            Ok(None) => {}
+            Err(err) => {
+                warnings.push(format!("post-response scripts did not run: {err}"));
+                report.failures.push(ScriptFailure {
+                    phase: ScriptPhase::PostResponse,
+                    origin: format!("request {}", located.request_name),
+                    message: err.to_string(),
+                    line: None,
+                });
+            }
+        }
+        for test in &mut report.tests {
+            test.message = test.message.take().map(|message| postguy_vars::mask_secrets(&message, resolver.scopes()));
+        }
+        for failure in &mut report.failures {
+            failure.message = postguy_vars::mask_secrets(&failure.message, resolver.scopes());
+        }
+    }
 
     // 12. Record: masked history snapshot, Console entries, optional saved body.
     let sent_http = HttpRequest {
@@ -319,7 +429,24 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
         history,
         warnings,
         timings: PipelineTimings { prepare_ms, network_ms, record_ms, total_ms: millis(started.elapsed()) },
+        script: report,
     })
+}
+
+/// The request as a post-response script sees it: what was sent, with secrets masked.
+fn js_request_sent(located: &Located, built: &postguy_http::BuiltRequest, request: &HttpRequest, scopes: &[Scope]) -> postguy_script::ScriptRequest {
+    postguy_script::ScriptRequest {
+        id: located.request_id.clone(),
+        name: located.request_name.clone(),
+        method: built.method.clone(),
+        url: postguy_vars::mask_secrets(&built.url, scopes),
+        headers: built
+            .headers
+            .iter()
+            .map(|(key, value)| postguy_script::Header { key: key.clone(), value: postguy_vars::mask_secrets(value, scopes), enabled: true })
+            .collect(),
+        body: scripts::script_body(&request.body),
+    }
 }
 
 fn digest_uri(url: &str) -> String {
@@ -354,10 +481,13 @@ fn scripts_present(located: &Located) -> bool {
 
 fn locate(engine: &Engine, target: &SendTarget) -> Result<Located> {
     match target {
-        SendTarget::Inline { request, name } => {
-            let _ = name;
-            Ok(Located { collection: Collection::default(), folders: Vec::new(), http: (**request).clone() })
-        }
+        SendTarget::Inline { request, name } => Ok(Located {
+            collection: Collection::default(),
+            folders: Vec::new(),
+            http: (**request).clone(),
+            request_name: name.clone(),
+            request_id: String::new(),
+        }),
         SendTarget::StoredDraft { collection, request, draft } => {
             let mut located = locate_stored(engine, collection, request)?;
             located.http = (**draft).clone();
@@ -389,7 +519,7 @@ pub(crate) fn locate_stored(engine: &Engine, collection: &Id, request_id: &Id) -
                             let Some(http) = http_of(&found).cloned() else {
                                 return Err(EngineError::Unsupported { what: format!("{} requests", found.kind.protocol()) });
                             };
-                            return Ok(Located { collection, folders, http });
+                            return Ok(Located { collection, folders, http, request_name: found.name.clone(), request_id: found.id.0.clone() });
                         }
                         Item::Request(_) => {}
                     }
@@ -408,29 +538,47 @@ fn http_of(request: &Request) -> Option<&HttpRequest> {
     }
 }
 
-/// Scopes: globals < collection < folders outer→inner < environment. Secret
+/// Scopes: globals < collection < folders outer→inner < environment < data. Secret
 /// variable values come from the secrets store, never from the model files.
-pub(crate) fn build_resolver(engine: &Engine, located: &Located, environment: Option<&Id>) -> Result<Resolver> {
-    let mut resolver = Resolver::new();
+pub(crate) fn load_scopes(engine: &Engine, located: &Located, environment: Option<&Id>, iteration: Option<&IterationScope>) -> Result<ScopeSet> {
+    let mut scopes: Vec<Scope> = Vec::new();
 
     let globals = engine.workspace().load_globals()?.into_value();
     let global_secrets = engine.workspace().secrets.values_for("globals").unwrap_or_default();
-    resolver = resolver.with_scope(scope_from_variables(ScopeKind::Globals, &globals.variables, &global_secrets));
+    scopes.push(scope_from_variables(ScopeKind::Globals, &globals.variables, &global_secrets));
 
     let collection_secrets = engine.workspace().secrets.values_for(&located.collection.id.0).unwrap_or_default();
-    resolver = resolver.with_scope(scope_from_variables(ScopeKind::Collection, &located.collection.variables, &collection_secrets));
+    scopes.push(scope_from_variables(ScopeKind::Collection, &located.collection.variables, &collection_secrets));
     for folder in &located.folders {
         let folder_secrets = engine.workspace().secrets.values_for(&folder.id.0).unwrap_or_default();
-        resolver = resolver.with_scope(scope_from_variables(ScopeKind::Folder, &folder.variables, &folder_secrets));
+        scopes.push(scope_from_variables(ScopeKind::Folder, &folder.variables, &folder_secrets));
     }
 
+    let mut active = None;
     let environment_id = environment.cloned().or_else(|| engine.workspace().active_environment_id().ok().flatten());
     if let Some(id) = environment_id {
         let environment = engine.workspace().load_environment(&id)?.into_value();
         let secrets = engine.workspace().secrets.values_for(&id.0).unwrap_or_default();
-        resolver = resolver.with_scope(scope_from_variables(ScopeKind::Environment, &environment.variables, &secrets));
+        scopes.push(scope_from_variables(ScopeKind::Environment, &environment.variables, &secrets));
+        active = Some((id, environment.name));
     }
-    Ok(resolver)
+    if let Some(iteration) = iteration {
+        let rows = iteration.data.iter().map(|(key, value)| {
+            let text = match value {
+                serde_json::Value::String(text) => text.clone(),
+                other => other.to_string(),
+            };
+            (key.clone(), text)
+        });
+        scopes.push(Scope::new(ScopeKind::Data, rows));
+    }
+    Ok(ScopeSet { scopes, environment: active })
+}
+
+/// The resolver over [`load_scopes`].
+pub(crate) fn build_resolver(engine: &Engine, located: &Located, environment: Option<&Id>, iteration: Option<&IterationScope>) -> Result<Resolver> {
+    let set = load_scopes(engine, located, environment, iteration)?;
+    Ok(set.scopes.into_iter().fold(Resolver::new(), |resolver, scope| resolver.with_scope(scope)))
 }
 
 fn scope_from_variables(kind: ScopeKind, variables: &[Variable], secrets: &BTreeMap<String, String>) -> Scope {

@@ -3476,6 +3476,7 @@ dependencies = [
  "postguy-http",
  "postguy-interop",
  "postguy-model",
+ "postguy-script",
  "postguy-store",
  "postguy-testkit",
  "postguy-urlkit",

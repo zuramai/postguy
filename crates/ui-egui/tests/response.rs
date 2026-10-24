@@ -3,6 +3,7 @@
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
+use postguy_model::{ScriptFailure, ScriptPhase, TestResult, TestStatus};
 use postguy_ui_egui::response::{ResponseAction, ResponseData, ResponseViewerState, response_view};
 
 struct State {
@@ -30,6 +31,8 @@ fn data() -> ResponseData {
         download_ms: 4,
         redirects: 0,
         proxy: None,
+        tests: Vec::new(),
+        script_failures: Vec::new(),
     }
 }
 
@@ -212,4 +215,41 @@ fn select_all_copies_the_whole_body() {
     let pretty = copied(&harness).expect("select all then copy puts text on the clipboard");
     assert!(pretty.contains("\"a\": \"x\"") && pretty.contains("\"b\": \"x\""), "{pretty}");
     assert!(pretty.starts_with('{') && pretty.trim_end().ends_with('}'), "{pretty}");
+}
+
+fn test(name: &str, status: TestStatus, message: Option<&str>) -> TestResult {
+    TestResult { name: name.into(), status, message: message.map(str::to_string), phase: ScriptPhase::PostResponse }
+}
+
+#[test]
+fn test_results_tab_lists_and_filters_tests() {
+    let mut harness = harness();
+    harness.state_mut().data.tests = vec![
+        test("status is 200", TestStatus::Passed, None),
+        test("has an id", TestStatus::Passed, None),
+        test("body is empty", TestStatus::Failed, Some("expected 3 to equal 0")),
+    ];
+    harness.run();
+    harness.get_by_label_contains("Test Results (2/3)").click();
+    harness.run();
+    assert!(harness.query_by_label("status is 200").is_some());
+    assert!(harness.query_by_label("has an id").is_some());
+    assert!(harness.query_by_label("expected 3 to equal 0").is_some(), "a failed test shows its message");
+
+    harness.get_by_label_contains("Failed 1").click();
+    harness.run();
+    assert!(harness.query_by_label("body is empty").is_some());
+    assert!(harness.query_by_label("status is 200").is_none(), "the filter hides passed rows");
+}
+
+#[test]
+fn test_results_explain_an_empty_list_and_show_script_failures() {
+    let mut harness = harness();
+    harness.state_mut().data.script_failures =
+        vec![ScriptFailure { phase: ScriptPhase::PostResponse, origin: "request Login".into(), message: "boom".into(), line: Some(3) }];
+    harness.run();
+    harness.get_by_label_contains("Test Results").click();
+    harness.run();
+    assert!(harness.query_by_label("post-response script in request Login failed at line 3: boom").is_some());
+    assert!(harness.query_by_label_contains("No tests ran").is_some());
 }

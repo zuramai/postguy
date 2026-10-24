@@ -127,6 +127,9 @@ enum GrpcUiAction {
     Save,
 }
 
+/// Marker the send thread uses for `EngineError::Skipped` (a status message, not an error view).
+const SKIPPED_BY_SCRIPT: &str = "skipped by its pre-request script";
+
 enum WsUiAction {
     Connect,
     Disconnect,
@@ -2117,6 +2120,12 @@ impl App {
                 if let Some(cached) = cached {
                     let view = response_from_cached(&cached);
                     self.responses.insert(tab, view);
+                    if !cached.script.failures.is_empty() {
+                        self.viewer_states.entry(tab).or_default().tab = postguy_ui_egui::response::ResponseTab::Tests;
+                    }
+                    if cached.script.variables_changed {
+                        self.reload_variable_editors();
+                    }
                     if download {
                         match self.save_response_body(tab) {
                             Ok(path) => self.shell.state.status = format!("{status} · {duration} ms · {size} B · saved to {path}"),
@@ -2130,11 +2139,33 @@ impl App {
                 }
                 self.refresh();
             }
+            Err(err) if err == SKIPPED_BY_SCRIPT => {
+                self.shell.state.status = "Request skipped by its pre-request script".into();
+            }
             Err(err) => {
                 self.responses.remove(&tab);
                 self.send_errors.insert(tab, SendErrorView { message: err.clone(), elapsed_ms });
                 self.shell.state.status = format!("Send failed: {err}");
             }
+        }
+    }
+
+    /// A script wrote variables to disk: drop the open environment, globals, collection and
+    /// folder editors that have no unsaved edits so they reload; keep the ones that do.
+    fn reload_variable_editors(&mut self) {
+        let pending_env = self.pending_env_save.as_ref().map(|pending| pending.0);
+        let mut kept_dirty = false;
+        self.env_editors.retain(|id, _| {
+            let keep = Some(*id) == pending_env;
+            kept_dirty |= keep;
+            keep
+        });
+        self.detail_editors.retain(|_, editor| {
+            kept_dirty |= editor.dirty;
+            editor.dirty
+        });
+        if kept_dirty {
+            self.shell.state.status = "A script changed variables in an open tab with unsaved edits; saving that tab overwrites them".into();
         }
     }
 
@@ -2243,7 +2274,8 @@ impl App {
         std::thread::Builder::new()
             .name("postguy-send".into())
             .spawn(move || {
-                let outcome = engine.send(target, SendOptions { environment: None, cancel: Some(cancel_thread), run_scripts: true });
+                let outcome =
+                    engine.send(target, SendOptions { environment: None, cancel: Some(cancel_thread), run_scripts: true, ..SendOptions::default() });
                 let result = outcome
                     .map(|outcome| {
                         (
@@ -2253,7 +2285,10 @@ impl App {
                             outcome.response.size.body_decoded_bytes as u64,
                         )
                     })
-                    .map_err(|err| err.to_string());
+                    .map_err(|err| match err {
+                        postguy_engine::EngineError::Skipped { .. } => SKIPPED_BY_SCRIPT.to_string(),
+                        other => other.to_string(),
+                    });
                 let _ = sender.send(result);
             })
             .ok();
@@ -2804,6 +2839,8 @@ fn response_from_cached(cached: &postguy_engine::CachedResponse) -> ResponseData
         download_ms: response.timings.download_ms,
         redirects: cached.request.redirect_hops.len(),
         proxy: cached.request.proxy.clone(),
+        tests: cached.script.tests.clone(),
+        script_failures: cached.script.failures.clone(),
     }
 }
 

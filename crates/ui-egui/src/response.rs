@@ -10,6 +10,8 @@ use std::sync::Arc;
 
 use egui::{Align, Layout, RichText, ScrollArea, Ui, vec2};
 
+use postguy_model::{ScriptFailure, TestResult, TestStatus};
+
 use crate::theme::Theme;
 use crate::widgets::{self, CodeLanguage, LargeTextView, menu_item};
 
@@ -36,6 +38,10 @@ pub struct ResponseData {
     pub download_ms: u64,
     pub redirects: usize,
     pub proxy: Option<String>,
+    /// `pm.test` results of both script phases, in run order.
+    pub tests: Vec<TestResult>,
+    /// Scripts that threw, timed out or ran out of memory (they never discard the response).
+    pub script_failures: Vec<ScriptFailure>,
 }
 
 /// Which content tab is open.
@@ -45,6 +51,29 @@ pub enum ResponseTab {
     Body,
     Cookies,
     Headers,
+    Tests,
+}
+
+/// Which test results the Test Results tab lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TestFilter {
+    #[default]
+    All,
+    Passed,
+    Skipped,
+    Failed,
+}
+
+impl TestFilter {
+    fn keeps(self, status: TestStatus) -> bool {
+        matches!(
+            (self, status),
+            (TestFilter::All, _)
+                | (TestFilter::Passed, TestStatus::Passed)
+                | (TestFilter::Skipped, TestStatus::Skipped)
+                | (TestFilter::Failed, TestStatus::Failed)
+        )
+    }
 }
 
 /// Body rendering mode.
@@ -64,6 +93,7 @@ pub struct ResponseViewerState {
     pub mode: BodyMode,
     pub search: String,
     pub wrap: bool,
+    pub test_filter: TestFilter,
     /// Cache of the pretty-printed body and the signature it was built from.
     pretty: Option<(u64, usize, Arc<str>)>,
     /// Cache of the UTF-8 body for Raw/Preview, keyed by the response revision so a new send
@@ -81,6 +111,7 @@ impl Default for ResponseViewerState {
             mode: BodyMode::Pretty,
             search: String::new(),
             wrap: false,
+            test_filter: TestFilter::All,
             pretty: None,
             raw: None,
             view_cache: None,
@@ -161,14 +192,23 @@ pub fn response_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseV
     let language = language_label(data);
     // Header strip.
     ui.horizontal(|ui| {
-        for (tab, label) in [(ResponseTab::Body, "Body"), (ResponseTab::Cookies, "Cookies"), (ResponseTab::Headers, "Headers")] {
+        let tests_label = test_tab_label(&data.tests);
+        let tabs = [
+            (ResponseTab::Body, "Body"),
+            (ResponseTab::Cookies, "Cookies"),
+            (ResponseTab::Headers, "Headers"),
+            (ResponseTab::Tests, tests_label.as_str()),
+        ];
+        for (tab, label) in tabs {
             let selected = state.tab == tab;
             let count = match tab {
                 ResponseTab::Cookies => Some(set_cookie_rows(&data.headers).len()),
                 ResponseTab::Headers => Some(data.headers.len()),
-                ResponseTab::Body => None,
+                ResponseTab::Body | ResponseTab::Tests => None,
             };
-            if widgets::sub_tab(ui, label, selected, count, false).clicked() {
+            let dot =
+                tab == ResponseTab::Tests && (!data.script_failures.is_empty() || data.tests.iter().any(|test| test.status == TestStatus::Failed));
+            if widgets::sub_tab(ui, label, selected, count, dot).clicked() {
                 state.tab = tab;
             }
         }
@@ -231,8 +271,71 @@ pub fn response_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseV
         ResponseTab::Body => body_view(ui, data, state, &theme),
         ResponseTab::Headers => headers_view(ui, data, &theme),
         ResponseTab::Cookies => cookies_view(ui, data, &theme),
+        ResponseTab::Tests => tests_view(ui, data, state, &theme),
     }
     action
+}
+
+/// "Test Results" with `passed/total` once any test ran.
+fn test_tab_label(tests: &[TestResult]) -> String {
+    if tests.is_empty() {
+        return "Test Results".to_string();
+    }
+    let passed = tests.iter().filter(|test| test.status == TestStatus::Passed).count();
+    format!("Test Results ({passed}/{})", tests.len())
+}
+
+/// One test row: a PASS/FAIL/SKIP badge, the name and, for a failure, the message under it.
+pub(crate) fn test_row(ui: &mut Ui, test: &TestResult, theme: &Theme) {
+    let (text, color) = match test.status {
+        TestStatus::Passed => ("PASS", theme.palette.success),
+        TestStatus::Failed => ("FAIL", theme.palette.danger),
+        TestStatus::Skipped => ("SKIP", theme.palette.text_muted),
+    };
+    egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
+        ui.horizontal_top(|ui| {
+            widgets::badge(ui, text, color, color.gamma_multiply(0.12));
+            ui.vertical(|ui| {
+                ui.label(RichText::new(&test.name).color(theme.palette.text));
+                if let (TestStatus::Failed, Some(message)) = (test.status, &test.message) {
+                    ui.label(RichText::new(message).small().color(theme.palette.danger));
+                }
+            });
+        });
+    });
+}
+
+fn tests_view(ui: &mut Ui, data: &ResponseData, state: &mut ResponseViewerState, theme: &Theme) {
+    for failure in &data.script_failures {
+        let line = failure.line.map(|line| format!(" at line {line}")).unwrap_or_default();
+        let text = format!("{} script in {} failed{line}: {}", failure.phase.label(), failure.origin, failure.message);
+        egui::Frame::new().stroke(egui::Stroke::new(1.0, theme.palette.danger)).inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
+            ui.label(RichText::new(text).color(theme.palette.danger));
+        });
+        ui.add_space(4.0);
+    }
+    if data.tests.is_empty() {
+        ui.label(RichText::new("No tests ran. Add pm.test(...) to the Post-response script.").color(theme.palette.text_muted));
+        return;
+    }
+    ui.horizontal(|ui| {
+        let count = |status: Option<TestStatus>| data.tests.iter().filter(|test| status.is_none_or(|status| test.status == status)).count();
+        for (filter, label, status) in [
+            (TestFilter::All, "All", None),
+            (TestFilter::Passed, "Passed", Some(TestStatus::Passed)),
+            (TestFilter::Skipped, "Skipped", Some(TestStatus::Skipped)),
+            (TestFilter::Failed, "Failed", Some(TestStatus::Failed)),
+        ] {
+            if widgets::sub_tab(ui, label, state.test_filter == filter, Some(count(status)), false).clicked() {
+                state.test_filter = filter;
+            }
+        }
+    });
+    ScrollArea::vertical().id_salt("response-tests").auto_shrink([false, false]).show(ui, |ui| {
+        for test in data.tests.iter().filter(|test| state.test_filter.keeps(test.status)) {
+            test_row(ui, test, theme);
+        }
+    });
 }
 
 fn body_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseViewerState, theme: &Theme) {
@@ -537,6 +640,8 @@ mod tests {
             download_ms: 4,
             redirects: 0,
             proxy: None,
+            tests: Vec::new(),
+            script_failures: Vec::new(),
         }
     }
 

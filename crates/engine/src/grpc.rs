@@ -19,8 +19,14 @@ impl Engine {
     /// sent literally.
     pub fn prepare_grpc(&self, collection: &postguy_model::Id, request: &postguy_model::Id, draft: &GrpcRequest) -> Result<GrpcRequest> {
         let (collection, folders, stored) = self.locate_grpc(collection, request)?;
-        let located = Located { collection, folders, http: postguy_model::HttpRequest { auth: stored.auth.clone(), ..Default::default() } };
-        let resolver = build_resolver(self, &located, None)?;
+        let located = Located {
+            collection,
+            folders,
+            http: postguy_model::HttpRequest { auth: stored.auth.clone(), ..Default::default() },
+            request_name: String::new(),
+            request_id: String::new(),
+        };
+        let resolver = build_resolver(self, &located, None, None)?;
         let mut prepared = draft.clone();
         prepared.url = resolve_checked(&resolver, &draft.url, "URL")?;
         prepared.method_path = resolve_checked(&resolver, &draft.method_path, "method path")?;

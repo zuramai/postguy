@@ -211,3 +211,28 @@ fn request_send_reports_a_bad_request_as_an_actionable_error() {
     let message = error_of(&automation, "request_send", json!({"collection": collection, "request": request}));
     assert!(message.contains("unresolved variable in its host"), "{message}");
 }
+
+#[test]
+fn request_send_reports_script_tests() {
+    let server = Server::start();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let automation = automation_in(dir.path());
+    let (collection, request) = prepared_request(&automation, &format!("{}/echo", server.base_url()));
+    let got = call(&automation, "request_get", json!({"collection": collection, "request": request}));
+    let mut definition = got["request"]["kind"].clone();
+    definition["scripts"] = json!({
+        "test": {"text": "pm.test('status is 200', () => pm.response.to.have.status(200));\npm.test('fails', () => pm.expect(1).to.equal(2));\npm.environment.set('x', '1');"}
+    });
+    call(&automation, "request_update", json!({"collection": collection, "request": request, "definition": definition}));
+
+    let sent = call(&automation, "request_send", json!({"collection": collection, "request": request}));
+    assert_eq!(sent["script"]["tests"][0]["status"], "passed", "{sent}");
+    assert_eq!(sent["script"]["tests"][1]["status"], "failed");
+    assert_eq!(sent["script"]["tests"][1]["message"], "expected 1 to equal 2");
+    assert_eq!(sent["script"]["tests"][0]["phase"], "postResponse");
+    // No environment is active, so the write is reported as a script failure, not a crash.
+    assert!(sent["script"]["failures"][0]["message"].as_str().is_some_and(|m| m.contains("no environment is selected")), "{sent}");
+    // The same report comes back from the response tools.
+    let again = call(&automation, "response_get", json!({}));
+    assert_eq!(again["script"]["tests"][0]["name"], "status is 200");
+}

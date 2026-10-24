@@ -8,7 +8,7 @@ use postguy_model::{AuthConfig, Collection, Folder, Id, Item, Scripts, Variable}
 
 use crate::auth::auth_editor;
 use crate::theme::Theme;
-use crate::widgets::{self, CodeEditor, CodeLanguage, menu_item};
+use crate::widgets::{self, menu_item};
 
 /// The detail sub-tabs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -209,19 +209,25 @@ impl CollectionDetail<'_> {
                 }
             }
             DetailTab::Scripts => {
-                for (label, script) in [("Pre-request", &mut parts.scripts.prerequest), ("Post-response", &mut parts.scripts.test)] {
-                    ui.label(RichText::new(label).small().color(theme.palette.text_muted));
-                    let mut text = script.as_ref().map(|script| script.text.clone()).unwrap_or_default();
-                    if CodeEditor::new(CodeLanguage::JavaScript).rows(8).id(egui::Id::new(("detail-script", label))).show(ui, &mut text).changed() {
-                        if script.is_none() {
-                            *script = Some(postguy_model::Script::default());
-                        }
-                        if let Some(script) = script {
-                            script.text = text;
-                        }
-                        changed = true;
-                    }
-                }
+                use crate::script_snippets::{POST_RESPONSE, PRE_REQUEST, script_editor};
+                changed |= script_editor(
+                    ui,
+                    &theme,
+                    "Pre-request",
+                    egui::Id::new(("detail-script", "Pre-request")),
+                    8,
+                    &mut parts.scripts.prerequest,
+                    PRE_REQUEST,
+                );
+                changed |= script_editor(
+                    ui,
+                    &theme,
+                    "Post-response",
+                    egui::Id::new(("detail-script", "Post-response")),
+                    8,
+                    &mut parts.scripts.test,
+                    POST_RESPONSE,
+                );
             }
             DetailTab::Runs => {
                 ui.label(RichText::new("No runs yet. The runner is not implemented yet.").color(theme.palette.text_muted));

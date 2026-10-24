@@ -18,6 +18,7 @@ pub mod icons;
 pub mod import;
 pub mod menu;
 pub mod response;
+pub mod script_snippets;
 pub mod settings;
 pub mod shell;
 pub mod sidebar;
@@ -36,7 +37,7 @@ pub use cookies::{CookieAction, CookieData, CookieRow, CookieState, cookie_manag
 pub use environment::{EnvironmentAction, EnvironmentEditor, VariableGroup, variable_quick_look};
 pub use export::{ExportFormat, ExportRequest, ExportState, ExportTarget, export_dialog};
 pub use import::{ImportAction, ImportItemView, ImportState, ImportSummary, import_dialog};
-pub use response::{BodyMode, ResponseAction, ResponseData, ResponseTab, ResponseViewerState, SendErrorView, error_view, response_view};
+pub use response::{BodyMode, ResponseAction, ResponseData, ResponseTab, ResponseViewerState, SendErrorView, TestFilter, error_view, response_view};
 pub use settings::{SettingsAction, SettingsEditor, SettingsSection, SettingsState};
 pub use shell::{PostguyShell, ShellState, WindowChrome};
 pub use sidebar::{RequestProtocol, RowKind, Sidebar, SidebarAction, SidebarData, SidebarRow, SidebarState};

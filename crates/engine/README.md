@@ -9,7 +9,7 @@ Facade and session: workspace handle, workspace edits, the send pipeline, consol
   blocks for CLI/automation and wraps the pipeline in `catch_unwind`; `send_async` hands the
   same work to the runtime for the UI. Settings updates are persisted atomically.
 - `pipeline` — the send pipeline: scope chain (globals < collection < folders <
-  environment), the explicit no-op script hooks (warned in the Console; scripts are not executed yet), auth
+  environment), pre-request scripts (`scripts` module; `Settings.disable_scripts` skips them), auth
   inheritance and resolution, URL building (path vars, enabled query merge, IDNA,
   encoding), auth application, body + automatic headers, cookies, send, jar persistence,
   response model, History and Console recording (secret values masked before either exists).
