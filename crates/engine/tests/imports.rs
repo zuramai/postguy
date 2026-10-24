@@ -190,3 +190,25 @@ fn non_openapi_yaml_and_bad_yaml_are_actionable_errors() {
     let path = fixture.write("api.yaml", OPENAPI_YAML);
     assert_eq!(engine.import_file(&path, ImportOptions::default()).expect("file").report.requests, 2, "a .yaml file imports like pasted text");
 }
+
+#[test]
+fn form_and_multipart_bodies_save_and_reload() {
+    let fixture = Fixture::new();
+    let engine = fixture.engine();
+    let yaml = "openapi: 3.0.0\ninfo:\n  title: Forms\npaths:\n  /login:\n    post:\n      requestBody:\n        content:\n          application/x-www-form-urlencoded:\n            schema:\n              type: object\n              properties:\n                user: {type: string}\n  /upload:\n    post:\n      requestBody:\n        content:\n          multipart/form-data:\n            schema:\n              type: object\n              properties:\n                file: {type: string, format: binary}\n      responses: {}\n";
+    let outcome = engine.import_text(yaml, ImportOptions::default()).expect("a form body must be savable");
+    let collection = engine.collection(&postguy_model::Id(outcome.id.expect("id"))).expect("reload");
+    let bodies: Vec<postguy_model::Body> = collection
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            postguy_model::Item::Request(request) => match &request.kind {
+                postguy_model::RequestKind::Http(http) => Some(http.body.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert!(matches!(&bodies[0], postguy_model::Body::UrlEncoded(rows) if rows[0].key == "user"), "{bodies:?}");
+    assert!(matches!(&bodies[1], postguy_model::Body::FormData(rows) if rows[0].kind == postguy_model::KeyValueKind::File), "{bodies:?}");
+}

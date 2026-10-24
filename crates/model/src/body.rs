@@ -7,8 +7,12 @@ use crate::requests::KeyValue;
 use serde::{Deserialize, Serialize};
 
 /// The body of a request.
+///
+/// On disk it is internally tagged (`{"type": "formData", "rows": [...]}`). serde cannot
+/// serialize an internally tagged *newtype* variant that holds a sequence, so the file shape is
+/// spelled out by [`BodyRepr`] and the public enum keeps its ergonomic tuple variants.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(from = "BodyRepr", into = "BodyRepr")]
 #[non_exhaustive]
 pub enum Body {
     #[default]
@@ -18,6 +22,41 @@ pub enum Body {
     /// Percent-encoded at send time.
     UrlEncoded(Vec<KeyValue>),
     Raw {
+        language: RawLanguage,
+        text: String,
+        extras: Extras,
+    },
+    /// One file (working-directory-relative path).
+    Binary {
+        path: String,
+        extras: Extras,
+    },
+    /// Sent as JSON `{"query": ..., "variables": ..., "operationName"?}` with
+    /// `Content-Type: application/json`.
+    GraphQL {
+        query: String,
+        /// Optional name of the operation to run in a multi-operation document.
+        operation_name: Option<String>,
+        /// The variables JSON the user typed; validity is a hint, never a save blocker.
+        variables: String,
+        extras: Extras,
+    },
+}
+
+/// The serialized form of [`Body`].
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+enum BodyRepr {
+    None,
+    FormData {
+        #[serde(default)]
+        rows: Vec<KeyValue>,
+    },
+    UrlEncoded {
+        #[serde(default)]
+        rows: Vec<KeyValue>,
+    },
+    Raw {
         #[serde(default)]
         language: RawLanguage,
         #[serde(default)]
@@ -25,27 +64,48 @@ pub enum Body {
         #[serde(default, flatten)]
         extras: Extras,
     },
-    /// One file (working-directory-relative path).
     Binary {
         #[serde(default)]
         path: String,
         #[serde(default, flatten)]
         extras: Extras,
     },
-    /// Sent as JSON `{"query": ..., "variables": ..., "operationName"?}` with
-    /// `Content-Type: application/json`.
     GraphQL {
         #[serde(default)]
         query: String,
-        /// Optional name of the operation to run in a multi-operation document.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         operation_name: Option<String>,
-        /// The variables JSON the user typed; validity is a hint, never a save blocker.
         #[serde(default)]
         variables: String,
         #[serde(default, flatten)]
         extras: Extras,
     },
+}
+
+impl From<BodyRepr> for Body {
+    fn from(repr: BodyRepr) -> Body {
+        match repr {
+            BodyRepr::None => Body::None,
+            BodyRepr::FormData { rows } => Body::FormData(rows),
+            BodyRepr::UrlEncoded { rows } => Body::UrlEncoded(rows),
+            BodyRepr::Raw { language, text, extras } => Body::Raw { language, text, extras },
+            BodyRepr::Binary { path, extras } => Body::Binary { path, extras },
+            BodyRepr::GraphQL { query, operation_name, variables, extras } => Body::GraphQL { query, operation_name, variables, extras },
+        }
+    }
+}
+
+impl From<Body> for BodyRepr {
+    fn from(body: Body) -> BodyRepr {
+        match body {
+            Body::None => BodyRepr::None,
+            Body::FormData(rows) => BodyRepr::FormData { rows },
+            Body::UrlEncoded(rows) => BodyRepr::UrlEncoded { rows },
+            Body::Raw { language, text, extras } => BodyRepr::Raw { language, text, extras },
+            Body::Binary { path, extras } => BodyRepr::Binary { path, extras },
+            Body::GraphQL { query, operation_name, variables, extras } => BodyRepr::GraphQL { query, operation_name, variables, extras },
+        }
+    }
 }
 
 impl Body {
@@ -115,6 +175,30 @@ mod tests {
             Body::GraphQL { query, .. } => assert_eq!(query, "{ me }"),
             other => panic!("wrong variant: {other:?}"),
         }
+    }
+
+    #[test]
+    fn every_body_variant_serializes_and_round_trips() {
+        // serde cannot serialize an internally tagged newtype variant holding a sequence, which
+        // made every request with a form-data or url-encoded body fail to save.
+        let rows = vec![KeyValue { key: "a".into(), value: "1".into(), ..KeyValue::default() }, KeyValue { key: "b".into(), ..KeyValue::default() }];
+        let bodies = [
+            Body::None,
+            Body::FormData(rows.clone()),
+            Body::UrlEncoded(rows),
+            Body::FormData(Vec::new()),
+            Body::Raw { language: RawLanguage::Json, text: "{}".into(), extras: Extras::default() },
+            Body::Binary { path: "f.bin".into(), extras: Extras::default() },
+            Body::GraphQL { query: "{ me }".into(), operation_name: Some("Me".into()), variables: "{}".into(), extras: Extras::default() },
+        ];
+        for body in bodies {
+            let value = serde_json::to_value(&body).expect("serializes");
+            let back: Body = serde_json::from_value(value.clone()).expect("parses");
+            assert_eq!(back, body, "{value}");
+        }
+        let value = serde_json::to_value(Body::UrlEncoded(vec![KeyValue { key: "k".into(), ..KeyValue::default() }])).expect("serializes");
+        assert_eq!(value["type"], json!("urlEncoded"));
+        assert_eq!(value["rows"][0]["key"], json!("k"));
     }
 
     #[test]
