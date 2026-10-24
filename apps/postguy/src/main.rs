@@ -1,6 +1,6 @@
 //! Postguy desktop app (eframe + glow): owns the engine session and applies the sidebar's
 //! intents. Launch with `--workspace DIR` to choose the workspace; without it the app
-//! opens `./postguy-workspace` so a fresh checkout has somewhere to write.
+//! opens `./postguy-workspace` if it exists, else `~/postguy-workspace`, so an installed app (which starts in a read-only folder) has somewhere to write.
 //!
 //! The UI thread never does network I/O. Reads of the workspace happen when
 //! an action changed it (one revision), not every frame.
@@ -10,7 +10,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use egui::{Align, Layout, vec2};
 use postguy_auth::oauth2::TokenResponse;
@@ -3195,7 +3195,23 @@ fn workspace_argument() -> PathBuf {
         }
         index += 1;
     }
-    PathBuf::from("postguy-workspace")
+    default_workspace(Path::new("postguy-workspace").is_dir(), user_home())
+}
+
+/// The folder an installed app can write to. A shortcut or Finder starts the app in a folder it
+/// may not write to (`Program Files`, `/`), so the default is not the launch directory. An existing
+/// `./postguy-workspace` still wins, so a checkout keeps working; with no home folder the relative
+/// path is the last resort.
+fn default_workspace(local_exists: bool, home: Option<PathBuf>) -> PathBuf {
+    match home {
+        Some(home) if !local_exists => home.join("postguy-workspace"),
+        _ => PathBuf::from("postguy-workspace"),
+    }
+}
+
+fn user_home() -> Option<PathBuf> {
+    let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    std::env::var_os(var).filter(|home| !home.is_empty()).map(PathBuf::from)
 }
 
 fn control_argument() -> Option<PathBuf> {
@@ -3249,6 +3265,15 @@ fn main() -> eframe::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_default_workspace_is_writable_for_an_installed_app() {
+        let home = Some(PathBuf::from("/home/ann"));
+        assert_eq!(default_workspace(false, home.clone()), PathBuf::from("/home/ann/postguy-workspace"));
+        // A checkout that already has ./postguy-workspace keeps using it.
+        assert_eq!(default_workspace(true, home), PathBuf::from("postguy-workspace"));
+        assert_eq!(default_workspace(false, None), PathBuf::from("postguy-workspace"));
+    }
 
     fn app_in(dir: &std::path::Path) -> App {
         App::new(dir.join("workspace"))
