@@ -38,7 +38,7 @@ Tooling: `xtask` (build system, gates, fuzz, icons/logo, size) is outside the la
   and wraps panics into error rows.
 - **Workspace on disk:** one folder; `postguy.json`, `collections/<id>.json`,
   `environments/`, `globals.json`, `protos/`, `files/`, `history.jsonl`, `.trash/`,
-  `.postguy/{secrets,cookies,responses,lock}`; atomic writes, `.bak`, corrupt-file recovery.
+  `.postguy/{secrets,cookies,responses,runs,lock}`; atomic writes, `.bak`, corrupt-file recovery.
 
 ## Decisions made with measurements
 

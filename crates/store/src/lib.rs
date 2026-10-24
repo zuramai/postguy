@@ -13,6 +13,7 @@
 //!   history.jsonl              append-only, rotated, capped
 //!   .trash/                    soft-deleted items with deletedAt metadata
 //!   .postguy/
+//!     runs/<collection-id>/<run-id>.json   the newest 20 collection runs
 //!     secrets.json             0600; values of variables marked secret
 //!     lock                     workspace lock with stale detection
 //! ```
@@ -29,6 +30,7 @@ pub mod config_dir;
 pub mod history;
 pub mod lock;
 pub mod paths;
+pub mod runs;
 pub mod secrets;
 pub mod trash;
 pub mod workspace_file;

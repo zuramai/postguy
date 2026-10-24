@@ -14,6 +14,7 @@ pub mod grpc;
 pub mod import;
 pub mod oauth2;
 pub mod pipeline;
+pub mod run;
 pub mod runtime;
 pub mod scripts;
 pub mod workspace_zip;
@@ -29,6 +30,8 @@ pub use exports::CollectionFormat;
 pub use import::{Detected, IMPORT_FILE_CAP, ImportKind, ImportOptions, ImportOutcome, detect, walk_import_paths};
 pub use oauth2::{OAuth2Callback, StoredToken};
 pub use pipeline::{IterationScope, ResponseView, SendOptions, SendOutcome, SendTarget, SentRequest};
+pub use postguy_runner::{DataSet, RunConfig, RunEvent, RunResult, RunSummary};
+pub use run::load_data_file;
 pub use scripts::ScriptReport;
 
 pub use postguy_http::Cancel;

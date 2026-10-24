@@ -3456,6 +3456,7 @@ dependencies = [
  "postguy-http",
  "postguy-interop",
  "postguy-model",
+ "postguy-runner",
  "postguy-snippets",
  "postguy-store",
  "postguy-testkit",
@@ -3474,10 +3475,12 @@ name = "postguy-cli"
 version = "0.1.0"
 dependencies = [
  "postguy-automation",
+ "postguy-engine",
  "postguy-interop",
  "postguy-model",
  "postguy-runner",
  "postguy-script",
+ "postguy-store",
  "postguy-testkit",
  "postguy-urlkit",
  "postguy-util",
@@ -3498,6 +3501,7 @@ dependencies = [
  "postguy-http",
  "postguy-interop",
  "postguy-model",
+ "postguy-runner",
  "postguy-script",
  "postguy-store",
  "postguy-testkit",

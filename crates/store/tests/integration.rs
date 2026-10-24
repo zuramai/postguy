@@ -125,3 +125,25 @@ fn reloaded_store_check(paths: &StorePaths, owner: &str) {
     let values = store.values_for(owner).expect("values");
     assert_eq!(values.get("apiKey").map(String::as_str), Some("hunter2"), "the secret survived reopen");
 }
+
+#[test]
+fn stored_runs_keep_the_newest_twenty_and_refuse_unsafe_ids() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let workspace = Workspace::open(fresh_paths(dir.path()))?;
+    assert!(workspace.run_ids("col")?.is_empty(), "a collection without runs lists none");
+    for n in 0..23u32 {
+        workspace.save_run("col", &format!("{n:013}-abcd"), format!("{{\"n\":{n}}}").as_bytes())?;
+    }
+    let ids = workspace.run_ids("col")?;
+    assert_eq!(ids.len(), 20);
+    assert_eq!(ids.first().map(String::as_str), Some("0000000000022-abcd"), "newest first");
+    assert_eq!(ids.last().map(String::as_str), Some("0000000000003-abcd"), "the three oldest were pruned");
+    assert_eq!(workspace.load_run("col", "0000000000022-abcd")?, b"{\"n\":22}");
+    assert!(workspace.load_run("col", "0000000000000-abcd").is_err(), "a pruned run is gone");
+    for bad in ["../x", "a/b", "", "a.json", "a b"] {
+        assert!(workspace.save_run("col", bad, b"{}").is_err(), "{bad}");
+        assert!(workspace.load_run("col", bad).is_err(), "{bad}");
+    }
+    assert!(workspace.save_run("../up", "run", b"{}").is_err());
+    Ok(())
+}

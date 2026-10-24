@@ -1,4 +1,4 @@
-//! Postguy headless CLI: the automation tool table (`tools`, `call`, `run --script`), the
+//! Postguy headless CLI: the automation tool table (`tools`, `call`, `run --script`, `run --collection`), the
 //! `fuzz-target` dev verb and the `ui` client for the app's opt-in control channel. MCP is
 //! not implemented yet.
 //!
@@ -7,6 +7,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod fuzz_targets;
+mod run;
 mod ui;
 
 use std::io::Write as _;
@@ -20,7 +21,7 @@ fn main() {
     let code = match args.first().map(String::as_str) {
         Some("tools") => run_tools(&args[1..]),
         Some("call") => run_call(&args[1..]),
-        Some("run") => run_script(&args[1..]),
+        Some("run") => run_command(&args[1..]),
         Some("fuzz-target") => run_fuzz(&args[1..]),
         Some("ui") => ui::run(&args[1..]),
         _ => {
@@ -38,7 +39,7 @@ fn out(line: impl std::fmt::Display) {
 
 fn usage() {
     eprintln!(
-        "usage:\n  postguy-cli tools [--json]\n  postguy-cli call <tool> --json '<args>' [--root DIR]\n  postguy-cli run --script FILE [--root DIR]\n  postguy-cli fuzz-target <name> <seed-file>   (dev tooling)\n  postguy-cli ui --control FILE inspect|command ID|set KEY=VALUE|screenshot --out FILE|click X Y|key NAME|type TEXT [--root DIR]\n\nRun `postguy-cli tools` for the tool table; `ui` talks to an app launched with `--control FILE`."
+        "usage:\n  postguy-cli tools [--json]\n  postguy-cli call <tool> --json '<args>' [--root DIR]\n  postguy-cli run --script FILE [--root DIR]\n  postguy-cli run --collection ID_OR_NAME --workspace DIR [--folder F] [--environment E] [--iterations N] [--delay MS] [--data FILE] [--bail] [--requests ID,ID] [--reporters cli,json,junit,html] [--out DIR] [--root DIR]\n  postguy-cli fuzz-target <name> <seed-file>   (dev tooling)\n  postguy-cli ui --control FILE inspect|command ID|set KEY=VALUE|screenshot --out FILE|click X Y|key NAME|type TEXT [--root DIR]\n\nRun `postguy-cli tools` for the tool table; `ui` talks to an app launched with `--control FILE`."
     );
 }
 
@@ -136,6 +137,21 @@ fn run_call(args: &[String]) -> i32 {
                 1
             }
         },
+    }
+}
+
+/// `run`: a JSON step script, or a collection run; exactly one of the two.
+fn run_command(args: &[String]) -> i32 {
+    let script = args.iter().any(|arg| arg == "--script");
+    let collection = args.iter().any(|arg| arg == "--collection");
+    match (script, collection) {
+        (true, false) => run_script(args),
+        (false, true) => run::run(args),
+        _ => {
+            eprintln!("postguy-cli run: run needs either --script FILE or --collection ID --workspace DIR");
+            usage();
+            2
+        }
     }
 }
 

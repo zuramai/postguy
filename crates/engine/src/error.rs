@@ -21,6 +21,8 @@ pub enum EngineError {
     Panicked { message: String },
     /// An import could not be parsed or written; the message is user-presentable.
     Import { message: String },
+    /// A collection run could not be planned, its data could not be read or its result stored.
+    Run { message: String },
     /// A pre-request script threw, timed out or ran out of memory, so nothing was sent.
     Script { phase: String, origin: String, message: String, line: Option<u32> },
     /// A pre-request script called `pm.execution.skipRequest()`; not a failure.
@@ -45,6 +47,7 @@ impl std::fmt::Display for EngineError {
                 write!(f, ": {message}")
             }
             EngineError::Skipped { reason } => write!(f, "{reason}"),
+            EngineError::Run { message } => write!(f, "{message}"),
         }
     }
 }

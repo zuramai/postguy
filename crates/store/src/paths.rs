@@ -93,6 +93,11 @@ impl StorePaths {
         self.dot_dir().join("responses")
     }
 
+    /// Stored collection runs (`<collection-id>/<run-id>.json`).
+    pub fn runs_dir(&self) -> PathBuf {
+        self.dot_dir().join("runs")
+    }
+
     pub fn lock_file(&self) -> PathBuf {
         self.dot_dir().join("lock")
     }

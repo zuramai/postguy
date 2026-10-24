@@ -21,6 +21,7 @@ postguy-grpc.workspace = true
 zip.workspace = true
 postguy-util.workspace = true
 postguy-script.workspace = true
+postguy-runner.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

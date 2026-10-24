@@ -21,6 +21,8 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+postguy-engine = { workspace = true }
+postguy-store = { workspace = true }
 tempfile = "3"
 serde_json.workspace = true
 postguy-testkit.workspace = true

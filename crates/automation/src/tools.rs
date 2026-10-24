@@ -75,6 +75,9 @@ impl Automation {
         if tool_name == "request_cancel" {
             return self.cancel_request(tool_name, &args);
         }
+        if tool_name == "collection_run" {
+            return self.run_collection(tool_name, &args);
+        }
         let mut session = self.session.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         dispatch(tool_name, &args, &mut session)
     }
@@ -116,6 +119,51 @@ impl Automation {
             object.insert("warnings".into(), serde_json::to_value(&outcome.warnings).map_err(json_error)?);
         }
         Ok(value)
+    }
+
+    /// `collection_run`: like `request_send`, it must not hold the session lock while it runs,
+    /// so `request_cancel run:<collection>` can reach it.
+    fn run_collection(&self, tool: &str, args: &serde_json::Map<String, Value>) -> Result<Value> {
+        let (engine, config, data) = {
+            let session = self.session.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let engine = session.engine()?.clone();
+            let config = postguy_engine::RunConfig {
+                collection: Id(string_arg(args, tool, "collection")?),
+                folder: optional_string(args, tool, "folder")?.map(Id),
+                environment: optional_string(args, tool, "environment")?.map(Id),
+                iterations: optional_integer(args, tool, "iterations")?
+                    .map(|count| {
+                        u32::try_from(count).map_err(|_| AutomationError::BadArgument {
+                            tool: tool.to_string(),
+                            argument: "iterations".to_string(),
+                            expected: "an integer between 1 and 10000".to_string(),
+                            got: count.to_string(),
+                        })
+                    })
+                    .transpose()?,
+                delay_ms: optional_integer(args, tool, "delay_ms")?.map(|ms| u64::try_from(ms).unwrap_or(u64::MAX)).unwrap_or(0),
+                stop_on_error: bool_arg(args, tool, "stop_on_error", false)?,
+                requests: optional_string_array(args, tool, "requests")?.map(|ids| ids.into_iter().map(Id).collect()),
+            };
+            let data = match optional_string(args, tool, "data")? {
+                Some(given) => {
+                    let path = session.resolve_existing(&given)?;
+                    Some(postguy_engine::load_data_file(&path)?)
+                }
+                None => None,
+            };
+            (engine, config, data)
+        };
+        let cancel = Cancel::new();
+        let key = format!("run:{}", config.collection.0);
+        if let Ok(mut cancels) = self.cancels.lock() {
+            cancels.insert(key.clone(), cancel.clone());
+        }
+        let result = engine.run_collection(&config, data, &cancel, &mut |_| {});
+        if let Ok(mut cancels) = self.cancels.lock() {
+            cancels.remove(&key);
+        }
+        serde_json::to_value(result?).map_err(json_error)
     }
 
     /// `request_cancel`: cancel the in-flight send for a request id (or `last`).
@@ -181,6 +229,16 @@ fn opt(description: &'static str) -> (Value, bool) {
 /// An optional boolean argument schema.
 fn opt_bool(description: &'static str) -> (Value, bool) {
     (json!({"type": "boolean", "description": description}), false)
+}
+
+/// An optional integer argument schema.
+fn opt_int(description: &'static str, minimum: u64) -> (Value, bool) {
+    (json!({"type": "integer", "minimum": minimum, "description": description}), false)
+}
+
+/// An optional array-of-strings argument schema.
+fn opt_string_array(description: &'static str) -> (Value, bool) {
+    (json!({"type": "array", "items": {"type": "string"}, "description": description}), false)
 }
 
 /// The tool table. Every user-facing workflow must be reachable here before it reaches a UI.
@@ -629,8 +687,54 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
         ToolDef {
             name: "request_cancel",
             title: "Cancel an in-flight send",
-            description: "Cancels the send started by request_send for that request id, or the most recent send (`last`).",
-            input_schema: schema! { "sendId": req("request id passed to request_send, or `last`") },
+            description: "Cancels the send started by request_send for that request id, or the most recent send (`last`), or a collection run (`run:<collection id>`).",
+            input_schema: schema! { "sendId": req("request id passed to request_send, `last`, or `run:<collection id>`") },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "collection_run",
+            title: "Run a collection",
+            description: "Runs the collection (or one folder, or an ordered subset of requests) sequentially: scripts, tests, iterations and CSV/JSON data rows, delay, stop on error. gRPC and WebSocket requests are skipped. The result is stored (newest 20 per collection) and returned; cancel it with request_cancel `run:<collection id>`.",
+            input_schema: schema! {
+                "collection": req("collection id"),
+                "folder": opt("folder id: run only this folder"),
+                "environment": opt("environment id (default: the workspace's active environment)"),
+                "iterations": opt_int("iteration count (default: one per data row, or 1; at most 10000)", 1),
+                "delay_ms": opt_int("pause between requests in ms (at most 600000)", 0),
+                "data": opt("path of a CSV (header row) or JSON (array of objects) data file, inside --root"),
+                "stop_on_error": opt_bool("stop after the first request error, script failure or failed test"),
+                "requests": opt_string_array("request ids to run, in this order (default: every request in tree order)")
+            },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "run_list",
+            title: "List stored runs",
+            description: "The collection's stored runs, newest first, with totals and pass/fail.",
+            input_schema: schema! { "collection": req("collection id") },
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "run_get",
+            title: "Get one stored run",
+            description: "The full result of a stored run: iterations, requests, tests and failures.",
+            input_schema: schema! { "collection": req("collection id"), "run": req("run id from run_list") },
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "run_export",
+            title: "Export a stored run",
+            description: "Renders a stored run as `json`, `junit` (XML) or `html` (one self-contained file) and writes it to `out` (inside --root).",
+            input_schema: schema! {
+                "collection": req("collection id"),
+                "run": req("run id from run_list"),
+                "format": req("json, junit or html"),
+                "out": req("file path to write")
+            },
             read_only: false,
             destructive: false,
         },
@@ -1320,18 +1424,46 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
                     });
                 }
             };
-            finish_export(session, args, value)
+            finish_export(tool, session, args, value)
         }
         "export_environment" => {
             let id = string_arg(args, tool, "environment")?;
             let include_secrets = bool_arg(args, tool, "include_secrets", false)?;
             let value = session.engine()?.export_environment_value(&Id(id), include_secrets)?;
-            finish_export(session, args, value)
+            finish_export(tool, session, args, value)
         }
         "export_globals" => {
             let include_secrets = bool_arg(args, tool, "include_secrets", false)?;
             let value = session.engine()?.export_globals_value(include_secrets)?;
-            finish_export(session, args, value)
+            finish_export(tool, session, args, value)
+        }
+        "run_list" => {
+            let runs = session.engine()?.runs(&Id(string_arg(args, tool, "collection")?))?;
+            Ok(json!({ "runs": runs }))
+        }
+        "run_get" => {
+            let result = session.engine()?.run(&Id(string_arg(args, tool, "collection")?), &string_arg(args, tool, "run")?)?;
+            serde_json::to_value(result).map_err(json_error)
+        }
+        "run_export" => {
+            let format = string_arg(args, tool, "format")?;
+            let out = string_arg(args, tool, "out")?;
+            let result = session.engine()?.run(&Id(string_arg(args, tool, "collection")?), &string_arg(args, tool, "run")?)?;
+            let bytes = match format.as_str() {
+                "json" => serde_json::to_vec_pretty(&postguy_runner::report::json(&result)).map_err(json_error)?,
+                "junit" => postguy_runner::report::junit(&result).into_bytes(),
+                "html" => postguy_runner::report::html(&result).into_bytes(),
+                other => {
+                    return Err(AutomationError::BadArgument {
+                        tool: tool.to_string(),
+                        argument: "format".to_string(),
+                        expected: "json, junit or html".to_string(),
+                        got: other.to_string(),
+                    });
+                }
+            };
+            let written = write_output(session, &out, &bytes)?;
+            Ok(json!({ "written": written, "format": format, "run": result.id }))
         }
         "response_get" => {
             let engine = session.engine()?;
@@ -1508,6 +1640,22 @@ fn cached_json(cached: &postguy_engine::CachedResponse) -> Value {
     })
 }
 
+fn optional_string_array(args: &serde_json::Map<String, Value>, tool: &str, key: &str) -> Result<Option<Vec<String>>> {
+    let bad = |got: &str| AutomationError::BadArgument {
+        tool: tool.to_string(),
+        argument: key.to_string(),
+        expected: "an array of request ids".to_string(),
+        got: got.to_string(),
+    };
+    match args.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Array(items)) => {
+            items.iter().map(|item| item.as_str().map(str::to_string).ok_or_else(|| bad(json_kind(item)))).collect::<Result<Vec<String>>>().map(Some)
+        }
+        Some(other) => Err(bad(json_kind(other))),
+    }
+}
+
 fn optional_integer(args: &serde_json::Map<String, Value>, tool: &str, key: &str) -> Result<Option<usize>> {
     match args.get(key) {
         None | Some(Value::Null) => Ok(None),
@@ -1607,8 +1755,8 @@ fn park_deleted(session: &Session, collection_id: &str, item_id: &str, item: &It
     Ok(())
 }
 
-fn finish_export(session: &Session, args: &serde_json::Map<String, Value>, value: Value) -> Result<Value> {
-    match optional_string(args, "x", "out")? {
+fn finish_export(tool: &str, session: &Session, args: &serde_json::Map<String, Value>, value: Value) -> Result<Value> {
+    match optional_string(args, tool, "out")? {
         Some(path) => {
             let bytes = serde_json::to_vec_pretty(&value).map_err(json_error)?;
             let written = write_output(session, &path, &bytes)?;
