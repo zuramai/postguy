@@ -11,6 +11,7 @@ struct State {
     collection: Collection,
     folder: Option<Id>,
     detail: DetailState,
+    runs: Vec<postguy_ui_egui::RunSummaryView>,
     action: Option<CollectionAction>,
     last: Option<CollectionAction>,
 }
@@ -41,7 +42,8 @@ fn harness(folder: bool) -> Harness<'static, State> {
     let collection = sample();
     Harness::new_ui_state(
         |ui, state: &mut State| {
-            let mut detail = CollectionDetail { collection: &mut state.collection, folder: state.folder.clone(), state: &mut state.detail };
+            let mut detail =
+                CollectionDetail { collection: &mut state.collection, folder: state.folder.clone(), state: &mut state.detail, runs: &state.runs };
             state.action = detail.show(ui);
             if state.action.is_some() {
                 state.last = state.action.clone();
@@ -51,6 +53,7 @@ fn harness(folder: bool) -> Harness<'static, State> {
             collection,
             folder: if folder { Some(Id("folder1".into())) } else { None },
             detail: DetailState::default(),
+            runs: Vec::new(),
             action: None,
             last: None,
         },
@@ -151,4 +154,23 @@ fn collection_auth_does_not_offer_inherit() {
     harness.run();
     assert!(harness.query_by_label_contains("Inherit").is_none(), "collection-level auth has no Inherit");
     assert!(harness.query_by_label_contains("Basic Auth").is_some());
+}
+
+#[test]
+fn runs_tab_lists_runs_and_opens_one() {
+    let mut harness = harness(false);
+    harness.run();
+    harness.get_by_label("Runs").click();
+    harness.run();
+    assert!(harness.query_by_label_contains("No runs yet. Press Run to run this collection.").is_some());
+
+    harness.state_mut().runs = vec![
+        postguy_ui_egui::RunSummaryView { id: "run-b".into(), started_ms: 0, iterations: 3, passed: 5, failed: 0, duration_ms: 120, ok: true },
+        postguy_ui_egui::RunSummaryView { id: "run-a".into(), started_ms: 0, iterations: 1, passed: 1, failed: 2, duration_ms: 40, ok: false },
+    ];
+    harness.run();
+    assert!(harness.query_by_label("PASS").is_some() && harness.query_by_label("FAIL").is_some());
+    harness.get_by_label_contains("1 passed, 2 failed").click();
+    harness.run();
+    assert_eq!(harness.state().last, Some(CollectionAction::OpenRun("run-a".into())));
 }

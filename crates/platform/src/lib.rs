@@ -44,6 +44,19 @@ pub fn save_export(default_name: String, extension: &'static str) -> Pin<Box<dyn
     })
 }
 
+/// Pick one CSV or JSON data file for the collection runner.
+pub fn pick_data_file() -> Pin<Box<dyn Future<Output = Option<PathBuf>>>> {
+    Box::pin(async move {
+        AsyncFileDialog::new()
+            .set_title("Choose data file")
+            .add_filter("CSV", &["csv"])
+            .add_filter("JSON", &["json"])
+            .pick_file()
+            .await
+            .map(|handle| handle.path().to_path_buf())
+    })
+}
+
 pub fn pick_import_paths(folder: bool) -> Pin<Box<dyn Future<Output = Vec<PathBuf>>>> {
     Box::pin(async move {
         let dialog = AsyncFileDialog::new().set_title(if folder { "Import folder" } else { "Import files" });

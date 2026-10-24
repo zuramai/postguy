@@ -115,8 +115,10 @@ id = "a.runs-tab"
 title = "Collection Runs tab (past runs, open results, delete)"
 area = "A"
 tier = "P1"
-status = "planned"
-notes = "Summary only per run; bodies only when persisted and small; capped."
+status = "shipped"
+notes = "The Runs tab lists a collection's stored runs (newest 20, summary per run) and opens one in the Runner tab. Deleting a stored run is not offered yet."
+tools = ["run_list", "run_get"]
+evidence = ["crates/ui-egui/tests/collection.rs::runs_tab_lists_runs_and_opens_one", "crates/engine/tests/run.rs::runs_are_stored_and_pruned_to_twenty", "apps/postguy/src/main.rs::sidebar_run_opens_the_runner_with_the_collection"]
 
 [[feature]]
 id = "a.pinned-environment"
@@ -630,8 +632,10 @@ id = "f.runner"
 title = "Collection runner: GUI config and streaming results"
 area = "F"
 tier = "P1"
-status = "planned"
-notes = "Order, iterations, delay, data files, stop-on-error options; sequential, never concurrent."
+status = "shipped"
+notes = "Runner tab: collection and environment selects, per-request ticks, iterations, delay, CSV/JSON data file with a preview, stop on error, Run/Cancel, results streaming in per iteration with filters and Export (JSON, JUnit, HTML). Sequential only; gRPC and WebSocket requests are skipped. Opened from the sidebar, a collection or folder Run button, or the `runner.open` command."
+tools = ["collection_run"]
+evidence = ["crates/ui-egui/tests/runner.rs::runner_panel_runs_selected_requests_and_filters_results", "crates/engine/tests/run.rs::a_run_iterates_data_rows_and_records_tests", "apps/postguy/src/main.rs::the_runner_streams_a_run_into_its_state"]
 
 [[feature]]
 id = "f.runner-cli"
@@ -863,7 +867,7 @@ title = "Collection and folder detail tabs"
 area = "H"
 tier = "P1"
 status = "shipped"
-notes = "Collection and folder detail tabs with Overview, Authorization, Variables and Scripts; a folder has no Runs tab and both autosave."
+notes = "Collection and folder detail tabs with Overview, Authorization, Variables, Scripts (with snippets) and, for collections, Runs; a folder has no Runs tab and both autosave."
 
 evidence = ["crates/ui-egui/tests/collection.rs::overview_counts_and_description_edit_autosave", "crates/ui-egui/tests/collection.rs::folder_detail_has_no_runs_tab_and_edits_the_folder"]
 [[feature]]

@@ -20,6 +20,7 @@ postguy-model.workspace = true
 postguy-store.workspace = true
 postguy-interop.workspace = true
 postguy-util.workspace = true
+postguy-runner.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 fastrand = "2"

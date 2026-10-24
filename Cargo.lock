@@ -3416,6 +3416,7 @@ dependencies = [
  "postguy-interop",
  "postguy-model",
  "postguy-platform",
+ "postguy-runner",
  "postguy-snippets",
  "postguy-store",
  "postguy-testkit",

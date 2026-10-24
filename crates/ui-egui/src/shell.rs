@@ -27,6 +27,7 @@ pub enum PanelAction {
     Trash(TrashAction),
     Cookies(CookieAction),
     Settings(SettingsAction),
+    Runner(crate::runner::RunnerAction),
 }
 
 /// The app-supplied editor shown in the central panel for request/environment/globals tabs.
@@ -258,6 +259,7 @@ impl PostguyShell {
                 | TabDoc::Folder { .. }
                 | TabDoc::Trash
                 | TabDoc::Cookies
+                | TabDoc::Runner
                 | TabDoc::Settings
                     if content_panel.is_some() =>
                 {
@@ -289,7 +291,7 @@ impl PostguyShell {
                     ui.label("The trash view is not available here yet.");
                 }
                 TabDoc::Runner => {
-                    ui.label("The runner is not implemented yet.");
+                    ui.label("Open a workspace to run collections.");
                 }
             },
         });

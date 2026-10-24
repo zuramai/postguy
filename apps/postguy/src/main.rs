@@ -43,6 +43,7 @@ use serde::{Deserialize, Serialize};
 mod control;
 #[cfg(target_os = "macos")]
 mod macos;
+mod runner;
 
 struct ClipboardItem {
     source_collection: Id,
@@ -228,6 +229,7 @@ struct App {
     ws_editors: BTreeMap<u64, WsEditor>,
     grpc_editors: BTreeMap<u64, GrpcEditor>,
     grpc_jobs: BTreeMap<u64, std::sync::mpsc::Receiver<Result<postguy_engine::UnaryResult, String>>>,
+    runner: runner::RunnerUi,
     pending_clipboard: Option<String>,
     /// Edit-menu commands waiting to be injected as egui events (`raw_input_hook`).
     pending_edit: Vec<EditCommand>,
@@ -276,6 +278,7 @@ impl App {
                     export_request: None,
                     export_save: None,
                     export_job: None,
+                    runner: Default::default(),
                     pending_clipboard: None,
                     oauth2_job: None,
                     oauth2_browser: None,
@@ -327,6 +330,7 @@ impl App {
                     export_request: None,
                     export_save: None,
                     export_job: None,
+                    runner: Default::default(),
                     pending_clipboard: None,
                     oauth2_job: None,
                     oauth2_browser: None,
@@ -1509,7 +1513,15 @@ impl App {
                 let example = engine.create_example(&collection, &id, "Example").map_err(|err| err.to_string())?;
                 Ok(format!("Created example `{}`", example.name))
             }
-            SidebarAction::Run { .. } => Ok("The runner is not implemented yet".into()),
+            SidebarAction::Run { id } => {
+                let id = Id(id);
+                let (collection, folder) = match collections.iter().find(|collection| collection.id == id) {
+                    Some(collection) => (collection.id.clone(), None),
+                    None => (item_collection(&collections, &id).ok_or_else(|| format!("`{}` is not in the workspace", id.0))?, Some(id)),
+                };
+                self.open_runner(Some(&collection), folder.as_ref());
+                Ok("Runner opened".into())
+            }
             SidebarAction::Export { id } => {
                 let id = Id(id.clone());
                 if let Ok(collection) = engine.collection(&id) {
@@ -2057,7 +2069,18 @@ impl App {
                     }
                 }
             }
-            CollectionAction::Run => self.shell.state.status = "The runner is not implemented yet".into(),
+            CollectionAction::Run => {
+                if let Some(editor) = self.detail_editors.get(&tab_id) {
+                    let (collection, folder) = (editor.collection.id.clone(), editor.folder.clone());
+                    self.open_runner(Some(&collection), folder.as_ref());
+                }
+            }
+            CollectionAction::OpenRun(run_id) => {
+                if let Some(editor) = self.detail_editors.get(&tab_id) {
+                    let collection = editor.collection.id.clone();
+                    self.open_stored_run(&collection, &run_id);
+                }
+            }
             CollectionAction::NewRequest => {
                 if let Some(editor) = self.detail_editors.get(&tab_id) {
                     let collection_id = editor.collection.id.clone();
@@ -2452,6 +2475,7 @@ impl App {
             OpenCookies => {
                 self.shell.tabs.open(TabDoc::Cookies, "Cookies");
             }
+            OpenRunner => self.open_runner(None, None),
             OpenTrash => {
                 self.shell.tabs.open(TabDoc::Trash, "Trash");
             }
@@ -2970,6 +2994,7 @@ impl eframe::App for App {
             }
         }
         self.poll_send();
+        self.poll_runner(ui.ctx());
         self.sync_editors();
         self.sync_ws_editors();
         self.sync_grpc_editors();
@@ -3006,6 +3031,11 @@ impl eframe::App for App {
             // The elapsed time lives in the status bar so the request bar never changes size.
             self.shell.state.status = format!("Sending… {:.1}s", progress.elapsed_ms as f64 / 1000.0);
         }
+        let runner_view = if matches!(active.as_ref().map(|tab| &tab.doc), Some(TabDoc::Runner)) { Some(self.runner_view()) } else { None };
+        let detail_runs = match active.as_ref().map(|tab| &tab.doc) {
+            Some(TabDoc::Collection { id }) => self.runs_for(id),
+            _ => Vec::new(),
+        };
         let panel_result = {
             let cookie_data = std::mem::take(&mut self.shell.cookie_data);
             let mut cookie_state = std::mem::take(&mut self.shell.cookie_state);
@@ -3023,6 +3053,7 @@ impl eframe::App for App {
             let mut grpc_action: Option<(u64, GrpcUiAction)> = None;
             let send_errors = &self.send_errors;
             let viewer_states = &mut self.viewer_states;
+            let runner_state = &mut self.runner.state;
             let mut response_action: Option<ResponseAction> = None;
             let mut panel = |ui: &mut egui::Ui, doc: &TabDoc| {
                 let panel_id = active_id?;
@@ -3123,9 +3154,16 @@ impl eframe::App for App {
                     }
                     TabDoc::Collection { .. } | TabDoc::Folder { .. } => {
                         let editor = detail_editors.get_mut(&panel_id)?;
-                        let mut detail =
-                            CollectionDetail { collection: &mut editor.collection, folder: editor.folder.clone(), state: &mut editor.state };
+                        let mut detail = CollectionDetail {
+                            collection: &mut editor.collection,
+                            folder: editor.folder.clone(),
+                            state: &mut editor.state,
+                            runs: &detail_runs,
+                        };
                         detail.show(ui).map(PanelAction::Collection)
+                    }
+                    TabDoc::Runner => {
+                        runner_view.as_ref().and_then(|view| postguy_ui_egui::runner::runner_panel(ui, view, runner_state)).map(PanelAction::Runner)
                     }
                     TabDoc::Trash => trash_view(ui, trash_entries).map(PanelAction::Trash),
                     TabDoc::Cookies => cookie_manager(ui, &cookie_data, &mut cookie_state).map(PanelAction::Cookies),
@@ -3192,6 +3230,7 @@ impl eframe::App for App {
                 PanelAction::Trash(action) => self.apply_trash(action),
                 PanelAction::Cookies(action) => self.apply_cookie(action),
                 PanelAction::Settings(action) => self.apply_settings(action),
+                PanelAction::Runner(action) => self.apply_runner(action),
             }
         }
         self.save_session(false, false);
@@ -3302,6 +3341,7 @@ fn main() -> eframe::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use postguy_ui_egui::runner::RunnerAction;
 
     #[test]
     fn the_default_workspace_is_writable_for_an_installed_app() {
@@ -3327,6 +3367,66 @@ mod tests {
             environments: vec![postguy_model::Environment { id: Id("env1".into()), name: "Staging".into(), ..Default::default() }],
             ..SidebarData::default()
         }
+    }
+
+    #[test]
+    fn sidebar_run_opens_the_runner_with_the_collection() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("Payments").expect("collection");
+        let folder = engine.create_folder(&collection.id, None, "Users").expect("folder");
+        engine.create_request(&collection.id, Some(&folder.id), "http", "List").expect("request");
+        app.refresh();
+        app.apply(SidebarAction::Run { id: folder.id.0.clone() });
+        assert!(app.shell.tabs.tabs.iter().any(|tab| matches!(tab.doc, TabDoc::Runner)), "the Runner tab is open");
+        assert_eq!(app.runner.state.collection.as_deref(), Some(collection.id.0.as_str()));
+        assert_eq!(app.runner.state.folder.as_deref(), Some(folder.id.0.as_str()), "a folder Run scopes the runner to it");
+        let view = app.runner_view();
+        assert_eq!(view.requests.len(), 1);
+        assert_eq!(view.requests[0].path, "Users");
+        assert!(view.requests[0].runnable);
+        app.apply(SidebarAction::Run { id: collection.id.0.clone() });
+        assert_eq!(app.runner.state.folder, None, "a collection Run covers everything");
+    }
+
+    #[test]
+    fn the_runner_streams_a_run_into_its_state() {
+        let server = postguy_testkit::Server::start();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("Echo").expect("collection");
+        let request = engine.create_request(&collection.id, None, "http", "Get").expect("request");
+        let mut stored = engine.request(&collection.id, &request.id).expect("stored");
+        stored.kind = RequestKind::Http(HttpRequest {
+            url: format!("{}/echo", server.base_url()),
+            scripts: postguy_model::Scripts {
+                test: Some(postguy_model::Script { text: "pm.test('ok', () => pm.response.to.have.status(200));".into(), ..Default::default() }),
+                ..Default::default()
+            },
+            ..HttpRequest::default()
+        });
+        engine.save_request(&collection.id, &stored).expect("save");
+        app.refresh();
+        app.open_runner(Some(&collection.id), None);
+        let _ = app.runner_view();
+        app.apply_runner(RunnerAction::Run);
+        assert!(app.runner.state.running);
+        let ctx = egui::Context::default();
+        let started = std::time::Instant::now();
+        while app.runner.state.running && started.elapsed() < std::time::Duration::from_secs(20) {
+            app.poll_runner(&ctx);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(!app.runner.state.running, "the run finished");
+        let result = app.runner.state.result.clone().expect("a result");
+        assert_eq!((result.requests.len(), result.passed, result.failed), (1, 1, 0), "{result:?}");
+        assert!(!result.id.is_empty());
+        assert_eq!(app.runs_for(&collection.id.0).len(), 1, "the Runs tab lists the stored run");
+        app.runner.state.result = None;
+        app.open_stored_run(&collection.id, &result.id);
+        assert_eq!(app.runner.state.result.as_ref().map(|r| r.requests.len()), Some(1), "a stored run reopens");
     }
 
     #[test]

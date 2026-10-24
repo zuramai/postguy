@@ -36,6 +36,8 @@ struct DemoState {
     builder_share: f32,
     settings_value: postguy_model::Settings,
     settings_state: postguy_ui_egui::settings::SettingsState,
+    runner_view: postguy_ui_egui::runner::RunnerView,
+    runner_state: postguy_ui_egui::runner::RunnerState,
 }
 
 impl DemoState {
@@ -75,6 +77,8 @@ impl DemoState {
             builder_share: 0.46,
             settings_value: postguy_model::Settings::default(),
             settings_state: postguy_ui_egui::settings::SettingsState::default(),
+            runner_view: postguy_ui_egui::runner::RunnerView::default(),
+            runner_state: postguy_ui_egui::runner::RunnerState::default(),
             variables: vec![
                 postguy_ui_egui::widgets::field::VariableInfo {
                     name: "baseUrl".into(),
@@ -220,6 +224,82 @@ fn demo_data() -> SidebarData {
     }
 }
 
+/// The Runner tab with a finished two-iteration run (synthetic demo data).
+fn runner_scene(demo: &mut DemoState) {
+    use postguy_model::{ScriptPhase, TestResult, TestStatus};
+    use postguy_ui_egui::runner::{RunRequestView, RunResultView, RunnerRequestRow, RunnerView};
+    let row = |id: &str, method: &str, name: &str, path: &str, runnable: bool| RunnerRequestRow {
+        id: id.into(),
+        name: name.into(),
+        method: method.into(),
+        path: path.into(),
+        runnable,
+    };
+    demo.runner_view = RunnerView {
+        collections: vec![("demo-collection".into(), "Payments API".into())],
+        environments: vec![("demo-env".into(), "Staging".into())],
+        requests: vec![
+            row("demo-get", "GET", "List payments", "Payments", true),
+            row("demo-post", "POST", "Create payment", "Payments", true),
+            row("demo-grpc", "gRPC", "Stream events", "Events", false),
+        ],
+    };
+    let test = |name: &str, status: TestStatus, message: Option<&str>| TestResult {
+        name: name.into(),
+        status,
+        message: message.map(str::to_string),
+        phase: ScriptPhase::PostResponse,
+    };
+    let request = |iteration: u32, method: &str, name: &str, status: u16, ms: u64, tests: Vec<TestResult>| RunRequestView {
+        iteration,
+        name: name.into(),
+        method: method.into(),
+        url: "https://staging.example.com/payments".into(),
+        status: Some(status),
+        duration_ms: ms,
+        tests,
+        error: None,
+        skipped: None,
+    };
+    let state = &mut demo.runner_state;
+    state.collection = Some("demo-collection".into());
+    state.environment = Some("demo-env".into());
+    state.iterations = 2;
+    state.delay_ms = 250;
+    state.data_path = Some("payments.csv".into());
+    state.data_preview = Some((vec!["id".into(), "amount".into()], vec![vec!["1".into(), "25".into()], vec!["2".into(), "40".into()]]));
+    state.result = Some(RunResultView {
+        id: "demo-run".into(),
+        collection: "Payments API".into(),
+        requests: vec![
+            request(0, "GET", "List payments", 200, 148, vec![test("Status code is 200", TestStatus::Passed, None)]),
+            request(
+                0,
+                "POST",
+                "Create payment",
+                201,
+                212,
+                vec![test("Created", TestStatus::Passed, None), test("Body has an id", TestStatus::Passed, None)],
+            ),
+            request(1, "GET", "List payments", 200, 131, vec![test("Status code is 200", TestStatus::Passed, None)]),
+            request(
+                1,
+                "POST",
+                "Create payment",
+                422,
+                190,
+                vec![test("Created", TestStatus::Failed, Some("expected response to have status code 201 but got 422"))],
+            ),
+        ],
+        passed: 4,
+        failed: 1,
+        skipped: 0,
+        duration_ms: 1130,
+        stopped: None,
+    });
+    demo.shell.tabs.open(TabDoc::Runner, "Runner");
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let out = std::env::args().nth(1).unwrap_or_else(|| "postguy-shell.png".to_string());
     let mode = std::env::args().nth(2).unwrap_or_else(|| "dark".to_string());
@@ -250,7 +330,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(tab) = shell.tabs.tabs.last_mut() {
         tab.preview = true;
     }
-    if base == "env" {
+    if base == "runner" {
+        // The scene opens its own tab below; keep the first tab inactive.
+    } else if base == "env" {
         if let Some(environment) = shell.tabs.tabs.iter().find(|tab| matches!(tab.doc, TabDoc::Environment { .. })) {
             shell.tabs.activate(environment.id);
         }
@@ -333,6 +415,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     };
                     editor.show(ui).map(PanelAction::Environment)
                 }
+                TabDoc::Runner => postguy_ui_egui::runner::runner_panel(ui, &state.runner_view, &mut state.runner_state).map(PanelAction::Runner),
                 TabDoc::Settings => {
                     let mut editor =
                         postguy_ui_egui::settings::SettingsEditor { settings: &mut state.settings_value, state: &mut state.settings_state };
@@ -363,6 +446,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     _ => SettingsSection::General,
                 };
                 demo.shell.tabs.open(TabDoc::Settings, "Settings");
+            }
+            if base == "runner" {
+                runner_scene(&mut demo);
             }
             if base == "export" {
                 export::open(&mut demo.export, ExportTarget::Collection { id: "demo-collection".into(), name: "Payments API".into() });

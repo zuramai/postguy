@@ -7,6 +7,7 @@ use egui::{Align, Layout, RichText, ScrollArea, Ui, vec2};
 use postguy_model::{AuthConfig, Collection, Folder, Id, Item, Scripts, Variable};
 
 use crate::auth::auth_editor;
+use crate::runner::RunSummaryView;
 use crate::theme::Theme;
 use crate::widgets::{self, menu_item};
 
@@ -29,6 +30,8 @@ pub enum CollectionAction {
     Export,
     Delete,
     Run,
+    /// Open a stored run (by run id) in the Runner tab.
+    OpenRun(String),
     NewRequest,
     NewFolder,
     Close,
@@ -48,6 +51,8 @@ pub struct CollectionDetail<'a> {
     /// None = collection detail; Some = this folder inside the collection.
     pub folder: Option<Id>,
     pub state: &'a mut DetailState,
+    /// Stored runs of the collection, newest first (the Runs tab).
+    pub runs: &'a [RunSummaryView],
 }
 
 struct Parts<'a> {
@@ -230,7 +235,33 @@ impl CollectionDetail<'_> {
                 );
             }
             DetailTab::Runs => {
-                ui.label(RichText::new("No runs yet. The runner is not implemented yet.").color(theme.palette.text_muted));
+                if self.runs.is_empty() {
+                    ui.label(RichText::new("No runs yet. Press Run to run this collection.").color(theme.palette.text_muted));
+                }
+                for run in self.runs {
+                    let response = egui::Frame::new()
+                        .inner_margin(egui::Margin::symmetric(8, 6))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(format_time(run.started_ms)).small().color(theme.palette.text_muted));
+                                let (text, color) = if run.ok { ("PASS", theme.palette.success) } else { ("FAIL", theme.palette.danger) };
+                                widgets::badge(ui, text, color, color.gamma_multiply(0.12));
+                                ui.label(RichText::new(format!("{} passed, {} failed", run.passed, run.failed)).color(theme.palette.text));
+                                ui.label(
+                                    RichText::new(format!("{} iterations · {} ms", run.iterations, run.duration_ms))
+                                        .small()
+                                        .color(theme.palette.text_muted),
+                                );
+                            });
+                        })
+                        .response
+                        .interact(egui::Sense::click())
+                        .on_hover_cursor(egui::CursorIcon::PointingHand);
+                    if response.clicked() {
+                        action = Some(CollectionAction::OpenRun(run.id.clone()));
+                    }
+                    ui.separator();
+                }
             }
         });
         if changed {
@@ -287,6 +318,21 @@ fn counts_in_folder(collection: &Collection, folder: &Id) -> (usize, usize) {
 /// A small outline icon rect helper for tests/toolbars.
 pub fn icon_rect(pos: egui::Pos2) -> egui::Rect {
     egui::Rect::from_min_size(pos, vec2(18.0, 18.0))
+}
+
+/// Relative age ("4m ago"); absolute dates arrive with the history list.
+fn format_time(millis: i64) -> String {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|duration| duration.as_millis() as i64).unwrap_or(0);
+    let seconds = now.saturating_sub(millis) / 1000;
+    if seconds < 60 {
+        format!("{seconds}s ago")
+    } else if seconds < 3600 {
+        format!("{}m ago", seconds / 60)
+    } else if seconds < 86_400 {
+        format!("{}h ago", seconds / 3600)
+    } else {
+        format!("{}d ago", seconds / 86_400)
+    }
 }
 
 #[cfg(test)]
