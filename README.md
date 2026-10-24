@@ -22,8 +22,9 @@ Download from the [latest release](https://github.com/zuramai/postguy/releases/l
 not code-signed or notarized, so macOS and Windows show a warning for files opened by hand; the steps
 below avoid or get past it. Each file has a checksum in `SHA256SUMS.txt`.
 
-Postguy keeps its data in a workspace folder. It opens `./postguy-workspace` in the folder you start
-it from; pass `--workspace DIR` to choose another (for example `~/postguy-workspace`).
+Postguy keeps its data in a workspace folder: `~/postguy-workspace` (`%USERPROFILE%\postguy-workspace` on
+Windows), or `./postguy-workspace` if that exists in the folder you start it from. Pass `--workspace DIR` to
+choose another.
 
 ### macOS (Apple Silicon and Intel)
 
