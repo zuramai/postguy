@@ -80,7 +80,11 @@ fn variable_field_impl(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str,
     let mut layouter = move |ui: &Ui, buffer: &dyn egui::TextBuffer, wrap_width: f32| {
         let text = buffer.as_str();
         let mut job = LayoutJob::default();
-        job.wrap.max_width = wrap_width;
+        // A single-line field never wraps: a long value scrolls inside the field and is clipped
+        // at its edge (a half-width two-pane builder showed the URL on two lines).
+        let _ = wrap_width;
+        job.wrap.max_width = f32::INFINITY;
+        job.wrap.max_rows = 1;
         let spans = variable_spans(text);
         let mut cursor = 0usize;
         for (start, end) in spans {
