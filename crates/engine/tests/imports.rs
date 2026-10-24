@@ -227,3 +227,14 @@ fn har_file_imports_through_the_engine() {
     let again = engine.import_file(&path, ImportOptions::default()).expect("second import");
     assert_eq!(again.name, "Corner Shop session (2)", "a clash gets a suffix");
 }
+
+#[test]
+fn proto_text_is_detected_and_pointed_at_files() {
+    let proto = "// comment\nsyntax = \"proto3\";\nmessage M {}\n";
+    assert_eq!(detect(proto), postguy_engine::Detected::Proto);
+    assert_eq!(detect("package a.b;\nmessage M {}"), postguy_engine::Detected::Proto);
+    assert_eq!(detect("syntax: not proto"), postguy_engine::Detected::Yaml);
+    let fixture = Fixture::new();
+    let err = fixture.engine().import_text(proto, ImportOptions::default()).unwrap_err();
+    assert!(err.to_string().contains("save the .proto text to a file and import the file"), "{err}");
+}

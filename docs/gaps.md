@@ -68,7 +68,7 @@ someone deciding what to build next.
 | Response data and the response viewer | **partial** | `c.response-viewer`: Pretty/Raw/Preview/Hex, syntax colours, search tint, save/copy. Open: image previews, regex/whole-word search |
 | Debug API requests (console, troubleshooting) | **partial** | `h.console` (filters, masking, ring buffer). Open: virtualised scrolling, request/response body inspector |
 | GraphQL requests | **shipped** | `c.body-modes`: query/variables/operation editors, schema introspection with Refresh |
-| gRPC requests | **partial** | `d.unary-invoke`, `d.reflection`, `d.streaming` work through descriptors; the grouped method picker, metadata table, proto-aware editor, trailers and grpcurl snippet are not implemented yet |
+| gRPC requests | **partial** | `d.unary-invoke`, `d.reflection`, `d.streaming` work through descriptors and `.proto` files import into a proto set (`g.proto-import`); the grouped method picker, metadata table, proto-aware editor, trailers and grpcurl snippet are not implemented yet |
 | WebSocket requests | **partial** | `e.connect`, `e.subprotocols`, `e.timeline`; binary composers, saved messages and reconnect policy are not implemented yet |
 | MCP requests (Postman as an MCP *client*) | **na** | Not in the brief. Postguy ships the opposite direction: an opt-in MCP *server* (`f.mcp`) so agents can drive it |
 | AI requests / Agent Mode / Postbot | **na** | Offline by design: no model endpoint, no telemetry. The local equivalent is the `automation` tool table an agent already drives |
@@ -76,12 +76,12 @@ someone deciding what to build next.
 | Native Git | **na** | A Postguy workspace is plain files in a folder, so any Git client versions it; a built-in Git UI is not planned |
 | Postman Vault (cloud secrets) | **na** | Local equivalent: `.postguy/secrets.json` at 0600 with masking (`b.secrets`) |
 | Tests, scripts and assertions | **partial** | `f.expect` and `f.sandbox-hardening` are shipped; `f.scripts`, `f.test-results` and `f.script-ui` are partial (gRPC/WebSocket script phases, re-running tests from a saved response and autocomplete are missing) |
-| Collection Runner and data-driven runs | **planned** | `f.runner`; deterministic order, iterations, delay, stop-on-error. Performance/load testing (Postman's cloud runners) is `na` |
-| Postman CLI / Newman: run collections from CI | **planned** | `f.runner-cli` with cli/json/junit/html reporters and exit codes; `f.run-script` already drives the engine |
-| Import (collections, environments, specs, other clients) | **partial** | `g.postman-collection`, `g.postman-env`, `g.curl`, `g.import-dialog` shipped. OpenAPI/Swagger, HAR and `.proto` importers are planned (`g.openapi`, `g.har`, `g.proto-import`) |
+| Collection Runner and data-driven runs | **shipped** | `f.runner`, `a.runs-tab`; sequential order, iterations, CSV/JSON data, delay, stop-on-error, `setNextRequest`; gRPC and WebSocket requests are skipped. Performance/load testing (Postman's cloud runners) is `na` |
+| Postman CLI / Newman: run collections from CI | **shipped** | `f.runner-cli` with cli/json/junit/html reporters and exit codes 0/1/2; `f.run-script` drives the engine |
+| Import (collections, environments, specs, other clients) | **partial** | `g.postman-collection`, `g.postman-env`, `g.curl`, `g.import-dialog`, `g.openapi`, `g.har` and `g.proto-import` shipped; external `$ref`s, callbacks and webhooks in OpenAPI are reported, not imported |
 | Export and all-data backup | **partial** | Postman/native export and snippets shipped; `g.all-data-zip` exports but document-only restore is open (gap 3); a response-body picker is open (gap 4) |
 | Code snippets (cURL, HTTP, fetch, requests, Go, reqwest, PowerShell, axios) | **shipped** | `g.snippets`, syntax-coloured in the right panel; grpcurl is planned |
-| Mock servers and API design (Spec Hub) | **na** | Running a mock server contradicts "no listener by default"; OpenAPI *import* is the useful slice and is planned |
+| Mock servers and API design (Spec Hub) | **na** | Running a mock server contradicts "no listener by default"; OpenAPI *import* is the useful slice and is shipped (`g.openapi`) |
 | Monitors, scheduled runs | **na** | Needs a scheduler and cloud execution; the CLI runner is the local equivalent |
 | Flows (low-code editor) | **na** | Out of scope by design |
 | API governance, scorecards, catalog | **na** | Out of scope by design |
@@ -92,11 +92,10 @@ someone deciding what to build next.
 | Administration, billing, plans, SSO/SCIM, API keys | **na** | No accounts |
 | Platform: packaging, budgets, accessibility | **partial** | `i.platform-services` and `i.packaging` are open; byte/bench budgets are enforced but idle RSS is over budget (gap 5) |
 
-Two observations from the audit worth keeping in view: the highest-value missing *workbench*
-features are the script sandbox and the runner, because everything Postman does with
-collections as test suites depends on them; and almost every `na` above is a cloud capability,
-so the offline surface is now short only of auth polish, protocol polish and
-automation.
+Two observations from the audit worth keeping in view: the script sandbox and the runner are
+shipped for HTTP requests (gRPC and WebSocket script phases are the open slice); and almost every
+`na` above is a cloud capability, so the offline surface is now short only of auth polish,
+protocol polish and automation.
 
 ## Closed
 

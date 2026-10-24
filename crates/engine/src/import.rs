@@ -68,10 +68,24 @@ pub fn detect(text: &str) -> Detected {
     if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
         return Detected::Url;
     }
+    if first_content_line_is_proto(trimmed) {
+        return Detected::Proto;
+    }
     if trimmed.starts_with("%YAML") || first_line_is_yaml_mapping(trimmed) {
         return Detected::Yaml;
     }
     Detected::Curl
+}
+
+/// `syntax = "proto3";` or `package x.y;` as the first content line (after `//` comments).
+fn first_content_line_is_proto(text: &str) -> bool {
+    let Some(line) =
+        text.lines().map(str::trim).find(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with("/*") && !line.starts_with('*'))
+    else {
+        return false;
+    };
+    let compact: String = line.chars().filter(|c| !c.is_whitespace()).collect();
+    compact.starts_with("syntax=\"") || (line.starts_with("package ") && line.ends_with(';'))
 }
 
 /// Whether the first content line (after comments and `---`) is a `key: value` mapping entry
@@ -94,6 +108,8 @@ pub enum Detected {
     Curl,
     Url,
     Yaml,
+    /// `.proto` source text (import the file instead).
+    Proto,
     Empty,
 }
 
@@ -129,6 +145,7 @@ impl Engine {
                 }
                 self.import_openapi_value(&value, options)
             }
+            Detected::Proto => Err(EngineError::Import { message: "save the .proto text to a file and import the file".into() }),
             Detected::Json => self.import_json(text, options),
             Detected::Curl => self.import_curl(text, options),
         }
@@ -137,6 +154,11 @@ impl Engine {
     /// Read a capped UTF-8 file and import it. Directory walking is the caller's job
     /// ([`walk_import_paths`]) so the UI can report each file separately.
     pub fn import_file(&self, path: &Path, options: ImportOptions) -> Result<ImportOutcome> {
+        if path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("proto")) {
+            let imported =
+                self.import_protos(&[path.to_path_buf()], crate::proto_import::ProtoImportOptions { name: None, replace: options.replace })?;
+            return Ok(imported.collection);
+        }
         let bytes = postguy_util::read_file_capped(path, IMPORT_FILE_CAP)
             .map_err(|err| EngineError::Import { message: format!("{}: {err}", path.display()) })?;
         let text = String::from_utf8(bytes)
@@ -193,7 +215,12 @@ impl Engine {
         Ok(ImportOutcome { kind: ImportKind::Collection, id: Some(collection.id.0), name: collection.name, report })
     }
 
-    fn save_imported_collection(&self, mut collection: Collection, mut report: ImportReport, options: ImportOptions) -> Result<ImportOutcome> {
+    pub(crate) fn save_imported_collection(
+        &self,
+        mut collection: Collection,
+        mut report: ImportReport,
+        options: ImportOptions,
+    ) -> Result<ImportOutcome> {
         let imported_name = if collection.name.trim().is_empty() { "Imported collection".to_string() } else { collection.name.trim().to_string() };
         collection.name = imported_name.clone();
         let old_id = collection.id.0.clone();

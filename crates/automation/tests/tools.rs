@@ -490,3 +490,105 @@ fn import_text_takes_openapi_yaml_with_a_folder_layout() {
     let err = automation.call("import_text", &json!({"text": yaml, "folders": "nested"})).expect_err("bad folders");
     assert!(err.to_string().contains("tags or paths"), "{err}");
 }
+
+const ECHO_PROTO: &str = r#"syntax = "proto3";
+package echo;
+import "types.proto";
+service Echo {
+  rpc Say (EchoMessage) returns (EchoMessage);
+  rpc ServerStream (EchoMessage) returns (stream EchoMessage);
+  rpc ClientStream (stream EchoMessage) returns (EchoMessage);
+  rpc Bidi (stream EchoMessage) returns (stream EchoMessage);
+}
+"#;
+
+const TYPES_PROTO: &str = r#"syntax = "proto3";
+package echo;
+message EchoMessage { string text = 1; int32 number = 2; }
+"#;
+
+#[test]
+fn proto_import_copies_the_set_and_creates_requests() {
+    let server = postguy_testkit::GrpcEchoServer::start().expect("grpc server");
+    let dir = tempfile::tempdir().expect("tempdir");
+    let automation = automation_in(dir.path());
+    call(&automation, "workspace_open", json!({"path": "work"}));
+    std::fs::create_dir_all(dir.path().join("src/api")).expect("source dir");
+    std::fs::write(dir.path().join("src/api/echo.proto"), ECHO_PROTO).expect("echo.proto");
+    std::fs::write(dir.path().join("src/api/types.proto"), TYPES_PROTO).expect("types.proto");
+
+    // Only echo.proto is picked: the file it imports is copied too.
+    let imported = call(&automation, "proto_import", json!({"paths": ["src/api/echo.proto"]}));
+    assert_eq!(imported["set"], "echo");
+    assert_eq!((imported["services"].as_u64(), imported["methods"].as_u64()), (Some(1), Some(4)), "{imported}");
+    let mut files: Vec<&str> = imported["files"].as_array().expect("files").iter().filter_map(Value::as_str).collect();
+    files.sort();
+    assert_eq!(files, ["echo.proto", "types.proto"]);
+    assert!(dir.path().join("work/protos/echo/types.proto").is_file());
+
+    let collection_id = imported["collection"]["id"].as_str().expect("collection id").to_string();
+    let collection = call(&automation, "collection_get", json!({"collection": collection_id}));
+    assert_eq!(collection["collection"]["name"], "echo");
+    let folder = &collection["collection"]["items"][0]["item"];
+    assert_eq!(folder["name"], "echo.Echo");
+    let say = folder["items"].as_array().expect("requests").iter().find(|item| item["item"]["name"] == "Say").expect("Say");
+    let request = say["item"]["id"].as_str().expect("request id").to_string();
+    assert_eq!(say["item"]["kind"]["url"], "{{grpcUrl}}");
+    assert!(say["item"]["kind"]["message"].as_str().is_some_and(|m| m.contains("\"text\"")), "the example message is filled in: {say}");
+
+    // The created request describes and invokes through the copied set.
+    let described = call(&automation, "grpc_describe", json!({"collection": collection_id, "request": request}));
+    assert_eq!(described["services"][0]["name"], "echo.Echo");
+    let env = call(&automation, "env_create", json!({"name": "local"}))["environment"].as_str().expect("env id").to_string();
+    call(&automation, "env_set_var", json!({"environment": env, "key": "grpcUrl", "value": server.url()}));
+    call(&automation, "env_set_active", json!({"environment": env}));
+    let invoked = call(&automation, "grpc_invoke", json!({"collection": collection_id, "request": request, "message": {"text": "hi", "number": 3}}));
+    assert_eq!(invoked["message"]["text"], "hi", "{invoked}");
+
+    // Importing again suffixes the set; `replace` moves the old one to the trash.
+    let second = call(&automation, "proto_import", json!({"paths": ["src/api/echo.proto"]}));
+    assert_eq!(second["set"], "echo-2");
+    let third = call(&automation, "proto_import", json!({"paths": ["src/api/echo.proto"], "name": "echo", "replace": true}));
+    assert_eq!(third["set"], "echo");
+    assert!(dir.path().join("work/protos/echo/echo.proto").is_file());
+    // A .proto file also imports through import_file.
+    let through_file = call(&automation, "import_file", json!({"path": "src/api/echo.proto"}));
+    assert_eq!(through_file["report"]["requests"], 4);
+}
+
+#[test]
+fn proto_import_reports_compile_errors_with_a_location() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let automation = automation_in(dir.path());
+    call(&automation, "workspace_open", json!({"path": "work"}));
+    std::fs::write(dir.path().join("bad.proto"), "syntax = \"proto3\";\npackage bad;\nmessage Broken { string = 1; }\n").expect("bad proto");
+    let message = automation.call("proto_import", &json!({"paths": ["bad.proto"]})).expect_err("compile error").to_string();
+    assert!(message.contains("the proto files do not compile"), "{message}");
+    assert!(message.contains(":3:"), "the error names the line: {message}");
+    assert!(!dir.path().join("work/protos/bad").exists(), "no half set is left behind");
+
+    std::fs::write(dir.path().join("messages.proto"), "syntax = \"proto3\";\nmessage Only {}\n").expect("messages");
+    let message = automation.call("proto_import", &json!({"paths": ["messages.proto"]})).expect_err("no services").to_string();
+    assert!(message.contains("define no services"), "{message}");
+    assert!(!dir.path().join("work/protos/messages").exists());
+
+    std::fs::write(dir.path().join("notes.txt"), "x").expect("txt");
+    let message = automation.call("proto_import", &json!({"paths": ["notes.txt"]})).expect_err("not proto").to_string();
+    assert!(message.contains("choose one or more .proto files"), "{message}");
+    let message = automation.call("proto_import", &json!({})).expect_err("missing").to_string();
+    assert!(message.contains("missing required argument `paths`"), "{message}");
+}
+
+#[test]
+fn proto_import_paths_are_confined() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path().join("allowed");
+    std::fs::create_dir_all(&root).expect("root dir");
+    let automation = Automation::new(Some(Root::new(&root).expect("canonical root")));
+    call(&automation, "workspace_open", json!({"path": "work"}));
+    std::fs::write(dir.path().join("outside.proto"), "syntax = \"proto3\";\n").expect("outside file");
+    let missing = automation.call("proto_import", &json!({"paths": ["../ghost.proto"]})).expect_err("refused").to_string();
+    let existing = automation.call("proto_import", &json!({"paths": ["../outside.proto"]})).expect_err("refused").to_string();
+    assert!(missing.contains("is outside the allowed directory"), "{missing}");
+    assert_eq!(missing.replace("../ghost.proto", "PATH"), existing.replace("../outside.proto", "PATH"));
+}

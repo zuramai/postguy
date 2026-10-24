@@ -47,7 +47,24 @@ pub fn compile(files: &[impl AsRef<Path>], includes: &[impl AsRef<Path>]) -> Res
 
 /// Compile to the raw descriptor set (used by tests that serve reflection).
 pub fn compile_set(files: &[impl AsRef<Path>], includes: &[impl AsRef<Path>]) -> Result<prost_types::FileDescriptorSet, GrpcError> {
-    protox::compile(files, includes).map_err(|err| GrpcError::Proto(err.to_string()))
+    protox::compile(files, includes).map_err(|err| GrpcError::Proto(proto_message(&err)))
+}
+
+/// A compile error as `file:line:column: message` when protox knows where it happened.
+fn proto_message(err: &protox::Error) -> String {
+    use miette::Diagnostic as _;
+    let message = err.to_string();
+    let located = err.labels().and_then(|mut labels| labels.next()).and_then(|label| {
+        let source = err.source_code()?;
+        let contents = source.read_span(label.inner(), 0, 0).ok()?;
+        let file = contents.name().map(str::to_string).or_else(|| err.file().map(str::to_string))?;
+        Some(format!("{file}:{}:{}", contents.line().saturating_add(1), contents.column().saturating_add(1)))
+    });
+    match (located, err.file()) {
+        (Some(location), _) => format!("{location}: {message}"),
+        (None, Some(file)) => format!("{file}: {message}"),
+        (None, None) => message,
+    }
 }
 
 /// Find a method by either `package.Service/Method` or `package.Service.Method`.
@@ -514,7 +531,7 @@ pub fn compile_confined(roots: &[std::path::PathBuf], files: &[String]) -> Resul
     let mut compiler = protox::Compiler::with_file_resolver(chain);
     compiler.include_imports(true);
     for file in files {
-        compiler.open_file(file).map_err(|err| GrpcError::Proto(err.to_string()))?;
+        compiler.open_file(file).map_err(|err| GrpcError::Proto(proto_message(&err)))?;
     }
     let set = compiler.file_descriptor_set();
     DescriptorPool::from_file_descriptor_set(set).map_err(|err| GrpcError::Descriptor(err.to_string()))

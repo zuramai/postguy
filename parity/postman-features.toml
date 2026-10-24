@@ -420,7 +420,7 @@ title = "Service definitions: import .proto files with import paths"
 area = "D"
 tier = "P0"
 status = "partial"
-notes = "Proto sets and inline file lists compile with a confined protox resolver: canonical roots, no .. or symlink escapes, 1 MiB/file, 16 MiB total and 256 files. Importing a picked .proto into <workspace>/protos/<name>/ and per-file line/column import reports are still open."
+notes = "Proto sets and inline file lists compile with a confined protox resolver: canonical roots, no .. or symlink escapes, 1 MiB/file, 16 MiB total and 256 files. A set resolves imports relative to the protos root or to its own folder. Picked .proto files import into <workspace>/protos/<name>/ (g.proto-import) and compile errors report file:line:column."
 
 evidence = ["crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary"]
 [[feature]]
@@ -749,8 +749,10 @@ id = "g.proto-import"
 title = ".proto import dialog as a service definition"
 area = "G"
 tier = "P1"
-status = "planned"
-notes = "Same path as the gRPC Service definition tab; reuse."
+status = "shipped"
+notes = "Picked or dropped .proto files (and the imports they pull in, except google/protobuf) are copied into a proto set under protos/<name>/, compiled, and become a collection with one gRPC request per method (url {{grpcUrl}}, an example message, a folder per service). Name clashes suffix the set (-2..-1000) or, with replace, move the old set to the trash. Compile errors read file:line:column. Text pasted into the import box is pointed at files."
+tools = ["proto_import"]
+evidence = ["crates/automation/tests/tools.rs::proto_import_copies_the_set_and_creates_requests", "crates/automation/tests/tools.rs::proto_import_reports_compile_errors_with_a_location", "crates/automation/tests/tools.rs::proto_import_paths_are_confined"]
 
 [[feature]]
 id = "g.native-format"

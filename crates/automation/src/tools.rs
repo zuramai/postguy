@@ -143,7 +143,7 @@ impl Automation {
                     .transpose()?,
                 delay_ms: optional_integer(args, tool, "delay_ms")?.map(|ms| u64::try_from(ms).unwrap_or(u64::MAX)).unwrap_or(0),
                 stop_on_error: bool_arg(args, tool, "stop_on_error", false)?,
-                requests: optional_string_array(args, tool, "requests")?.map(|ids| ids.into_iter().map(Id).collect()),
+                requests: optional_string_array(args, tool, "requests", "an array of request ids")?.map(|ids| ids.into_iter().map(Id).collect()),
             };
             let data = match optional_string(args, tool, "data")? {
                 Some(given) => {
@@ -364,7 +364,7 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
         ToolDef {
             name: "grpc_describe",
             title: "Describe a gRPC service definition",
-            description: "Compiles the request's proto set/inline files and lists services, methods, input/output types and streaming flags. Reflection is not implemented yet.",
+            description: "Compiles the request's proto set/inline files and lists services, methods, input/output types and streaming flags.",
             input_schema: schema! { "collection": req("collection id"), "request": req("request id") },
             read_only: true,
             destructive: false,
@@ -629,6 +629,18 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
                 "path": req("file path"),
                 "replace": opt_bool("replace instead of suffixing"),
                 "folders": opt("OpenAPI folder layout: \"tags\" (default) or \"paths\"")
+            },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "proto_import",
+            title: "Import .proto files",
+            description: "Copies the .proto files (and the imports they pull in) into a workspace proto set under protos/<name>/, compiles it, and creates a collection with one gRPC request per service method (url {{grpcUrl}}). Compile errors name file:line:column. Paths resolve inside --root.",
+            input_schema: schema! {
+                "paths": opt_string_array("the .proto files to import, together in one folder tree"),
+                "name": opt("proto set and collection name (default: the first file's name)"),
+                "replace": opt_bool("move an existing set of the same name to the trash instead of suffixing the new one")
             },
             read_only: false,
             destructive: false,
@@ -1403,6 +1415,19 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
             let outcome = session.engine()?.import_file(&resolved, ImportOptions { replace, folders })?;
             serde_json::to_value(outcome).map_err(json_error)
         }
+        "proto_import" => {
+            let paths = optional_string_array(args, tool, "paths", "an array of .proto file paths")?
+                .filter(|paths| !paths.is_empty())
+                .ok_or_else(|| AutomationError::MissingArgument { tool: tool.to_string(), argument: "paths".to_string() })?;
+            let mut resolved = Vec::with_capacity(paths.len());
+            for path in &paths {
+                resolved.push(session.resolve_existing(path)?);
+            }
+            let options =
+                postguy_engine::ProtoImportOptions { name: optional_string(args, tool, "name")?, replace: bool_arg(args, tool, "replace", false)? };
+            let outcome = session.engine()?.import_protos(&resolved, options)?;
+            serde_json::to_value(outcome).map_err(json_error)
+        }
         "import_zip" => {
             let path = string_arg(args, tool, "path")?;
             let resolved = session.resolve_existing(&path)?;
@@ -1647,11 +1672,11 @@ fn cached_json(cached: &postguy_engine::CachedResponse) -> Value {
     })
 }
 
-fn optional_string_array(args: &serde_json::Map<String, Value>, tool: &str, key: &str) -> Result<Option<Vec<String>>> {
+fn optional_string_array(args: &serde_json::Map<String, Value>, tool: &str, key: &str, expected: &str) -> Result<Option<Vec<String>>> {
     let bad = |got: &str| AutomationError::BadArgument {
         tool: tool.to_string(),
         argument: key.to_string(),
-        expected: "an array of request ids".to_string(),
+        expected: expected.to_string(),
         got: got.to_string(),
     };
     match args.get(key) {

@@ -44,6 +44,8 @@ prost-reflect = { version = "0.16", default-features = false, features = ["serde
 prost-types = { version = "0.14", default-features = false }
 tonic-reflection = { version = "0.14", default-features = false }
 protox = { version = "0.10", default-features = false }
+# Only the Diagnostic/SourceCode traits, to turn a protox error span into file:line:column.
+miette = { version = "7", default-features = false }
 tower = { version = "0.5", default-features = false, features = ["util"] }
 postguy-platform = { path = "crates/platform" }
 postguy-testkit = { path = "crates/testkit" }

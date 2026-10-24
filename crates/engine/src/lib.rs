@@ -14,6 +14,7 @@ pub mod grpc;
 pub mod import;
 pub mod oauth2;
 pub mod pipeline;
+pub mod proto_import;
 pub mod run;
 pub mod runtime;
 pub mod scripts;
@@ -31,6 +32,7 @@ pub use import::{Detected, IMPORT_FILE_CAP, ImportKind, ImportOptions, ImportOut
 pub use oauth2::{OAuth2Callback, StoredToken};
 pub use pipeline::{IterationScope, ResponseView, SendOptions, SendOutcome, SendTarget, SentRequest};
 pub use postguy_runner::{DataSet, RunConfig, RunEvent, RunResult, RunSummary};
+pub use proto_import::{ProtoImportOptions, ProtoImportOutcome};
 pub use run::load_data_file;
 pub use scripts::ScriptReport;
 

@@ -1006,6 +1006,16 @@ impl App {
             .spawn(move || {
                 let (files, problems) = postguy_engine::walk_import_paths(paths);
                 let mut summary = ImportSummary { items: Vec::new(), problems };
+                // All .proto files import together, so imports between them resolve.
+                let (protos, files): (Vec<PathBuf>, Vec<PathBuf>) =
+                    files.into_iter().partition(|path| path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("proto")));
+                if !protos.is_empty() {
+                    let source = format!("{} .proto file(s)", protos.len());
+                    match engine.import_protos(&protos, postguy_engine::ProtoImportOptions { name: None, replace }) {
+                        Ok(outcome) => summary.items.push(import_item(&source, outcome.collection)),
+                        Err(err) => summary.items.push(ImportItemView { source, error: Some(err.to_string()), ..ImportItemView::default() }),
+                    }
+                }
                 for path in files {
                     match engine.import_file(&path, ImportOptions { replace, folders }) {
                         Ok(outcome) => summary.items.push(import_item(&path.display().to_string(), outcome)),
@@ -2729,7 +2739,7 @@ fn grpc_panel(ui: &mut egui::Ui, editor: &mut GrpcEditor) -> Option<GrpcUiAction
         }
     });
     let definition = match editor.draft.service_definition.as_ref().unwrap_or(&postguy_model::ServiceDefinition::Reflection) {
-        postguy_model::ServiceDefinition::Reflection => "Reflection (not implemented yet)".to_string(),
+        postguy_model::ServiceDefinition::Reflection => "Server reflection".to_string(),
         postguy_model::ServiceDefinition::ProtoSet { name, .. } => format!("proto set `{name}`"),
         postguy_model::ServiceDefinition::Inline { protos, .. } => format!("{} inline proto file(s)", protos.len()),
         _ => "unknown definition".into(),
@@ -2771,7 +2781,7 @@ fn grpc_panel(ui: &mut egui::Ui, editor: &mut GrpcEditor) -> Option<GrpcUiAction
         });
     }
     ui.label(
-        egui::RichText::new("Descriptors come from a workspace proto set or inline files; streaming and reflection are still open.")
+        egui::RichText::new("Descriptors come from server reflection, a workspace proto set or inline files.")
             .small()
             .color(theme.palette.text_muted),
     );

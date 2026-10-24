@@ -11,9 +11,12 @@ See [AGENTS.md](AGENTS.md) for the rules that bind every contributor and
 ## Status
 
 Desktop HTTP client with collections, environments, variables, request builder, response viewer,
-imports (Postman/cURL/zip documents), code snippets, export dialogs and the common auth types.
-WebSocket and gRPC clients exist at a basic level; scripts and the collection runner are not
-implemented yet. Feature-by-feature state is in `parity/postman-features.toml`; known gaps are in
+imports (Postman, OpenAPI 3 / Swagger 2 in JSON or YAML, HAR, `.proto` files, cURL, zip documents),
+code snippets, export dialogs and the common auth types. Pre-request and post-response scripts
+(`pm.test`, `pm.expect`, a sandboxed QuickJS engine) and a collection runner with data files, a
+Runs tab and a `postguy-cli run --collection` command with JUnit/HTML/JSON reports are included.
+WebSocket and gRPC clients exist at a basic level (scripts and the runner cover HTTP requests
+only). Feature-by-feature state is in `parity/postman-features.toml`; known gaps are in
 [docs/gaps.md](docs/gaps.md).
 
 ## Install

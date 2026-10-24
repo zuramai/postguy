@@ -56,9 +56,11 @@ pub fn import_dialog(ctx: &egui::Context, state: &mut ImportState) -> Option<Imp
     let result = widgets::modal(ctx, "import-dialog", "Import", &mut state.open, |ui| {
         ui.set_min_width(560.0);
         ui.label(
-            RichText::new("Postman collection v2.0/v2.1, environment, globals, OpenAPI 3 / Swagger 2 (JSON or YAML), HAR, or a cURL command.")
-                .small()
-                .color(theme.palette.text_muted),
+            RichText::new(
+                "Postman collection v2.0/v2.1, environment, globals, OpenAPI 3 / Swagger 2 (JSON or YAML), HAR, .proto files, or a cURL command.",
+            )
+            .small()
+            .color(theme.palette.text_muted),
         );
         ui.add_space(6.0);
         ui.add(

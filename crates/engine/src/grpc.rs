@@ -118,7 +118,17 @@ impl Engine {
                 if files.is_empty() {
                     return Err(EngineError::BadRequest { reason: format!("no .proto files under proto set `{name}`") });
                 }
-                postguy_grpc::compile_confined(std::slice::from_ref(&root), &files).map_err(grpc_error)
+                // Imports may be relative to the protos root (`import "set/x.proto"`) or to the
+                // set's own folder (`import "x.proto"`, how imported sets are written): try the
+                // first, then the second.
+                match postguy_grpc::compile_confined(std::slice::from_ref(&root), &files) {
+                    Ok(pool) => Ok(pool),
+                    Err(_) => {
+                        let mut local = Vec::new();
+                        collect_proto_files(&set_dir, &set_dir, 0, &mut local)?;
+                        postguy_grpc::compile_confined(&[set_dir.clone(), root.clone()], &local).map_err(grpc_error)
+                    }
+                }
             }
             ServiceDefinition::Inline { protos: files, import_paths, .. } => {
                 let mut names = Vec::new();
@@ -221,7 +231,7 @@ impl Engine {
 
 /// Join one untrusted component under a canonical root, refusing absolute paths, `..` and
 /// symlinks that resolve outside the root. Nonexistent paths refuse the same way.
-fn confined_join(root: &std::path::Path, untrusted: &str) -> Result<PathBuf> {
+pub(crate) fn confined_join(root: &std::path::Path, untrusted: &str) -> Result<PathBuf> {
     let relative = std::path::Path::new(untrusted);
     if untrusted.trim().is_empty() || relative.is_absolute() {
         return Err(EngineError::BadRequest { reason: format!("path `{untrusted}` must be relative to the workspace protos root") });
@@ -240,7 +250,7 @@ fn confined_join(root: &std::path::Path, untrusted: &str) -> Result<PathBuf> {
     Ok(canonical)
 }
 
-fn relative_name(root: &std::path::Path, path: &std::path::Path) -> Result<String> {
+pub(crate) fn relative_name(root: &std::path::Path, path: &std::path::Path) -> Result<String> {
     let relative = path
         .strip_prefix(root)
         .map_err(|_| EngineError::BadRequest { reason: format!("path `{}` is outside the workspace protos root", path.display()) })?;
