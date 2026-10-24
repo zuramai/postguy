@@ -85,6 +85,7 @@ impl Default for Settings {
             two_pane_layout: false,
             variable_autocomplete: true,
             autosave: false,
+            disable_scripts: false,
             editor_font_size: 13.5,
             ui_zoom: 1.0,
             editor_indent_json: 2,
@@ -150,6 +151,9 @@ pub struct Settings {
     pub variable_autocomplete: bool,
     #[serde(default)]
     pub autosave: bool,
+    /// Skip pre-request and post-response scripts for every request and run.
+    #[serde(default)]
+    pub disable_scripts: bool,
     // Editor
     #[serde(default = "editor_font_size")]
     pub editor_font_size: f32,

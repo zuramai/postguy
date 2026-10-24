@@ -14,6 +14,7 @@ pub mod history;
 pub mod ids;
 pub mod requests;
 pub mod settings;
+pub mod testing;
 
 pub use auth::AuthConfig;
 pub use body::{Body, RawLanguage};
@@ -27,3 +28,4 @@ pub use requests::{
     RequestKind, SavedMessage, Script, Scripts, ServiceDefinition, WsMessage, WsRequest, WsSettings,
 };
 pub use settings::{HttpVersion, ProxyMode, ProxyProtocol, ProxySettings, RequestSettings, ResponseFormatDetection, Settings, Theme};
+pub use testing::{NextRequest, ScriptFailure, ScriptPhase, TestResult, TestStatus};
