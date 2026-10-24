@@ -13,6 +13,8 @@ postguy-util = { workspace = true }
 postguy-urlkit = { workspace = true }
 postguy-vars = { workspace = true }
 postguy-interop = { workspace = true }
+postguy-script = { workspace = true }
+postguy-model = { workspace = true }
 postguy-automation = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true

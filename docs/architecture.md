@@ -14,7 +14,7 @@
 | L3 | postguy-http | hyper-direct connector: connect/TLS/timing, redirects, compression, cookie jar, proxy, auth retries, streaming, cancellation. |
 | L3 | postguy-grpc | protox compile, descriptor pool, reflection, dynamic invoke, examples, status/trailers. |
 | L3 | postguy-ws | tokio-tungstenite WebSocket client: handshake, TLS, frames, reconnect policy, message log. |
-| L3 | postguy-script | boa_engine sandbox with the `pm` API and limits (`scripting` feature). |
+| L3 | postguy-script | rquickjs (QuickJS) sandbox with the `pm` API, Chai-style `pm.expect` and hard wall-clock, memory, stack and cancel limits. The `pm` API is Rust closures; `Settings.disable_scripts` is the off switch. |
 | L3 | postguy-snippets | Code generation (cURL, fetch, requests, Go, reqwest, PowerShell, axios, grpcurl). Pure. |
 | L3 | postguy-testkit | Loopback servers for tests only; dev-dependency, never shipped. |
 | L4 | postguy-runner | Collection runs: ordering, iterations, data files, stop-on-error, results model, reporters. |
@@ -46,6 +46,8 @@ Tooling: `xtask` (build system, gates, fuzz, icons/logo, size) is outside the la
 2. Response bodies: response bodies as bytes + off-thread line index + `show_rows` virtualisation.
 3. HTTP stack: hyper-direct connector (timings, redirects, header order, cancellation, tonic
    shares the same hyper stack).
-4. Scripting: boa_engine scripting (loop/recursion/stack limits; wall-clock and memory gaps
-   escalated to the owner) — rquickjs recorded as the approvable alternative.
+4. Scripting: rquickjs (QuickJS, MIT), approved by the owner for its memory limit, interrupt
+   handler and stack limit; boa_engine exposes none of these and is not used. `rust-alloc` stays
+   off because it turns `set_memory_limit` into a no-op. Windows x86 and FreeBSD build the
+   bindings with `bindgen` (no pregenerated ones ship for those targets).
 5. Icons and logo: icons and logo as build-time path data + painter strokes; no SVG renderer shipped.

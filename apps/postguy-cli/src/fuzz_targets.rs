@@ -8,7 +8,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 /// Registered target names (keeps the xtask table and this dispatch one source).
-pub const NAMES: &[&str] = &["url", "vars", "curl"];
+pub const NAMES: &[&str] = &["url", "vars", "curl", "script"];
 
 /// Run one target over one file; `Ok(())` = the crate survived. Any panic escapes and the
 /// driver records a finding.
@@ -19,6 +19,7 @@ pub fn run(name: &str, file: &std::path::Path) -> Result<(), String> {
         "url" => url_target(&text),
         "vars" => vars_target(&text),
         "curl" => curl_target(&text),
+        "script" => script_target(&text),
         other => Err(format!("unknown fuzz target `{other}` (registered: {NAMES:?})")),
     }
 }
@@ -52,6 +53,33 @@ fn curl_target(text: &str) -> Result<(), String> {
     for parsed in postguy_interop::parse_curl_from_str(text).map_err(|e| format!("{e}"))? {
         let _ = postguy_interop::generate_curl(&parsed.request, 120);
     }
+    Ok(())
+}
+
+struct NoHost;
+
+impl postguy_script::Host for NoHost {
+    fn send_request(&self, _: postguy_script::ScriptRequest) -> Result<postguy_script::ScriptResponse, String> {
+        Err("no network in the fuzz target".to_string())
+    }
+    fn cookies_for(&self, _: &str) -> Vec<(String, String)> {
+        Vec::new()
+    }
+}
+
+/// Run the input as a post-response script under tight limits; the sandbox must return.
+fn script_target(text: &str) -> Result<(), String> {
+    let context = postguy_script::Context {
+        phase: postguy_model::ScriptPhase::PostResponse,
+        info: postguy_script::Info { event_name: "test", iteration: 0, iteration_count: 1, request_name: "fuzz".into(), request_id: String::new() },
+        variables: postguy_script::Variables::default(),
+        request: postguy_script::ScriptRequest { method: "GET".into(), url: "http://localhost/".into(), ..Default::default() },
+        response: Some(postguy_script::ScriptResponse { code: 200, status: "OK".into(), body: br#"{"a":1}"#.to_vec(), ..Default::default() }),
+        host: std::sync::Arc::new(NoHost),
+    };
+    let limits = postguy_script::Limits { timeout_ms: 200, memory_bytes: 16 << 20, ..Default::default() };
+    let source = postguy_script::ScriptSource { origin: "fuzz".into(), text: text.to_string() };
+    let _ = postguy_script::run(&[source], context, &limits, std::sync::Arc::new(|| false));
     Ok(())
 }
 

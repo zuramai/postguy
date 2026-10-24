@@ -25,11 +25,6 @@ the evidence that would close it.
 7. **Console virtualisation** — the engine ring buffer masks secrets and caps at 5000 entries,
    but the panel lays out every filtered row in one ScrollArea. Close with `show_rows` and a
    5000-row frame-time test.
-8. **Script engine memory/wall-clock limits** — boa 0.22 exposes none (measured): a
-   hostile script's allocation bomb can OOM-kill the app. Owner decision pending: (a) ship
-   containment or (b) approve rquickjs. Evidence to close: an owner decision recorded in the
-   decision log, then the chosen engine passes the hostile-script regression tests (infinite loop,
-   memory blowup, deep recursion).
 9. **Header case on the wire** — hyper writes header names lowercase (http::HeaderName); user
    typed case is not preserved. Confirm whether that differs observably from Postman via
    observation request 2 (echo server headers); close by documenting the behaviour
@@ -44,8 +39,8 @@ the evidence that would close it.
 12. **cargo-deny advisories** — licence/source checks run locally; `RUSTSEC` advisories need
    cargo-deny installed or CI's cargo-deny-action (runs in CI now). Close: owner approves the
    install; `xtask deny` then delegates.
-13. **Fuzz coverage** — `url`, `vars` and `curl` targets run; the Postman/OpenAPI/HAR
-    importers, cookie parser and script sandbox still need targets. Close: `cargo xtask fuzz
+13. **Fuzz coverage** — `url`, `vars`, `curl` and `script` targets run; the Postman/OpenAPI/HAR
+    importers and cookie parser still need targets. Close: `cargo xtask fuzz
     --time 300` runs the full registry clean.
 14. **Observation requests 1-3** — Postman defaults (auto headers, settings defaults,
     shortcuts) unverified until the owner runs them with synthetic data. Items depending on
@@ -105,6 +100,10 @@ automation.
 
 ## Closed
 
+- Script engine memory/wall-clock limits (was gap 8): rquickjs enforces a heap limit, an interrupt
+  deadline, a stack limit and cancellation. Evidence:
+  `crates/script/tests/sandbox.rs::a_memory_bomb_stops_at_the_memory_limit`,
+  `an_infinite_loop_stops_at_the_wall_clock`, `deep_recursion_stops_cleanly`.
 - 10 000-request tree and 10 MB Raw frame-time harness (`xtask bench`, measured 5.8/10.2 ms on
   the reference machine).
 - One minified 10 MB line froze the viewer (a single 10 MB galley); `LargeTextView` now splits

@@ -9,3 +9,15 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+postguy-model.workspace = true
+postguy-util.workspace = true
+postguy-vars.workspace = true
+postguy-urlkit.workspace = true
+rquickjs.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+
+# rquickjs-sys ships no pregenerated bindings for these targets (Windows x86 release build,
+# FreeBSD), so bindgen generates them there.
+[target.'cfg(any(all(windows, target_arch = "x86"), target_os = "freebsd"))'.dependencies]
+rquickjs = { workspace = true, features = ["bindgen"] }

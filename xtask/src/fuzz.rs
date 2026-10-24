@@ -26,6 +26,7 @@ const TARGETS: &[Target] = &[
     Target { name: "url", seeds: "fuzz/seeds/url", args: &["fuzz-target", "url", "{input}"] },
     Target { name: "vars", seeds: "fuzz/seeds/vars", args: &["fuzz-target", "vars", "{input}"] },
     Target { name: "curl", seeds: "fuzz/seeds/curl", args: &["fuzz-target", "curl", "{input}"] },
+    Target { name: "script", seeds: "fuzz/seeds/script", args: &["fuzz-target", "script", "{input}"] },
 ];
 
 const DEFAULT_TIME_SECS: u64 = 300;

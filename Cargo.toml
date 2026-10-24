@@ -32,6 +32,7 @@ postguy-interop = { path = "crates/interop" }
 postguy-store = { path = "crates/store" }
 postguy-automation = { path = "crates/automation" }
 postguy-http = { path = "crates/http" }
+postguy-script = { path = "crates/script" }
 postguy-engine = { path = "crates/engine" }
 postguy-snippets = { path = "crates/snippets" }
 postguy-ws = { path = "crates/ws" }
@@ -74,6 +75,8 @@ ruzstd = { version = "0.9", default-features = false, features = ["std"] }
 sha2 = "0.10"
 md-5 = "0.10"
 base64 = { version = "0.22", default-features = false, features = ["std"] }
+# Embedded JavaScript (QuickJS, MIT). No `rust-alloc`: it would turn set_memory_limit into a no-op.
+rquickjs = { version = "0.14", default-features = false, features = ["std", "properties"] }
 http-body-util = "0.1"
 tower-service = "0.3"
 cookie = { version = "0.18", default-features = false }

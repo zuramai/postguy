@@ -1,0 +1,1 @@
+pm.test("ok", () => pm.expect(1 + 1).to.equal(2));
