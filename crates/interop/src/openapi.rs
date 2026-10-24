@@ -550,10 +550,8 @@ impl<'a> Importer<'a> {
             name = name.chars().take(200).collect();
         }
         let description = op.get("description").and_then(Value::as_str).unwrap_or_default().to_string();
-        for field in ["callbacks"] {
-            if op.get(field).is_some() {
-                self.report.drop(at, format!("{field} are not imported"));
-            }
+        if op.get("callbacks").is_some() {
+            self.report.drop(at, "callbacks are not imported");
         }
         self.extensions += op.as_object().map(|map| map.keys().filter(|key| key.starts_with("x-")).count()).unwrap_or(0);
 
