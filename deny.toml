@@ -32,7 +32,6 @@ multiple-versions = "allow"
 wildcards = "deny"
 allow-wildcard-paths = true
 
-[bans.workspaces]
 # Internal dependencies of another team; a dependency on them is a rules breach.
 deny = [
     { name = "craft-ui" },
@@ -49,6 +48,22 @@ unknown-git = "deny"
 
 [advisories]
 yanked = "warn"
+# Each ignore is a decision, with the reason. Re-check when the upstream crate moves.
+ignore = [
+    # crypto-bigint 0.5 comes with the RustCrypto elliptic-curve 0.13 line used by the JWT/ECDSA
+    # auth signing; the fix needs the 0.7 line (a different elliptic-curve major). Local signing
+    # of the user's own requests, no remote timing oracle.
+    "RUSTSEC-2026-0387",
+    # rsa Marvin attack: no upgrade exists. RS* JWT signing happens locally, never as a server.
+    "RUSTSEC-2023-0071",
+    # rustls-pemfile is unmaintained (moved into rustls-pki-types); used for client certificates.
+    "RUSTSEC-2025-0134",
+    # zbus_names, zvariant, zvariant_derive: unmaintained, pulled in by eframe's accessibility
+    # stack on Linux only.
+    "RUSTSEC-2026-0371",
+    "RUSTSEC-2026-0370",
+    "RUSTSEC-2026-0372",
+]
 
 # egui's default UI fonts (Ubuntu-Light, Hack, Noto Emoji, emoji-icon-font): font licences on the
 # AGENTS.md 1.2 allowlist, attributed in ATTRIBUTION.toml as dependency-bundled assets.
