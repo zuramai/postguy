@@ -293,6 +293,28 @@ kind = "data"
 usage = "seed corpus for the `openapi` fuzz target (postguy-cli fuzz-target openapi)"
 sha256 = "1834e8d5c35b51094eb879d67cb87580db0994317dda5e47c919ddf114d70c50"
 
+[[asset]]
+path = "fuzz/seeds/har/sample.seed"
+title = "Fuzz seed: one-entry HAR"
+author = "The Postguy authors"
+source = "contributor-original; written in this repository for the HAR importer fuzz target"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "data"
+usage = "seed corpus for the `har` fuzz target (postguy-cli fuzz-target har)"
+sha256 = "2c16bf529d3695bca3c7fe58e74982164b9c3cd273fff329249e3381b44b716f"
+
+[[asset]]
+path = "crates/interop/tests/fixtures/har/sample.har"
+title = "HAR 1.2 test recording: Corner Shop session"
+author = "The Postguy authors"
+source = "contributor-original; a synthetic recording written by hand; no real traffic"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "data"
+usage = "test fixture for the HAR importer (crates/interop/tests/har.rs, crates/engine/tests/imports.rs)"
+sha256 = "89549094ec643bb7f23f03a2639d88d4f0405e13187fff35511fb3a3a234aa42"
+
 # ==========================================================================================
 # Postman-authored, NON-VISUAL technical data (AGENTS.md 1.1): the officially published
 # Collection Format JSON schemas, Apache-2.0, vendored ONLY as test data. The closed list in

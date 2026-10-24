@@ -212,3 +212,18 @@ fn form_and_multipart_bodies_save_and_reload() {
     assert!(matches!(&bodies[0], postguy_model::Body::UrlEncoded(rows) if rows[0].key == "user"), "{bodies:?}");
     assert!(matches!(&bodies[1], postguy_model::Body::FormData(rows) if rows[0].kind == postguy_model::KeyValueKind::File), "{bodies:?}");
 }
+
+#[test]
+fn har_file_imports_through_the_engine() {
+    let fixture = Fixture::new();
+    let engine = fixture.engine();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../interop/tests/fixtures/har/sample.har");
+    let outcome = engine.import_file(&path, ImportOptions::default()).expect("har");
+    assert_eq!(outcome.kind, ImportKind::Collection);
+    assert_eq!(outcome.name, "Corner Shop session");
+    assert_eq!((outcome.report.requests, outcome.report.examples), (4, 3));
+    let saved = engine.collections().expect("collections");
+    assert_eq!(saved.len(), 1, "one collection, not one per entry");
+    let again = engine.import_file(&path, ImportOptions::default()).expect("second import");
+    assert_eq!(again.name, "Corner Shop session (2)", "a clash gets a suffix");
+}

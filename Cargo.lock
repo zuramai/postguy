@@ -3637,6 +3637,7 @@ dependencies = [
 name = "postguy-interop"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "postguy-model",
  "postguy-urlkit",
  "postguy-util",

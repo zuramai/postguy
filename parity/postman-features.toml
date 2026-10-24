@@ -721,7 +721,7 @@ title = "Import dialog: paste, files, folders, drop anywhere, report"
 area = "G"
 tier = "P0"
 status = "shipped"
-notes = "Paste JSON/cURL, async native file/folder pickers, drop anywhere, auto-detection (OpenAPI/Swagger JSON and YAML import; HAR/.proto follow), per-file report with warnings and Open, numeric name suffixes, explicit replace for same-id collections/environments and globals. URL fetching is refused (no implicit network); native pickers are compiled, not headless-testable."
+notes = "Paste JSON/cURL, async native file/folder pickers, drop anywhere, auto-detection (OpenAPI/Swagger JSON and YAML and HAR import; .proto files follow), per-file report with warnings and Open, numeric name suffixes, explicit replace for same-id collections/environments and globals. URL fetching is refused (no implicit network); native pickers are compiled, not headless-testable."
 
 evidence = ["apps/postguy/src/main.rs::import_text_runs_off_thread_lists_the_report_and_opens_the_collection", "apps/postguy/src/main.rs::import_folder_reports_valid_and_invalid_files_separately", "crates/engine/tests/imports.rs::collection_name_and_id_clashes_get_a_suffix_and_a_fresh_id", "crates/ui-egui/tests/import.rs::paste_import_returns_the_text_and_replace_preference"]
 [[feature]]
@@ -739,8 +739,10 @@ id = "g.har"
 title = "HAR 1.2 importer"
 area = "G"
 tier = "P1"
-status = "planned"
-notes = "Entries become requests; pseudo-headers skipped."
+status = "shipped"
+notes = "HAR 1.2: one flat collection (named by the first page title), one request per entry with the recorded URL kept verbatim, headers (pseudo-headers, Content-Length and Host skipped and reported), JSON/form/multipart/raw bodies (file parts need a file chosen) and the recorded response as an example (base64 bodies decoded; invalid base64 or bodies over 5 MiB are dropped and reported). Unsupported methods import as GET with a warning."
+tools = ["import_text", "import_file"]
+evidence = ["crates/interop/tests/har.rs::entries_become_requests_with_bodies_and_examples", "crates/interop/tests/har.rs::pseudo_headers_are_skipped_and_reported", "crates/interop/tests/har.rs::bad_base64_bodies_are_dropped_with_a_report_entry", "crates/engine/tests/imports.rs::har_file_imports_through_the_engine"]
 
 [[feature]]
 id = "g.proto-import"

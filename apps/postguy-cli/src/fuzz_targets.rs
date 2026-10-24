@@ -8,7 +8,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 /// Registered target names (keeps the xtask table and this dispatch one source).
-pub const NAMES: &[&str] = &["url", "vars", "curl", "script", "data", "openapi"];
+pub const NAMES: &[&str] = &["url", "vars", "curl", "script", "data", "openapi", "har"];
 
 /// Run one target over one file; `Ok(())` = the crate survived. Any panic escapes and the
 /// driver records a finding.
@@ -22,6 +22,7 @@ pub fn run(name: &str, file: &std::path::Path) -> Result<(), String> {
         "script" => script_target(&text),
         "data" => data_target(&bytes),
         "openapi" => openapi_target(&text),
+        "har" => har_target(&text),
         other => Err(format!("unknown fuzz target `{other}` (registered: {NAMES:?})")),
     }
 }
@@ -72,6 +73,15 @@ fn openapi_target(text: &str) -> Result<(), String> {
         for strategy in [postguy_interop::FolderStrategy::Tags, postguy_interop::FolderStrategy::Paths] {
             let _ = postguy_interop::import_openapi(&value, strategy);
         }
+    }
+    Ok(())
+}
+
+/// The HAR importer gets whatever parses as JSON.
+fn har_target(text: &str) -> Result<(), String> {
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(text) {
+        let _ = postguy_interop::is_har(&value);
+        let _ = postguy_interop::import_har(&value);
     }
     Ok(())
 }

@@ -39,8 +39,8 @@ the evidence that would close it.
 12. **cargo-deny advisories** — licence/source checks run locally; `RUSTSEC` advisories need
    cargo-deny installed or CI's cargo-deny-action (runs in CI now). Close: owner approves the
    install; `xtask deny` then delegates.
-13. **Fuzz coverage** — `url`, `vars`, `curl`, `script`, `data` and `openapi` targets run; the Postman/HAR
-    importers and cookie parser still need targets. Close: `cargo xtask fuzz
+13. **Fuzz coverage** — `url`, `vars`, `curl`, `script`, `data`, `openapi` and `har` targets run; the Postman
+    importer and cookie parser still need targets. Close: `cargo xtask fuzz
     --time 300` runs the full registry clean.
 14. **Observation requests 1-3** — Postman defaults (auto headers, settings defaults,
     shortcuts) unverified until the owner runs them with synthetic data. Items depending on

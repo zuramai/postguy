@@ -1,5 +1,5 @@
 //! Import entry points shared by the UI and the automation tools: auto-detect Postman
-//! collection/environment/globals JSON, OpenAPI/Swagger JSON or YAML, or cURL text, keep the import report, and never
+//! collection/environment/globals JSON, OpenAPI/Swagger JSON or YAML, HAR, or cURL text, keep the import report, and never
 //! overwrite silently. Name clashes get a numeric suffix and a fresh id unless the caller
 //! explicitly asks to replace a same-id collection/environment.
 //!
@@ -149,6 +149,10 @@ impl Engine {
             postguy_util::json::parse_json_str(text, &Caps::default()).map_err(|err| EngineError::Import { message: format!("JSON: {err}") })?;
         if postguy_interop::is_openapi(&parsed) {
             return self.import_openapi_value(&parsed, options);
+        }
+        if postguy_interop::is_har(&parsed) {
+            let (collection, report) = postguy_interop::import_har(&parsed).map_err(|err| EngineError::Import { message: err.to_string() })?;
+            return self.save_imported_collection(collection, report, options);
         }
         let (imported, report) = postguy_interop::import_value(&parsed).map_err(|err| EngineError::Import { message: err.to_string() })?;
         match imported {

@@ -611,7 +611,7 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
         ToolDef {
             name: "import_text",
             title: "Import text",
-            description: "Postman collection (v2.0/v2.1), environment or globals JSON, OpenAPI 3 / Swagger 2 (JSON or YAML), or cURL commands; auto-detected, name clashes get a suffix unless `replace` is set; returns the ImportReport.",
+            description: "Postman collection (v2.0/v2.1), environment or globals JSON, OpenAPI 3 / Swagger 2 (JSON or YAML), HAR 1.2, or cURL commands; auto-detected, name clashes get a suffix unless `replace` is set; returns the ImportReport.",
             input_schema: schema! {
                 "text": req("the JSON/YAML document or cURL command text"),
                 "format": opt("\"auto\" (default): the format is detected"),

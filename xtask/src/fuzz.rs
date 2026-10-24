@@ -28,6 +28,7 @@ const TARGETS: &[Target] = &[
     Target { name: "curl", seeds: "fuzz/seeds/curl", args: &["fuzz-target", "curl", "{input}"] },
     Target { name: "data", seeds: "fuzz/seeds/data", args: &["fuzz-target", "data", "{input}"] },
     Target { name: "openapi", seeds: "fuzz/seeds/openapi", args: &["fuzz-target", "openapi", "{input}"] },
+    Target { name: "har", seeds: "fuzz/seeds/har", args: &["fuzz-target", "har", "{input}"] },
     Target { name: "script", seeds: "fuzz/seeds/script", args: &["fuzz-target", "script", "{input}"] },
 ];
 
