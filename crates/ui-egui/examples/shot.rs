@@ -339,8 +339,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else if let Some(first) = shell.tabs.tabs.first() {
         shell.tabs.activate(first.id);
     }
-    shell.state.right_panel_open = true;
-    shell.state.console_open = true;
+    shell.state.right_panel_open = base != "twopane";
+    shell.state.console_open = base != "twopane";
+    shell.state.two_pane = base == "twopane";
     shell.snippet_request = Some(HttpRequest {
         method: HttpMethod::Get,
         url: "{{baseUrl}}/payments?limit=25".into(),
@@ -374,6 +375,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let mut harness = Harness::builder().with_size(egui::vec2(1360.0, 900.0)).wgpu().build_ui_state(
         |ui, state: &mut DemoState| {
+            let two_pane = state.shell.state.two_pane;
             let mut panel = |ui: &mut egui::Ui, doc: &TabDoc| match doc {
                 TabDoc::Request { .. } => {
                     let mut oauth2_action = None;
@@ -392,6 +394,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         oauth2_action: &mut oauth2_action,
                         graphql_schema: None,
                     };
+                    if two_pane {
+                        let area = ui.available_rect_before_wrap();
+                        let half = ((area.width() - 9.0) * 0.5).max(260.0);
+                        let left_rect = egui::Rect::from_min_size(area.min, egui::vec2(half, area.height()));
+                        let divider_x = left_rect.right() + 4.0;
+                        let right_rect = egui::Rect::from_min_max(egui::pos2(divider_x + 5.0, area.top()), area.max);
+                        ui.painter().vline(divider_x, area.y_range(), ui.visuals().widgets.noninteractive.bg_stroke);
+                        let mut action = None;
+                        ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.set_clip_rect(left_rect.intersect(ui.clip_rect()));
+                            action = builder.show(ui);
+                        });
+                        ui.scope_builder(egui::UiBuilder::new().max_rect(right_rect), |ui| {
+                            ui.set_clip_rect(right_rect.intersect(ui.clip_rect()));
+                            let _ = response_view(ui, &mut state.response, &mut state.viewer);
+                        });
+                        ui.advance_cursor_after_rect(area);
+                        return action.map(PanelAction::Builder);
+                    }
                     let total = ui.available_height();
                     let request_height = (total * state.builder_share).max(170.0);
                     let action = ui

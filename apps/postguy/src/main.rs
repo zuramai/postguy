@@ -3113,22 +3113,29 @@ impl eframe::App for App {
                         let builder_action = if error.is_some() || response.is_some() {
                             let viewer = viewer_states.entry(panel_id).or_default();
                             if two_pane {
-                                let width = (ui.available_width() * 0.5).max(260.0);
-                                ui.horizontal_top(|ui| {
-                                    let action = ui
-                                        .allocate_ui_with_layout(vec2(width, ui.available_height()), Layout::top_down(Align::Min), |ui| {
-                                            builder.show(ui)
-                                        })
-                                        .inner;
-                                    ui.separator();
+                                // Two fixed rectangles: a half whose content is wider than the half is
+                                // clipped instead of pushing the other half off the window.
+                                let area = ui.available_rect_before_wrap();
+                                let half = ((area.width() - 9.0) * 0.5).max(260.0);
+                                let left_rect = egui::Rect::from_min_size(area.min, vec2(half, area.height()));
+                                let divider_x = left_rect.right() + 4.0;
+                                let right_rect = egui::Rect::from_min_max(egui::pos2(divider_x + 5.0, area.top()), area.max);
+                                ui.painter().vline(divider_x, area.y_range(), ui.visuals().widgets.noninteractive.bg_stroke);
+                                let mut action = None;
+                                ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                    ui.set_clip_rect(left_rect.intersect(ui.clip_rect()));
+                                    action = builder.show(ui);
+                                });
+                                ui.scope_builder(egui::UiBuilder::new().max_rect(right_rect), |ui| {
+                                    ui.set_clip_rect(right_rect.intersect(ui.clip_rect()));
                                     if let Some(error) = error {
                                         retry_from_error = error_view(ui, error);
                                     } else if let Some(data) = response {
                                         response_action = response_view(ui, data, viewer);
                                     }
-                                    action
-                                })
-                                .inner
+                                });
+                                ui.advance_cursor_after_rect(area);
+                                action
                             } else {
                                 let total = ui.available_height();
                                 let request_height = (total * 0.52).max(170.0);

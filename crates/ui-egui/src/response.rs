@@ -190,6 +190,8 @@ pub fn response_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseV
     let theme = Theme::current(ui.ctx());
     let mut action = None;
     let language = language_label(data);
+    // In a half-width pane the size, time and Save button move into the menu.
+    let compact = ui.available_width() < 720.0;
     // Header strip.
     ui.horizontal(|ui| {
         let tests_label = test_tab_label(&data.tests);
@@ -228,11 +230,25 @@ pub fn response_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseV
                     let text = data.headers.iter().map(|(name, value)| format!("{name}: {value}")).collect::<Vec<String>>().join("\n");
                     ui.ctx().copy_text(text);
                 }
+                if compact {
+                    ui.label(
+                        RichText::new(format!("{} · {} ms", format_size(data.body_decoded_bytes as u64), data.total_ms))
+                            .small()
+                            .color(theme.palette.text_muted),
+                    );
+                }
                 ui.separator();
                 if menu_item(ui, None, "Clear response", None, true).clicked() {
                     action = Some(ResponseAction::Clear);
                 }
             });
+            if compact {
+                let status_color = theme.status_color(data.status);
+                let status_text =
+                    if data.status_text.trim().is_empty() { data.status.to_string() } else { format!("{} {}", data.status, data.status_text.trim()) };
+                widgets::badge(ui, &status_text, status_color, status_color.gamma_multiply(0.12));
+                return;
+            }
             let save = widgets::text_button(ui, widgets::ButtonKind::Ghost, Some("save"), "Save Response", true);
             if save.clicked() {
                 action = Some(ResponseAction::SaveBody);
@@ -339,6 +355,9 @@ fn tests_view(ui: &mut Ui, data: &ResponseData, state: &mut ResponseViewerState,
 }
 
 fn body_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseViewerState, theme: &Theme) {
+    // In a half-width pane (two-pane layout) the optional labels and a wide search box would
+    // overlap the mode tabs, so they give way.
+    let narrow = ui.available_width() < 600.0;
     ui.horizontal(|ui| {
         for mode in [BodyMode::Pretty, BodyMode::Raw, BodyMode::Preview, BodyMode::Hex] {
             let label = match mode {
@@ -351,10 +370,12 @@ fn body_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseViewerSta
                 state.mode = mode;
             }
         }
-        ui.label(RichText::new(language_label(data)).small().color(theme.palette.text_muted));
+        if !narrow {
+            ui.label(RichText::new(language_label(data)).small().color(theme.palette.text_muted));
+        }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let palette = theme.palette;
-            let (rect, _) = ui.allocate_exact_size(vec2(170.0, 26.0), egui::Sense::hover());
+            let (rect, _) = ui.allocate_exact_size(vec2(if narrow { 110.0 } else { 170.0 }, 26.0), egui::Sense::hover());
             ui.painter().rect(
                 rect,
                 egui::CornerRadius::same(theme.metrics.radius as u8),
@@ -386,7 +407,7 @@ fn body_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseViewerSta
                 ui.ctx().copy_text(text);
             }
             widgets::icon_toggle(ui, "text-wrap", "Wrap", "Wrap lines", &mut state.wrap);
-            if !state.search.trim().is_empty() {
+            if !narrow && !state.search.trim().is_empty() {
                 let matches = text_for_search(data, state)
                     .map(|text| text.to_ascii_lowercase().matches(&state.search.to_ascii_lowercase()).count())
                     .unwrap_or(0);
