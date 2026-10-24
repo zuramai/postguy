@@ -958,6 +958,7 @@ impl App {
             self.import.error = Some("an import is already running".into());
             return;
         }
+        let folders = self.import_folders();
         let (sender, receiver) = std::sync::mpsc::channel();
         self.import.busy = true;
         self.import.error = None;
@@ -966,13 +967,18 @@ impl App {
         std::thread::Builder::new()
             .name("postguy-import".into())
             .spawn(move || {
-                let summary = match engine.import_text(&text, ImportOptions { replace }) {
+                let summary = match engine.import_text(&text, ImportOptions { replace, folders }) {
                     Ok(outcome) => ImportSummary { items: vec![import_item("Pasted text", outcome)], problems: Vec::new() },
                     Err(err) => ImportSummary { items: Vec::new(), problems: vec![err.to_string()] },
                 };
                 let _ = sender.send(summary);
             })
             .ok();
+    }
+
+    /// The OpenAPI folder layout the dialog's checkbox selects.
+    fn import_folders(&self) -> postguy_interop::FolderStrategy {
+        if self.import.folders_by_path { postguy_interop::FolderStrategy::Paths } else { postguy_interop::FolderStrategy::Tags }
     }
 
     fn start_import_paths(&mut self, paths: Vec<PathBuf>) {
@@ -985,6 +991,7 @@ impl App {
             return;
         }
         let replace = self.import.replace;
+        let folders = self.import_folders();
         let (sender, receiver) = std::sync::mpsc::channel();
         self.import.busy = true;
         self.import.error = None;
@@ -996,7 +1003,7 @@ impl App {
                 let (files, problems) = postguy_engine::walk_import_paths(paths);
                 let mut summary = ImportSummary { items: Vec::new(), problems };
                 for path in files {
-                    match engine.import_file(&path, ImportOptions { replace }) {
+                    match engine.import_file(&path, ImportOptions { replace, folders }) {
                         Ok(outcome) => summary.items.push(import_item(&path.display().to_string(), outcome)),
                         Err(err) => summary.items.push(ImportItemView {
                             source: path.display().to_string(),

@@ -75,6 +75,8 @@ brotli = { version = "8", default-features = false, features = ["std"] }
 ruzstd = { version = "0.9", default-features = false, features = ["std"] }
 sha2 = "0.10"
 md-5 = "0.10"
+# YAML for OpenAPI/Swagger documents (MIT OR Apache-2.0); parsed with a budget against alias bombs.
+serde-saphyr = { version = "2", default-features = false, features = ["deserialize"] }
 # CSV data files for the collection runner (Unlicense OR MIT).
 csv = { version = "1.4", default-features = false }
 base64 = { version = "0.22", default-features = false, features = ["std"] }

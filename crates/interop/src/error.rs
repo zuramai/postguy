@@ -110,3 +110,36 @@ impl From<PostmanError> for postguy_util::Error {
         }
     }
 }
+
+/// The OpenAPI/Swagger and HAR importers' error vocabulary: actionable, no panic paths.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum SpecError {
+    /// The input exceeded a size cap before any parsing happened.
+    TooLarge { what: &'static str, size: usize, cap: usize },
+    /// The YAML could not be parsed, or it blew a nesting/alias budget.
+    Yaml { message: String },
+    /// The document parsed but is not what this importer reads.
+    Invalid { what: &'static str, detail: String },
+}
+
+impl fmt::Display for SpecError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SpecError::TooLarge { what, size, cap } => write!(f, "{what} is {size} bytes, over the {cap}-byte cap"),
+            SpecError::Yaml { message } => write!(f, "YAML: {message}"),
+            SpecError::Invalid { what, detail } => write!(f, "{what}: {detail}"),
+        }
+    }
+}
+
+impl std::error::Error for SpecError {}
+
+impl From<SpecError> for postguy_util::Error {
+    fn from(err: SpecError) -> Self {
+        match err {
+            SpecError::TooLarge { what, size, cap } => postguy_util::Error::TooLarge { what: what.to_string(), size, cap },
+            other => postguy_util::Error::Unusable { what: other.to_string() },
+        }
+    }
+}

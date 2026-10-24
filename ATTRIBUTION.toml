@@ -227,6 +227,72 @@ kind = "data"
 usage = "seed corpus for the `curl` fuzz target (postguy-cli fuzz-target curl)"
 sha256 = "8c7d6b3fe9639207d8a179515d99d655d464461242c08c06fc11569a57d17b00"
 
+[[asset]]
+path = "fuzz/seeds/script/sample.seed"
+title = "Fuzz seed: post-response script"
+author = "The Postguy authors"
+source = "contributor-original; written in this repository for the script sandbox fuzz target"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "data"
+usage = "seed corpus for the `script` fuzz target (postguy-cli fuzz-target script)"
+sha256 = "2354329e041fa6e64673f46330f5c1cdeecc44e5c0ca183534e30da9ead9e388"
+
+[[asset]]
+path = "fuzz/seeds/data/sample.seed"
+title = "Fuzz seed: CSV data file"
+author = "The Postguy authors"
+source = "contributor-original; written in this repository for the runner data-file fuzz target"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "data"
+usage = "seed corpus for the `data` fuzz target (postguy-cli fuzz-target data)"
+sha256 = "b7773700b1468b27c88d7122034e23bc5af7703c70bc13fd545d8e08534dcf41"
+
+[[asset]]
+path = "crates/interop/tests/fixtures/openapi/petstore3.yaml"
+title = "OpenAPI 3 test document (YAML): Corner Shop"
+author = "The Postguy authors"
+source = "contributor-original; a synthetic API invented for this project"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "data"
+usage = "test fixture for the OpenAPI importer (crates/interop/tests/openapi.rs); import never reads it at runtime"
+sha256 = "3c59793b1ed3af0edaba17259e0beba4b9c516b6b975cbaaff9e57713b790982"
+
+[[asset]]
+path = "crates/interop/tests/fixtures/openapi/petstore3.json"
+title = "OpenAPI 3 test document (JSON): Corner Shop"
+author = "The Postguy authors"
+source = "contributor-original; a synthetic API invented for this project"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "data"
+usage = "test fixture for the OpenAPI importer (same content as petstore3.yaml, parsed through the YAML reader)"
+sha256 = "ce86bad85c449830b9c73ee7209c5c2d81d289d4831e91841dd376a496e10c64"
+
+[[asset]]
+path = "crates/interop/tests/fixtures/openapi/swagger2.json"
+title = "Swagger 2 test document: Corner Shop (2.0)"
+author = "The Postguy authors"
+source = "contributor-original; a synthetic API invented for this project"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "data"
+usage = "test fixture for the Swagger 2 importer (crates/interop/tests/openapi.rs)"
+sha256 = "4e0ec4e4a2d1e868db2095a4d71471def89c55bf045042e9563620a9b786448f"
+
+[[asset]]
+path = "fuzz/seeds/openapi/sample.seed"
+title = "Fuzz seed: small OpenAPI 3 YAML document"
+author = "The Postguy authors"
+source = "contributor-original; written in this repository for the OpenAPI importer fuzz target"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "data"
+usage = "seed corpus for the `openapi` fuzz target (postguy-cli fuzz-target openapi)"
+sha256 = "1834e8d5c35b51094eb879d67cb87580db0994317dda5e47c919ddf114d70c50"
+
 # ==========================================================================================
 # Postman-authored, NON-VISUAL technical data (AGENTS.md 1.1): the officially published
 # Collection Format JSON schemas, Apache-2.0, vendored ONLY as test data. The closed list in

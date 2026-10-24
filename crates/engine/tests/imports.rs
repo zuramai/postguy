@@ -61,7 +61,7 @@ fn replacing_the_same_id_keeps_the_name_and_does_not_duplicate() {
     let engine = fixture.engine();
     let first = engine.import_text(&collection_json("Payments"), ImportOptions::default()).expect("first");
     let id = first.id.clone().expect("id");
-    let replaced = engine.import_text(&collection_json("Payments"), ImportOptions { replace: true }).expect("replace");
+    let replaced = engine.import_text(&collection_json("Payments"), ImportOptions { replace: true, ..ImportOptions::default() }).expect("replace");
     assert_eq!(replaced.id.as_deref(), Some(id.as_str()));
     assert_eq!(replaced.name, "Payments");
     assert_eq!(engine.collections().expect("collections").len(), 1);
@@ -76,7 +76,7 @@ fn environment_clashes_are_suffixed_and_replaceable() {
     let second = engine.import_text(&environment_json("Staging"), ImportOptions::default()).expect("second");
     assert_eq!(second.name, "Staging (2)");
     assert_eq!(engine.environments().expect("environments").len(), 2);
-    let replaced = engine.import_text(&environment_json("Staging"), ImportOptions { replace: true }).expect("replace");
+    let replaced = engine.import_text(&environment_json("Staging"), ImportOptions { replace: true, ..ImportOptions::default() }).expect("replace");
     assert_eq!(replaced.id.as_deref(), first.id.as_deref());
 }
 
@@ -88,7 +88,7 @@ fn globals_require_an_explicit_replace() {
     assert_eq!(first.kind, ImportKind::Globals);
     let error = engine.import_text(globals_json(), ImportOptions::default()).expect_err("refused");
     assert!(error.to_string().contains("Replace existing"), "{error}");
-    engine.import_text(globals_json(), ImportOptions { replace: true }).expect("replace");
+    engine.import_text(globals_json(), ImportOptions { replace: true, ..ImportOptions::default() }).expect("replace");
 }
 
 #[test]
@@ -140,4 +140,53 @@ fn import_file_reads_capped_utf8_and_folder_walks_find_nested_files() {
     assert!(problems.is_empty(), "{problems:?}");
     let names: Vec<String> = files.iter().map(|path| path.file_name().and_then(|name| name.to_str()).unwrap_or_default().to_string()).collect();
     assert!(names.contains(&"a.json".to_string()) && names.contains(&"b.json".to_string()));
+}
+
+const OPENAPI_YAML: &str = "openapi: 3.0.3\ninfo:\n  title: Mini\nservers:\n  - url: https://mini.test\ntags:\n  - name: pets\npaths:\n  /pets:\n    get:\n      tags: [pets]\n      summary: List pets\n      responses:\n        '200':\n          description: ok\n  /pets/{id}:\n    get:\n      summary: One pet\n      parameters:\n        - {name: id, in: path, required: true, schema: {type: string}}\n      responses:\n        '200':\n          description: ok\n";
+
+#[test]
+fn openapi_yaml_text_imports_through_the_engine() {
+    let fixture = Fixture::new();
+    let engine = fixture.engine();
+    assert_eq!(detect(OPENAPI_YAML), postguy_engine::Detected::Yaml);
+    let outcome = engine.import_text(OPENAPI_YAML, ImportOptions::default()).expect("openapi yaml");
+    assert_eq!(outcome.kind, ImportKind::Collection);
+    assert_eq!(outcome.name, "Mini");
+    assert_eq!((outcome.report.requests, outcome.report.folders), (2, 1));
+    let saved = engine.collections().expect("collections");
+    assert_eq!(saved.len(), 1);
+    assert_eq!(saved[0].variables[0].value, "https://mini.test");
+
+    // By path: nested folders, and a second import of the same name gets a suffix.
+    let by_path = engine
+        .import_text(OPENAPI_YAML, ImportOptions { folders: postguy_interop::FolderStrategy::Paths, ..ImportOptions::default() })
+        .expect("by path");
+    assert_eq!(by_path.report.folders, 2, "pets and pets/{{id}}");
+    assert_eq!(by_path.name, "Mini (2)");
+
+    // The same document as JSON takes the JSON route.
+    let value = postguy_interop::parse_yaml(OPENAPI_YAML).expect("yaml");
+    let json = engine.import_text(&value.to_string(), ImportOptions::default()).expect("openapi json");
+    assert_eq!(json.report.requests, 2);
+}
+
+#[test]
+fn yaml_detection_accepts_mappings_and_leaves_curl_alone() {
+    assert_eq!(detect("# a comment\n---\nopenapi: 3.0.0\n"), postguy_engine::Detected::Yaml);
+    assert_eq!(detect("info:\n  title: x\n"), postguy_engine::Detected::Yaml);
+    assert_eq!(detect("curl https://example.test -H 'a: b'"), postguy_engine::Detected::Curl);
+    assert_eq!(detect("curl: not a command"), postguy_engine::Detected::Yaml, "`curl:` with a colon is a key, `curl ` with a space is a command");
+    assert_eq!(detect("not a command or yaml"), postguy_engine::Detected::Curl);
+}
+
+#[test]
+fn non_openapi_yaml_and_bad_yaml_are_actionable_errors() {
+    let fixture = Fixture::new();
+    let engine = fixture.engine();
+    let err = engine.import_text("name: not openapi\nvalue: 1\n", ImportOptions::default()).unwrap_err();
+    assert!(err.to_string().contains("not an OpenAPI 3 or Swagger 2 document"), "{err}");
+    let err = engine.import_text("openapi: 3.0.0\npaths: [unclosed\n", ImportOptions::default()).unwrap_err();
+    assert!(err.to_string().starts_with("YAML:"), "{err}");
+    let path = fixture.write("api.yaml", OPENAPI_YAML);
+    assert_eq!(engine.import_file(&path, ImportOptions::default()).expect("file").report.requests, 2, "a .yaml file imports like pasted text");
 }

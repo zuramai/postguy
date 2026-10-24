@@ -8,7 +8,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 /// Registered target names (keeps the xtask table and this dispatch one source).
-pub const NAMES: &[&str] = &["url", "vars", "curl", "script", "data"];
+pub const NAMES: &[&str] = &["url", "vars", "curl", "script", "data", "openapi"];
 
 /// Run one target over one file; `Ok(())` = the crate survived. Any panic escapes and the
 /// driver records a finding.
@@ -21,6 +21,7 @@ pub fn run(name: &str, file: &std::path::Path) -> Result<(), String> {
         "curl" => curl_target(&text),
         "script" => script_target(&text),
         "data" => data_target(&bytes),
+        "openapi" => openapi_target(&text),
         other => Err(format!("unknown fuzz target `{other}` (registered: {NAMES:?})")),
     }
 }
@@ -61,6 +62,17 @@ fn curl_target(text: &str) -> Result<(), String> {
 fn data_target(bytes: &[u8]) -> Result<(), String> {
     let _ = postguy_runner::parse_data(bytes, "x.csv");
     let _ = postguy_runner::parse_data(bytes, "x.json");
+    Ok(())
+}
+
+/// YAML and JSON both go through the budgeted reader, then the importer in both layouts.
+fn openapi_target(text: &str) -> Result<(), String> {
+    let parsed = postguy_interop::parse_yaml(text).ok().or_else(|| serde_json::from_str(text).ok());
+    if let Some(value) = parsed {
+        for strategy in [postguy_interop::FolderStrategy::Tags, postguy_interop::FolderStrategy::Paths] {
+            let _ = postguy_interop::import_openapi(&value, strategy);
+        }
+    }
     Ok(())
 }
 

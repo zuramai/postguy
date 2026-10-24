@@ -611,20 +611,25 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
         ToolDef {
             name: "import_text",
             title: "Import text",
-            description: "Postman collection (v2.0/v2.1), environment or globals JSON, or cURL commands; auto-detected, name clashes get a suffix unless `replace` is set; returns the ImportReport.",
+            description: "Postman collection (v2.0/v2.1), environment or globals JSON, OpenAPI 3 / Swagger 2 (JSON or YAML), or cURL commands; auto-detected, name clashes get a suffix unless `replace` is set; returns the ImportReport.",
             input_schema: schema! {
-                "text": req("the JSON document or cURL command text"),
-                "format": opt("\"auto\" (default); OpenAPI and HAR arrive later"),
-                "replace": opt_bool("replace a same-id collection/environment or the existing globals instead of suffixing/refusing")
+                "text": req("the JSON/YAML document or cURL command text"),
+                "format": opt("\"auto\" (default): the format is detected"),
+                "replace": opt_bool("replace a same-id collection/environment or the existing globals instead of suffixing/refusing"),
+                "folders": opt("OpenAPI folder layout: \"tags\" (default) or \"paths\"")
             },
             read_only: false,
             destructive: false,
         },
         ToolDef {
             name: "import_file",
-            title: "Import a JSON or cURL file",
+            title: "Import a JSON, YAML or cURL file",
             description: "Size-capped (100 MB) read, then the same mapping as import_text; the path resolves inside --root.",
-            input_schema: schema! { "path": req("file path"), "replace": opt_bool("replace instead of suffixing") },
+            input_schema: schema! {
+                "path": req("file path"),
+                "replace": opt_bool("replace instead of suffixing"),
+                "folders": opt("OpenAPI folder layout: \"tags\" (default) or \"paths\"")
+            },
             read_only: false,
             destructive: false,
         },
@@ -1387,20 +1392,22 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
             let text = string_arg(args, tool, "text")?;
             let format = optional_string(args, tool, "format")?.unwrap_or_else(|| "auto".to_string());
             let replace = bool_arg(args, tool, "replace", false)?;
-            import_text(session, &text, &format, replace)
+            let folders = folders_arg(args, tool)?;
+            import_text(session, &text, &format, ImportOptions { replace, folders })
         }
         "import_file" => {
             let path = string_arg(args, tool, "path")?;
             let resolved = session.resolve_existing(&path)?;
             let replace = bool_arg(args, tool, "replace", false)?;
-            let outcome = session.engine()?.import_file(&resolved, ImportOptions { replace })?;
+            let folders = folders_arg(args, tool)?;
+            let outcome = session.engine()?.import_file(&resolved, ImportOptions { replace, folders })?;
             serde_json::to_value(outcome).map_err(json_error)
         }
         "import_zip" => {
             let path = string_arg(args, tool, "path")?;
             let resolved = session.resolve_existing(&path)?;
             let replace = bool_arg(args, tool, "replace", false)?;
-            let outcome = session.engine()?.import_zip(&resolved, ImportOptions { replace })?;
+            let outcome = session.engine()?.import_zip(&resolved, ImportOptions { replace, ..ImportOptions::default() })?;
             serde_json::to_value(outcome).map_err(json_error)
         }
         "workspace_export_zip" => {
@@ -1766,11 +1773,25 @@ fn finish_export(tool: &str, session: &Session, args: &serde_json::Map<String, V
     }
 }
 
-fn import_text(session: &mut Session, text: &str, format: &str, replace: bool) -> Result<Value> {
+/// The OpenAPI folder layout: `tags` (default) or `paths`.
+fn folders_arg(args: &serde_json::Map<String, Value>, tool: &str) -> Result<postguy_interop::FolderStrategy> {
+    match optional_string(args, tool, "folders")?.as_deref() {
+        None | Some("tags") => Ok(postguy_interop::FolderStrategy::Tags),
+        Some("paths") => Ok(postguy_interop::FolderStrategy::Paths),
+        Some(other) => Err(AutomationError::BadArgument {
+            tool: tool.to_string(),
+            argument: "folders".to_string(),
+            expected: "tags or paths".to_string(),
+            got: other.to_string(),
+        }),
+    }
+}
+
+fn import_text(session: &mut Session, text: &str, format: &str, options: ImportOptions) -> Result<Value> {
     if format != "auto" {
         return Err(AutomationError::Failed { message: format!("format `{format}` is not supported; use \"auto\" (OpenAPI and HAR arrive later)") });
     }
-    let outcome = session.engine()?.import_text(text, ImportOptions { replace })?;
+    let outcome = session.engine()?.import_text(text, options)?;
     serde_json::to_value(outcome).map_err(json_error)
 }
 

@@ -1,5 +1,5 @@
 //! Import entry points shared by the UI and the automation tools: auto-detect Postman
-//! collection/environment/globals JSON or cURL text, keep the import report, and never
+//! collection/environment/globals JSON, OpenAPI/Swagger JSON or YAML, or cURL text, keep the import report, and never
 //! overwrite silently. Name clashes get a numeric suffix and a fresh id unless the caller
 //! explicitly asks to replace a same-id collection/environment.
 //!
@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-use postguy_interop::{ImportReport, Imported, ParsedCurl};
+use postguy_interop::{FolderStrategy, ImportReport, Imported, ParsedCurl};
 use postguy_model::{Collection, Environment, Id, Item, Request, RequestKind};
 use postguy_util::json::Caps;
 use serde::Serialize;
@@ -31,6 +31,8 @@ pub struct ImportOptions {
     /// Only affects a collection/environment whose imported id already exists: overwrite it
     /// instead of assigning a fresh id. Name clashes between different ids still get a suffix.
     pub replace: bool,
+    /// How an OpenAPI/Swagger document's operations become folders.
+    pub folders: FolderStrategy,
 }
 
 /// The document family that was imported.
@@ -66,11 +68,24 @@ pub fn detect(text: &str) -> Detected {
     if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
         return Detected::Url;
     }
-    let first = trimmed.lines().next().unwrap_or_default().trim_start();
-    if first.starts_with("openapi:") || first.starts_with("swagger:") || first.starts_with("asyncapi:") || trimmed.starts_with("%YAML") {
+    if trimmed.starts_with("%YAML") || first_line_is_yaml_mapping(trimmed) {
         return Detected::Yaml;
     }
     Detected::Curl
+}
+
+/// Whether the first content line (after comments and `---`) is a `key: value` mapping entry
+/// and not a cURL command (a cURL line starts with `curl`, a YAML key never has spaces).
+fn first_line_is_yaml_mapping(text: &str) -> bool {
+    let Some(line) = text.lines().map(str::trim).find(|line| !line.is_empty() && !line.starts_with('#') && *line != "---") else { return false };
+    if line == "curl" || line.starts_with("curl ") || line.starts_with("curl\t") {
+        return false;
+    }
+    let Some((key, rest)) = line.split_once(':') else { return false };
+    !key.is_empty()
+        && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+        && key.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && (rest.is_empty() || rest.starts_with(' ') || rest.starts_with('\t'))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,8 +98,23 @@ pub enum Detected {
 }
 
 impl Engine {
-    /// Import one text document (Postman JSON or cURL), applying `options` to clashes.
+    /// Import one text document (Postman or OpenAPI/Swagger JSON, OpenAPI/Swagger YAML or cURL),
+    /// applying `options` to clashes. An internal panic becomes an error, never a crash.
     pub fn import_text(&self, text: &str, options: ImportOptions) -> Result<ImportOutcome> {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.import_text_inner(text, options))) {
+            Ok(result) => result,
+            Err(payload) => {
+                let message = payload
+                    .downcast_ref::<&str>()
+                    .map(|text| (*text).to_string())
+                    .or_else(|| payload.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "unknown panic".to_string());
+                Err(EngineError::Import { message: format!("the importer failed unexpectedly: {message}") })
+            }
+        }
+    }
+
+    fn import_text_inner(&self, text: &str, options: ImportOptions) -> Result<ImportOutcome> {
         match detect(text) {
             Detected::Empty => {
                 Err(EngineError::Import { message: "nothing to import: paste a collection, environment, globals or cURL command".into() })
@@ -92,9 +122,13 @@ impl Engine {
             Detected::Url => {
                 Err(EngineError::Import { message: "URL imports are not fetched automatically; download the file and drop it here".into() })
             }
-            Detected::Yaml => Err(EngineError::Import {
-                message: "OpenAPI/Swagger YAML import is not implemented yet; export JSON or paste a Postman collection for now".into(),
-            }),
+            Detected::Yaml => {
+                let value = postguy_interop::parse_yaml(text).map_err(|err| EngineError::Import { message: err.to_string() })?;
+                if !postguy_interop::is_openapi(&value) {
+                    return Err(EngineError::Import { message: "this YAML is not an OpenAPI 3 or Swagger 2 document".into() });
+                }
+                self.import_openapi_value(&value, options)
+            }
             Detected::Json => self.import_json(text, options),
             Detected::Curl => self.import_curl(text, options),
         }
@@ -113,12 +147,21 @@ impl Engine {
     fn import_json(&self, text: &str, options: ImportOptions) -> Result<ImportOutcome> {
         let parsed =
             postguy_util::json::parse_json_str(text, &Caps::default()).map_err(|err| EngineError::Import { message: format!("JSON: {err}") })?;
+        if postguy_interop::is_openapi(&parsed) {
+            return self.import_openapi_value(&parsed, options);
+        }
         let (imported, report) = postguy_interop::import_value(&parsed).map_err(|err| EngineError::Import { message: err.to_string() })?;
         match imported {
             Imported::Collection(collection) => self.save_imported_collection(*collection, report, options),
             Imported::Environment(environment) => self.save_imported_environment(environment, report, options),
             Imported::Globals(environment) => self.save_imported_globals(environment, report, options),
         }
+    }
+
+    fn import_openapi_value(&self, value: &serde_json::Value, options: ImportOptions) -> Result<ImportOutcome> {
+        let (collection, report) =
+            postguy_interop::import_openapi(value, options.folders).map_err(|err| EngineError::Import { message: err.to_string() })?;
+        self.save_imported_collection(collection, report, options)
     }
 
     fn import_curl(&self, text: &str, _options: ImportOptions) -> Result<ImportOutcome> {

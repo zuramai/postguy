@@ -1,0 +1,72 @@
+{
+  "swagger": "2.0",
+  "info": { "title": "Corner Shop (2.0)", "description": "The same shop, described in Swagger 2." },
+  "host": "shop.test",
+  "basePath": "/v2",
+  "schemes": ["https", "http"],
+  "consumes": ["application/json"],
+  "produces": ["application/json"],
+  "securityDefinitions": {
+    "basicAuth": { "type": "basic" },
+    "keyAuth": { "type": "apiKey", "in": "query", "name": "key" },
+    "oauth": {
+      "type": "oauth2",
+      "flow": "accessCode",
+      "authorizationUrl": "https://shop.test/oauth/authorize",
+      "tokenUrl": "https://shop.test/oauth/token",
+      "scopes": { "read": "Read items", "write": "Write items" }
+    }
+  },
+  "security": [{ "basicAuth": [] }],
+  "paths": {
+    "/items": {
+      "post": {
+        "tags": ["items"],
+        "summary": "Create an item",
+        "security": [{ "oauth": ["write"] }],
+        "parameters": [
+          { "name": "body", "in": "body", "required": true, "schema": { "$ref": "#/definitions/Item" } }
+        ],
+        "responses": {
+          "201": { "description": "Created", "schema": { "$ref": "#/definitions/Item" } }
+        }
+      }
+    },
+    "/items/{itemId}/photo": {
+      "post": {
+        "tags": ["items"],
+        "summary": "Upload a photo",
+        "consumes": ["multipart/form-data"],
+        "security": [{ "keyAuth": [] }],
+        "parameters": [
+          { "name": "itemId", "in": "path", "required": true, "type": "string", "default": "42" },
+          { "name": "caption", "in": "formData", "type": "string", "default": "front" },
+          { "name": "file", "in": "formData", "type": "file", "required": true }
+        ],
+        "responses": { "204": { "description": "Stored" } }
+      }
+    },
+    "/login": {
+      "post": {
+        "summary": "Log in",
+        "security": [],
+        "consumes": ["application/x-www-form-urlencoded"],
+        "parameters": [
+          { "name": "user", "in": "formData", "type": "string", "required": true },
+          { "name": "pass", "in": "formData", "type": "string", "required": true }
+        ],
+        "responses": { "200": { "description": "Token", "examples": { "application/json": { "token": "abc" } } } }
+      }
+    }
+  },
+  "definitions": {
+    "Item": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "id": { "type": "integer" },
+        "name": { "type": "string", "example": "widget" }
+      }
+    }
+  }
+}

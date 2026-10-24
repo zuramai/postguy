@@ -473,3 +473,20 @@ fn unknown_tools_and_arguments_fail_loudly_before_state_changes() {
     let list = call(&automation, "collection_list", json!({}));
     assert_eq!(list["collections"].as_array().map(Vec::len), Some(0));
 }
+
+#[test]
+fn import_text_takes_openapi_yaml_with_a_folder_layout() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let automation = automation_in(dir.path());
+    call(&automation, "workspace_open", json!({"path": "work"}));
+    let yaml = "openapi: 3.0.0\ninfo:\n  title: Shop\npaths:\n  /a/b:\n    get:\n      tags: [t]\n      responses: {}\n";
+    let tags = call(&automation, "import_text", json!({"text": yaml}));
+    assert_eq!((tags["report"]["requests"].as_u64(), tags["report"]["folders"].as_u64()), (Some(1), Some(1)), "{tags}");
+    let paths = call(&automation, "import_text", json!({"text": yaml, "folders": "paths"}));
+    assert_eq!(paths["report"]["folders"], 2, "{paths}");
+    std::fs::write(dir.path().join("shop.yaml"), yaml).expect("write");
+    let file = call(&automation, "import_file", json!({"path": "shop.yaml", "folders": "tags"}));
+    assert_eq!(file["report"]["requests"], 1);
+    let err = automation.call("import_text", &json!({"text": yaml, "folders": "nested"})).expect_err("bad folders");
+    assert!(err.to_string().contains("tags or paths"), "{err}");
+}

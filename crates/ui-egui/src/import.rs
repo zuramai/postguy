@@ -33,6 +33,8 @@ pub struct ImportState {
     pub open: bool,
     pub text: String,
     pub replace: bool,
+    /// OpenAPI/Swagger: nest folders by path instead of grouping by tag.
+    pub folders_by_path: bool,
     pub busy: bool,
     pub summary: Option<ImportSummary>,
     pub error: Option<String>,
@@ -53,10 +55,17 @@ pub fn import_dialog(ctx: &egui::Context, state: &mut ImportState) -> Option<Imp
     let open = state.open;
     let result = widgets::modal(ctx, "import-dialog", "Import", &mut state.open, |ui| {
         ui.set_min_width(560.0);
-        ui.label(RichText::new("Postman collection v2.0/v2.1, environment, globals, or a cURL command.").small().color(theme.palette.text_muted));
+        ui.label(
+            RichText::new("Postman collection v2.0/v2.1, environment, globals, OpenAPI 3 / Swagger 2 (JSON or YAML), or a cURL command.")
+                .small()
+                .color(theme.palette.text_muted),
+        );
         ui.add_space(6.0);
         ui.add(
-            egui::TextEdit::multiline(&mut state.text).desired_rows(8).desired_width(f32::INFINITY).hint_text("Paste JSON or a cURL command here…"),
+            egui::TextEdit::multiline(&mut state.text)
+                .desired_rows(8)
+                .desired_width(f32::INFINITY)
+                .hint_text("Paste JSON, YAML or a cURL command here…"),
         );
         ui.add_space(4.0);
         ui.horizontal(|ui| {
@@ -75,6 +84,10 @@ pub fn import_dialog(ctx: &egui::Context, state: &mut ImportState) -> Option<Imp
                 state.replace = replace;
             }
         });
+        let mut by_path = state.folders_by_path;
+        if crate::widgets::checkbox(ui, &mut by_path, "OpenAPI: folders by path (default: by tag)").changed() {
+            state.folders_by_path = by_path;
+        }
         ui.label(
             RichText::new("Or drop files or folders anywhere in the window. Nothing is fetched from the network.")
                 .small()
