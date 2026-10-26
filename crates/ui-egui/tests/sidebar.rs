@@ -385,6 +385,36 @@ fn sections_collapse_independently_and_show_the_active_environment() {
 }
 
 #[test]
+fn closed_sections_slide_to_the_bottom_while_collections_fill_the_sidebar() {
+    let mut harness = harness();
+    // Tall enough that Environments and History keep their default 140 px heights.
+    harness.set_size(egui::vec2(320.0, 900.0));
+    harness.run();
+    let top = |harness: &Harness<'static, HarnessState>, label: &str| harness.get_by_label(label).rect().top();
+    let env_open = top(&harness, "ENVIRONMENTS");
+    let history_open = top(&harness, "HISTORY");
+
+    harness.get_by_label("ENVIRONMENTS").click();
+    harness.run();
+    let env_closed = top(&harness, "ENVIRONMENTS");
+    assert!(env_closed > env_open + 100.0, "closing Environments gives its room to Collections: {env_open} -> {env_closed}");
+    assert!((top(&harness, "HISTORY") - history_open).abs() < 1.0, "the open History section stays put at the bottom");
+
+    harness.get_by_label("HISTORY").click();
+    harness.run();
+    let history_closed = harness.get_by_label("HISTORY").rect();
+    let env_header = harness.get_by_label("ENVIRONMENTS").rect();
+    assert!(history_closed.top() > history_open + 100.0, "a closed History header slides down");
+    assert!((history_closed.top() - env_header.bottom()).abs() < 1.0, "closed headers stack at the bottom");
+    assert!(harness.query_by_label("Health").is_some(), "Collections keeps drawing its rows");
+
+    harness.get_by_label("ENVIRONMENTS").click();
+    harness.run();
+    let reopened = top(&harness, "ENVIRONMENTS");
+    assert!(reopened < env_header.top() - 100.0, "reopening Environments takes its height back: {} -> {reopened}", env_header.top());
+}
+
+#[test]
 fn the_shell_opens_a_sidebar_row_in_the_detail_area() {
     let mut shell = PostguyShell::new("demo");
     shell.sidebar_data = sample_data();

@@ -263,80 +263,37 @@ impl Sidebar {
             .cloned()
             .collect();
 
-        // COLLECTIONS
-        self.section_header(ui, state, 0, "COLLECTIONS", &theme);
-        if state.sections[0] {
-            let height = state.section_heights[0].min((ui.available_height() - 80.0).max(80.0));
-            ui.scope(|ui| {
-                ui.spacing_mut().item_spacing.y = 0.0;
+        // Sections: the first open one (Collections unless it is closed) fills the height; open
+        // sections below it keep their dragged height; closed headers sit right under the filling
+        // section, so with Collections open they collect at the bottom.
+        let layout = section_layout(ui.available_height(), state.sections, state.section_heights);
+        ui.scope(|ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for (index, label) in ["COLLECTIONS", "ENVIRONMENTS", "HISTORY"].into_iter().enumerate() {
+                if layout.splitter_above.get(index).copied().unwrap_or(false) {
+                    section_splitter(ui, state, index, &theme);
+                }
+                self.section_header(ui, state, index, label, &theme);
+                let Some(height) = layout.body.get(index).copied().flatten() else { continue };
+                let section_rows: Vec<&SidebarRow> = rows
+                    .iter()
+                    .filter(|row| match index {
+                        0 => matches!(row.kind, RowKind::Collection | RowKind::Folder | RowKind::Request | RowKind::Example),
+                        1 => row.kind == RowKind::Environment,
+                        _ => row.kind == RowKind::History,
+                    })
+                    .collect();
                 ScrollArea::vertical()
-                    .id_salt("sidebar-collections")
+                    .id_salt(("sidebar-section", index))
                     .max_width(available_width)
                     .max_height(height)
                     .min_scrolled_height(height)
                     .auto_shrink([false, false])
-                    .show_rows(
-                        ui,
-                        ROW_HEIGHT,
-                        rows.iter()
-                            .filter(|row| matches!(row.kind, RowKind::Collection | RowKind::Folder | RowKind::Request | RowKind::Example))
-                            .count(),
-                        |ui, range| {
-                            let section_rows: Vec<&SidebarRow> = rows
-                                .iter()
-                                .filter(|row| matches!(row.kind, RowKind::Collection | RowKind::Folder | RowKind::Request | RowKind::Example))
-                                .collect();
-                            self.paint_rows(ui, state, &rows, &section_rows, range, &theme, &mut action);
-                        },
-                    );
-            });
-        }
-
-        if state.sections[0] {
-            section_splitter(ui, state, 0, &theme);
-        }
-
-        // ENVIRONMENTS
-        self.section_header(ui, state, 1, "ENVIRONMENTS", &theme);
-        if state.sections[1] {
-            let env_rows: Vec<&SidebarRow> = rows.iter().filter(|row| row.kind == RowKind::Environment).collect();
-            let height = state.section_heights[1].min((ui.available_height() - 60.0).max(60.0));
-            ui.scope(|ui| {
-                ui.spacing_mut().item_spacing.y = 0.0;
-                ScrollArea::vertical()
-                    .id_salt("sidebar-environments")
-                    .max_width(available_width)
-                    .max_height(height)
-                    .min_scrolled_height(height)
-                    .auto_shrink([false, false])
-                    .show_rows(ui, ROW_HEIGHT, env_rows.len(), |ui, range| {
-                        self.paint_rows(ui, state, &rows, &env_rows, range, &theme, &mut action);
+                    .show_rows(ui, ROW_HEIGHT, section_rows.len(), |ui, range| {
+                        self.paint_rows(ui, state, &rows, &section_rows, range, &theme, &mut action);
                     });
-            });
-        }
-
-        if state.sections[1] {
-            section_splitter(ui, state, 1, &theme);
-        }
-
-        // HISTORY
-        self.section_header(ui, state, 2, "HISTORY", &theme);
-        if state.sections[2] {
-            let history_rows: Vec<&SidebarRow> = rows.iter().filter(|row| row.kind == RowKind::History).collect();
-            let height = state.section_heights[2].min((ui.available_height() - 30.0).max(30.0));
-            ui.scope(|ui| {
-                ui.spacing_mut().item_spacing.y = 0.0;
-                ScrollArea::vertical()
-                    .id_salt("sidebar-history")
-                    .max_width(available_width)
-                    .max_height(height)
-                    .min_scrolled_height(height)
-                    .auto_shrink([false, false])
-                    .show_rows(ui, ROW_HEIGHT, history_rows.len(), |ui, range| {
-                        self.paint_rows(ui, state, &rows, &history_rows, range, &theme, &mut action);
-                    });
-            });
-        }
+            }
+        });
 
         // Typed confirmation for destructive deletes.
         if let Some(id) = state.delete_confirm.clone() {
@@ -484,7 +441,7 @@ impl Sidebar {
     }
 
     fn section_header(&self, ui: &mut Ui, state: &mut SidebarState, index: usize, label: &str, theme: &Theme) {
-        let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click());
+        let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), SECTION_HEADER_HEIGHT), Sense::click());
         if response.clicked() {
             state.sections[index] = !state.sections[index];
         }
@@ -1397,9 +1354,58 @@ fn tree_folder_icon_x(left: f32, depth: usize) -> f32 {
     tree_chevron_x(left, depth) + TREE_FOLDER_ICON_OFFSET_X
 }
 
-/// A draggable 7 px splitter above section `index`; dragging changes that section's height.
+const SECTION_HEADER_HEIGHT: f32 = 28.0;
+const SECTION_SPLITTER_HEIGHT: f32 = 9.0;
+/// The filling section never shrinks below this while space allows.
+const SECTION_FILL_MIN: f32 = 80.0;
+/// The smallest height a dragged section keeps.
+const SECTION_MIN: f32 = 60.0;
+
+/// Where the three sections go this frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct SectionLayout {
+    /// Body height of each open section; `None` when the section is closed.
+    pub body: [Option<f32>; 3],
+    /// A drag splitter sits above this section's header (open sections below the filling one).
+    pub splitter_above: [bool; 3],
+}
+
+/// Lay out the sections in `available` px: the first open section fills what is left and stays
+/// the largest (it keeps at least half the content height, and never less than
+/// [`SECTION_FILL_MIN`]); every open section after it keeps its stored height, shrunk (later ones
+/// first) to fit. Closed sections are headers only, so with Collections open the closed ones end
+/// up at the bottom of the sidebar.
+pub(crate) fn section_layout(available: f32, open: [bool; 3], heights: [f32; 3]) -> SectionLayout {
+    let mut layout = SectionLayout { body: [None; 3], splitter_above: [false; 3] };
+    let Some(fill) = open.iter().position(|open| *open) else { return layout };
+    let available = if available.is_finite() { available.max(0.0) } else { 0.0 };
+    let fixed: Vec<usize> = (fill + 1..3).filter(|index| open.get(*index).copied().unwrap_or(false)).collect();
+    let chrome = 3.0 * SECTION_HEADER_HEIGHT + fixed.len() as f32 * SECTION_SPLITTER_HEIGHT;
+    let content = (available - chrome).max(0.0);
+    let mut room = (content - SECTION_FILL_MIN.max(content * 0.5)).max(0.0);
+    let mut used = 0.0;
+    for &index in &fixed {
+        let wanted = heights.get(index).copied().filter(|h| h.is_finite()).unwrap_or(SECTION_MIN).max(SECTION_MIN);
+        let height = wanted.min(room);
+        room -= height;
+        used += height;
+        if let Some(slot) = layout.body.get_mut(index) {
+            *slot = Some(height);
+        }
+        if let Some(slot) = layout.splitter_above.get_mut(index) {
+            *slot = true;
+        }
+    }
+    if let Some(slot) = layout.body.get_mut(fill) {
+        *slot = Some((content - used).max(0.0));
+    }
+    layout
+}
+
+/// A draggable splitter above section `index`; dragging it up grows that section (the filling
+/// section above gives the room), dragging down shrinks it.
 fn section_splitter(ui: &mut Ui, state: &mut SidebarState, index: usize, theme: &Theme) {
-    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 9.0), Sense::drag());
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), SECTION_SPLITTER_HEIGHT), Sense::drag());
     let hovered = response.hovered() || response.dragged();
     ui.painter().line_segment(
         [egui::pos2(rect.left() + 2.0, rect.center().y), egui::pos2(rect.right() - 2.0, rect.center().y)],
@@ -1408,7 +1414,7 @@ fn section_splitter(ui: &mut Ui, state: &mut SidebarState, index: usize, theme: 
     if response.dragged()
         && let Some(height) = state.section_heights.get_mut(index)
     {
-        *height = (*height + response.drag_delta().y).clamp(60.0, 1200.0);
+        *height = (*height - response.drag_delta().y).clamp(SECTION_MIN, 1200.0);
     }
     response.on_hover_cursor(egui::CursorIcon::ResizeVertical);
 }
@@ -1511,6 +1517,51 @@ pub fn left_center(rect: egui::Rect) -> egui::Pos2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const H: f32 = 3.0 * SECTION_HEADER_HEIGHT;
+
+    #[test]
+    fn collections_fill_and_closed_sections_take_only_their_headers() {
+        let all_open = section_layout(800.0, [true, true, true], [356.0, 140.0, 140.0]);
+        let fill = 800.0 - H - 2.0 * SECTION_SPLITTER_HEIGHT - 280.0;
+        assert_eq!(all_open.body, [Some(fill), Some(140.0), Some(140.0)]);
+        assert_eq!(all_open.splitter_above, [false, true, true]);
+
+        // Closing Environments gives its space to Collections; History keeps its height.
+        let env_closed = section_layout(800.0, [true, false, true], [356.0, 140.0, 140.0]);
+        assert_eq!(env_closed.body, [Some(800.0 - H - SECTION_SPLITTER_HEIGHT - 140.0), None, Some(140.0)]);
+        assert_eq!(env_closed.splitter_above, [false, false, true]);
+
+        // Only Collections open: it takes everything but the two closed headers.
+        let only = section_layout(800.0, [true, false, false], [356.0, 140.0, 140.0]);
+        assert_eq!(only.body, [Some(800.0 - H), None, None]);
+        assert_eq!(only.splitter_above, [false; 3]);
+    }
+
+    #[test]
+    fn the_first_open_section_fills_when_collections_is_closed() {
+        let layout = section_layout(600.0, [false, true, true], [356.0, 140.0, 140.0]);
+        assert_eq!(layout.body, [None, Some(600.0 - H - SECTION_SPLITTER_HEIGHT - 140.0), Some(140.0)]);
+        assert_eq!(layout.splitter_above, [false, false, true]);
+        assert_eq!(section_layout(600.0, [false; 3], [356.0, 140.0, 140.0]).body, [None; 3]);
+    }
+
+    #[test]
+    fn short_windows_shrink_the_lower_sections_before_the_filling_one() {
+        let layout = section_layout(300.0, [true, true, true], [356.0, 140.0, 140.0]);
+        let content = 300.0 - H - 2.0 * SECTION_SPLITTER_HEIGHT;
+        // The filling section keeps half the content (99 px here); Environments gets the rest.
+        let keep = SECTION_FILL_MIN.max(content * 0.5);
+        assert_eq!(layout.body, [Some(keep), Some(content - keep), Some(0.0)]);
+        // A tall Environments never outgrows Collections.
+        let tall = section_layout(800.0, [true, true, false], [356.0, 1000.0, 140.0]);
+        assert!(tall.body[0] >= tall.body[1], "{tall:?}");
+        // Degenerate sizes never produce negative or NaN heights.
+        for available in [0.0, -50.0, f32::NAN, f32::INFINITY] {
+            let layout = section_layout(available, [true, true, true], [f32::NAN, -1.0, 1e9]);
+            assert!(layout.body.iter().flatten().all(|h| h.is_finite() && *h >= 0.0), "{available}: {layout:?}");
+        }
+    }
 
     #[test]
     fn ten_thousand_rows_flatten_and_filter_within_a_frame_budget() {
