@@ -92,7 +92,9 @@ fn decode_base64(text: &str) -> Vec<u8> {
 
 fn decode_hex(text: &str) -> Vec<u8> {
     let digits: Vec<u32> = text.chars().map_while(|c| c.to_digit(16)).collect();
-    digits.chunks_exact(2).map(|pair| (pair.first().copied().unwrap_or(0) * 16 + pair.get(1).copied().unwrap_or(0)) as u8).collect()
+    // Digits are < 16, so every pair fits a byte; a trailing odd digit is dropped.
+    let (pairs, _) = digits.as_chunks::<2>();
+    pairs.iter().map(|[high, low]| (high * 16 + low) as u8).collect()
 }
 
 fn decode_text(text: &str, enc: Enc) -> Vec<u8> {
