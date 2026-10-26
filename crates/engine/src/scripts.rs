@@ -70,6 +70,7 @@ pub(crate) fn script_variables(set: &ScopeSet, iteration: Option<&IterationScope
                 let name = set.environment.as_ref().map(|(_, name)| name.clone()).unwrap_or_default();
                 vars.environment = Some((name, first_wins(scope)));
             }
+            ScopeKind::Runtime => vars.runtime = first_wins(scope),
             ScopeKind::Data | ScopeKind::Local => {}
         }
     }
@@ -361,6 +362,7 @@ pub(crate) async fn run_phase(
             environment: input.options.environment.clone(),
             iteration: input.options.iteration.clone(),
         }),
+        tests: None,
     };
     let check_cancel = cancel.clone();
     let cancelled: js::CancelCheck = Arc::new(move || check_cancel.is_cancelled());
@@ -374,7 +376,11 @@ pub(crate) async fn run_phase(
         line: None,
     })?;
 
-    let variables_changed = persist(engine, located, input.scopes.environment.as_ref(), &before, &outcome.variables, warnings)?;
+    let mut variables_changed = persist(engine, located, input.scopes.environment.as_ref(), &before, &outcome.variables, warnings)?;
+    if outcome.variables.runtime != before.runtime {
+        engine.set_runtime_variables(&located.collection.id, outcome.variables.runtime.clone());
+        variables_changed = true;
+    }
     let secret_scopes = &input.scopes.scopes;
     for line in &outcome.logs {
         let level = match line.level {

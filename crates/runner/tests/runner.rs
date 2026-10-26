@@ -116,7 +116,7 @@ fn set_next_request_jumps_by_name_stops_on_null_and_caps_loops() {
 }
 
 fn test(name: &str, status: TestStatus, message: Option<&str>) -> TestResult {
-    TestResult { name: name.into(), status, message: message.map(str::to_string), phase: ScriptPhase::PostResponse }
+    TestResult { name: name.into(), status, message: message.map(str::to_string), phase: ScriptPhase::PostResponse, kind: Default::default() }
 }
 
 fn run(name: &str, tests: Vec<TestResult>) -> RequestRun {
@@ -133,6 +133,9 @@ fn run(name: &str, tests: Vec<TestResult>) -> RequestRun {
         failures: Vec::new(),
         error: None,
         skipped: None,
+        started_ms: 0,
+        report: Default::default(),
+        response_excerpt: None,
     }
 }
 

@@ -1629,6 +1629,7 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
                                 postguy_vars::ScopeKind::Folder => "folder",
                                 postguy_vars::ScopeKind::Environment => "environment",
                                 postguy_vars::ScopeKind::Data => "data",
+                                postguy_vars::ScopeKind::Runtime => "runtime",
                                 postguy_vars::ScopeKind::Local => "local",
                             }
                             .to_string(),

@@ -53,6 +53,7 @@ fn context(phase: ScriptPhase, with_response: bool, variables: Variables) -> Con
         request: request(),
         response: with_response.then(response),
         host: Arc::new(NoHost),
+        tests: None,
     }
 }
 
@@ -198,6 +199,7 @@ fn variables_set_unset_and_precedence() {
         environment: Some(("dev".into(), map(&[("k", "env"), ("gone", "x")]))),
         data: vec![("k".into(), serde_json::json!("data")), ("n".into(), serde_json::json!(5))],
         locals: BTreeMap::new(),
+        runtime: BTreeMap::new(),
     };
     let outcome = pre(
         r#"

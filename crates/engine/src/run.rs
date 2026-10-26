@@ -229,6 +229,9 @@ impl Engine {
             failures: Vec::new(),
             error: None,
             skipped: None,
+            started_ms: 0,
+            report: serde_json::Map::new(),
+            response_excerpt: None,
         };
         if step.protocol != "http" {
             let (method, url) = request_head(collection, &step.id);

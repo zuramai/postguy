@@ -60,6 +60,9 @@ struct Inner {
     /// The newest finished sends, so `response_*` tools and the viewer can ask by history id.
     responses: Mutex<VecDeque<CachedResponse>>,
     ws_sessions: Mutex<HashMap<String, crate::ws_session::WsHandle>>,
+    /// Script runtime variables (`pg.setVar`) per collection id; `""` holds inline sends.
+    /// Session-lived, never written to disk.
+    runtime_vars: Mutex<HashMap<String, std::collections::BTreeMap<String, String>>>,
 }
 
 /// One send kept in memory for the response viewer and tools (bounded; 20 is plenty).
@@ -99,6 +102,7 @@ impl Engine {
                 settings: Mutex::new(settings),
                 responses: Mutex::new(VecDeque::new()),
                 ws_sessions: Mutex::new(HashMap::new()),
+                runtime_vars: Mutex::new(HashMap::new()),
             }),
         })
     }
@@ -113,6 +117,28 @@ impl Engine {
 
     pub fn console(&self) -> &ConsoleLog {
         &self.inner.console
+    }
+
+    /// Runtime variables scripts set for `collection` (`pg.setVar`); empty id for inline sends.
+    pub fn runtime_variables(&self, collection: &Id) -> std::collections::BTreeMap<String, String> {
+        let vars = self.inner.runtime_vars.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        vars.get(&collection.0).cloned().unwrap_or_default()
+    }
+
+    /// Forget every runtime variable of `collection`.
+    pub fn clear_runtime_variables(&self, collection: &Id) {
+        let mut vars = self.inner.runtime_vars.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        vars.remove(&collection.0);
+    }
+
+    /// Replace the runtime variables of `collection` (the script phase writes its result back).
+    pub(crate) fn set_runtime_variables(&self, collection: &Id, values: std::collections::BTreeMap<String, String>) {
+        let mut vars = self.inner.runtime_vars.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if values.is_empty() {
+            vars.remove(&collection.0);
+        } else {
+            vars.insert(collection.0.clone(), values);
+        }
     }
 
     /// The effective settings (a clone: callers never hold the lock across I/O).

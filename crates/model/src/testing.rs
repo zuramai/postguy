@@ -29,7 +29,22 @@ pub enum TestStatus {
     Skipped,
 }
 
-/// One `pm.test(...)` outcome.
+/// Whether a result came from a script test (`pm.test`) or an assertion-table row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum TestKind {
+    #[default]
+    Test,
+    Assertion,
+}
+
+impl TestKind {
+    pub fn is_test(&self) -> bool {
+        *self == TestKind::Test
+    }
+}
+
+/// One `pm.test(...)` or assertion outcome.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TestResult {
@@ -38,6 +53,8 @@ pub struct TestResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
     pub phase: ScriptPhase,
+    #[serde(default, skip_serializing_if = "TestKind::is_test")]
+    pub kind: TestKind,
 }
 
 /// A script that threw, timed out or ran out of memory.
@@ -68,9 +85,24 @@ mod tests {
 
     #[test]
     fn test_results_round_trip_in_camel_case() {
-        let result = TestResult { name: "t".into(), status: TestStatus::Failed, message: Some("boom".into()), phase: ScriptPhase::PostResponse };
+        let result = TestResult {
+            name: "t".into(),
+            status: TestStatus::Failed,
+            message: Some("boom".into()),
+            phase: ScriptPhase::PostResponse,
+            kind: TestKind::Test,
+        };
         let json = serde_json::to_string(&result).unwrap();
         assert_eq!(json, r#"{"name":"t","status":"failed","message":"boom","phase":"postResponse"}"#);
+        assert_eq!(serde_json::from_str::<TestResult>(&json).unwrap(), result);
+    }
+
+    #[test]
+    fn assertion_results_carry_their_kind() {
+        let result =
+            TestResult { name: "a".into(), status: TestStatus::Passed, message: None, phase: ScriptPhase::PostResponse, kind: TestKind::Assertion };
+        let json = serde_json::to_string(&result).unwrap();
+        assert_eq!(json, r#"{"name":"a","status":"passed","phase":"postResponse","kind":"assertion"}"#);
         assert_eq!(serde_json::from_str::<TestResult>(&json).unwrap(), result);
     }
 

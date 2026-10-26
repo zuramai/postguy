@@ -37,7 +37,7 @@ fn harness(runner: RunnerState) -> Harness<'static, State> {
 }
 
 fn test(name: &str, status: TestStatus, message: Option<&str>) -> TestResult {
-    TestResult { name: name.into(), status, message: message.map(str::to_string), phase: ScriptPhase::PostResponse }
+    TestResult { name: name.into(), status, message: message.map(str::to_string), phase: ScriptPhase::PostResponse, kind: Default::default() }
 }
 
 fn request(iteration: u32, name: &str, tests: Vec<TestResult>) -> RunRequestView {

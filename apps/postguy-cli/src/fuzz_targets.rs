@@ -106,6 +106,7 @@ fn script_target(text: &str) -> Result<(), String> {
         request: postguy_script::ScriptRequest { method: "GET".into(), url: "http://localhost/".into(), ..Default::default() },
         response: Some(postguy_script::ScriptResponse { code: 200, status: "OK".into(), body: br#"{"a":1}"#.to_vec(), ..Default::default() }),
         host: std::sync::Arc::new(NoHost),
+        tests: None,
     };
     let limits = postguy_script::Limits { timeout_ms: 200, memory_bytes: 16 << 20, ..Default::default() };
     let source = postguy_script::ScriptSource { origin: "fuzz".into(), text: text.to_string() };

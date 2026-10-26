@@ -45,6 +45,7 @@ pub fn run(sources: &[ScriptSource], context: Context, limits: &Limits, cancelle
                 logs: Vec::new(),
                 next_request: NextRequest::Unchanged,
                 skip_request: false,
+                report: serde_json::Map::new(),
             }
         }
     }
@@ -59,6 +60,7 @@ fn engine_failure(context: Context, origin: &str, message: String) -> Outcome {
         logs: Vec::new(),
         next_request: NextRequest::Unchanged,
         skip_request: false,
+        report: serde_json::Map::new(),
     }
 }
 
@@ -190,6 +192,7 @@ fn run_inner(sources: &[ScriptSource], context: Context, limits: &Limits, cancel
                     logs: Vec::new(),
                     next_request: NextRequest::Unchanged,
                     skip_request: false,
+                    report: serde_json::Map::new(),
                 };
             }
         },
@@ -209,6 +212,7 @@ fn run_inner(sources: &[ScriptSource], context: Context, limits: &Limits, cancel
         logs: state.logs,
         next_request: state.next,
         skip_request: state.skip,
+        report: serde_json::Map::new(),
     }
 }
 

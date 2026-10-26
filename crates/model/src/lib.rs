@@ -24,8 +24,8 @@ pub use extras::Extras;
 pub use history::HistoryEntry;
 pub use ids::{Id, new_id};
 pub use requests::{
-    BinaryEncoding, ContentEncoding, Example, ExampleBody, GrpcRequest, GrpcSettings, HttpMethod, HttpRequest, KeyValue, KeyValueKind, MessageFormat,
-    RequestKind, SavedMessage, Script, Scripts, ServiceDefinition, WsMessage, WsRequest, WsSettings,
+    AssertOperator, Assertion, BinaryEncoding, ContentEncoding, Example, ExampleBody, GrpcRequest, GrpcSettings, HttpMethod, HttpRequest, KeyValue,
+    KeyValueKind, MessageFormat, RequestKind, RequestTests, SavedMessage, Script, Scripts, ServiceDefinition, WsMessage, WsRequest, WsSettings,
 };
 pub use settings::{HttpVersion, ProxyMode, ProxyProtocol, ProxySettings, RequestSettings, ResponseFormatDetection, Settings, Theme};
-pub use testing::{NextRequest, ScriptFailure, ScriptPhase, TestResult, TestStatus};
+pub use testing::{NextRequest, ScriptFailure, ScriptPhase, TestKind, TestResult, TestStatus};

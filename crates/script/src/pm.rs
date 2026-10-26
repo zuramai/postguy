@@ -687,7 +687,7 @@ fn record_test(state: &mut State, name: String, status: TestStatus, message: Opt
         return None;
     }
     let phase = state.phase;
-    state.tests.push(TestResult { name, status, message, phase });
+    state.tests.push(TestResult { name, status, message, phase, kind: postguy_model::TestKind::Test });
     Some(state.tests.len() - 1)
 }
 

@@ -14,6 +14,9 @@ use crate::dynamic;
 pub enum ScopeKind {
     #[default]
     Local,
+    /// Script-set runtime variables (`pg.setVar`, Bruno `bru.setVar`): live for the engine
+    /// session, never written to a file.
+    Runtime,
     Data,
     Environment,
     Folder,
@@ -30,7 +33,8 @@ impl ScopeKind {
             ScopeKind::Folder => 2,
             ScopeKind::Environment => 3,
             ScopeKind::Data => 4,
-            ScopeKind::Local => 5,
+            ScopeKind::Runtime => 5,
+            ScopeKind::Local => 6,
         }
     }
 }

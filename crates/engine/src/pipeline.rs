@@ -363,6 +363,7 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
         body: request.body,
         auth: request.auth,
         scripts: request.scripts,
+        tests: request.tests,
         settings: request.settings,
         extras: Default::default(),
     };
@@ -538,7 +539,7 @@ fn http_of(request: &Request) -> Option<&HttpRequest> {
     }
 }
 
-/// Scopes: globals < collection < folders outer→inner < environment < data. Secret
+/// Scopes: globals < collection < folders outer→inner < environment < data < runtime. Secret
 /// variable values come from the secrets store, never from the model files.
 pub(crate) fn load_scopes(engine: &Engine, located: &Located, environment: Option<&Id>, iteration: Option<&IterationScope>) -> Result<ScopeSet> {
     let mut scopes: Vec<Scope> = Vec::new();
@@ -571,6 +572,10 @@ pub(crate) fn load_scopes(engine: &Engine, located: &Located, environment: Optio
             (key.clone(), text)
         });
         scopes.push(Scope::new(ScopeKind::Data, rows));
+    }
+    let runtime = engine.runtime_variables(&located.collection.id);
+    if !runtime.is_empty() {
+        scopes.push(Scope::new(ScopeKind::Runtime, runtime));
     }
     Ok(ScopeSet { scopes, environment: active })
 }

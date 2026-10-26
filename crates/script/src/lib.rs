@@ -118,6 +118,9 @@ pub struct Variables {
     pub data: Vec<(String, serde_json::Value)>,
     /// `pm.variables.set` values; never persisted.
     pub locals: BTreeMap<String, String>,
+    /// Runtime variables (`pg.setVar`, `bru.setVar`): kept by the engine for the session,
+    /// across requests, never written to a file.
+    pub runtime: BTreeMap<String, String>,
 }
 
 /// What the engine provides: the only way a script reaches the network or the cookie jar.
@@ -126,6 +129,25 @@ pub trait Host: Send + Sync {
     fn send_request(&self, request: ScriptRequest) -> Result<ScriptResponse, String>;
     /// Cookies the jar would send to `url`, as name/value pairs.
     fn cookies_for(&self, url: &str) -> Vec<(String, String)>;
+    /// Bytes of a collection asset (`pg.assets`, `fs.readFileSync`, `require`), by its
+    /// `/`-separated path relative to the collection's Assets folder.
+    fn read_asset(&self, _path: &str) -> Result<Vec<u8>, String> {
+        Err("assets are only available for requests saved in a collection".into())
+    }
+    /// Names of the direct children of an asset folder (`""` is the root).
+    fn list_assets(&self, _dir: &str) -> Result<Vec<String>, String> {
+        Err("assets are only available for requests saved in a collection".into())
+    }
+}
+
+/// A request's Tests tab, run after the post-response scripts: the enabled assertions in order,
+/// then the test script.
+#[derive(Debug, Clone, Default)]
+pub struct TestBlock {
+    /// Failure label, e.g. `"request Login tests"`.
+    pub origin: String,
+    pub assertions: Vec<postguy_model::Assertion>,
+    pub script: Option<String>,
 }
 
 /// Polled while a script runs; `true` stops it.
@@ -139,6 +161,8 @@ pub struct Context {
     pub request: ScriptRequest,
     pub response: Option<ScriptResponse>,
     pub host: Arc<dyn Host>,
+    /// Post-response only: the request's assertions and test script.
+    pub tests: Option<TestBlock>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,4 +192,6 @@ pub struct Outcome {
     pub logs: Vec<LogLine>,
     pub next_request: NextRequest,
     pub skip_request: bool,
+    /// Custom report columns (`pg.report.set`), in first-set order.
+    pub report: serde_json::Map<String, serde_json::Value>,
 }

@@ -249,6 +249,7 @@ fn runner_scene(demo: &mut DemoState) {
         status,
         message: message.map(str::to_string),
         phase: ScriptPhase::PostResponse,
+        kind: Default::default(),
     };
     let request = |iteration: u32, method: &str, name: &str, status: u16, ms: u64, tests: Vec<TestResult>| RunRequestView {
         iteration,
