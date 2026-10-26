@@ -152,7 +152,7 @@ impl Scripts {
 /// One row of a request's assertion table: evaluate `expr` (JavaScript, post-response) and
 /// compare it with `value` through `operator`. Unknown operator tokens read from a file are kept
 /// in `extras["operator"]` and written back, so the file round-trips; they evaluate as `eq`.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Assertion {
     pub enabled: bool,
     pub expr: String,
@@ -174,6 +174,13 @@ impl Assertion {
             Some(serde_json::Value::String(original)) if self.operator == AssertOperator::Eq => original,
             _ => self.operator.token(),
         }
+    }
+}
+
+impl Default for Assertion {
+    /// A new row is enabled, matching the file default (`enabled` missing means true).
+    fn default() -> Self {
+        Assertion { enabled: true, expr: String::new(), operator: AssertOperator::Eq, value: String::new(), extras: Extras::default() }
     }
 }
 
