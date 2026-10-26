@@ -300,10 +300,7 @@ pub fn assertion_table(ui: &mut Ui, rows: &mut Vec<Assertion>) -> TableResponse 
                 check.add_space(((CHECK_WIDTH - 16.0) / 2.0).max(0.0));
                 changed |= compact_checkbox(&mut check, &mut row.enabled).changed();
             }
-            let mut expr_ui = ui.new_child(
-                egui::UiBuilder::new().max_rect(cell(1).shrink2(egui::vec2(2.0, 2.0))).layout(egui::Layout::left_to_right(egui::Align::Center)),
-            );
-            changed |= crate::widgets::variable_field_with(&mut expr_ui, id(1), &mut row.expr, "res.status", &[], None).changed();
+            changed |= cell_edit(ui, id(1), cell(1), &mut row.expr, "res.status", false).changed();
 
             if !is_ghost {
                 let mut operator_ui = ui.new_child(
@@ -327,10 +324,7 @@ pub fn assertion_table(ui: &mut Ui, rows: &mut Vec<Assertion>) -> TableResponse 
                     palette.text_muted,
                 );
             } else {
-                let mut value_ui = ui.new_child(
-                    egui::UiBuilder::new().max_rect(cell(3).shrink2(egui::vec2(2.0, 2.0))).layout(egui::Layout::left_to_right(egui::Align::Center)),
-                );
-                changed |= crate::widgets::variable_field_with(&mut value_ui, id(3), &mut row.value, "Value", &[], None).changed();
+                changed |= cell_edit(ui, id(3), cell(3), &mut row.value, "Value", false).changed();
             }
 
             if is_ghost {
