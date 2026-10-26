@@ -1,0 +1,15 @@
+auth {
+  mode: bearer
+}
+
+auth:bearer {
+  token: {{process.env.API_TOKEN}}
+}
+
+vars:pre-request {
+  region: eu
+}
+
+docs {
+  Synthetic sample collection for the Postguy Bruno importer tests.
+}

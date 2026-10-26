@@ -68,6 +68,12 @@ impl StorePaths {
         self.workspace.join("files")
     }
 
+    /// `<workspace>/assets/<collection id>`: the files a collection's scripts and body
+    /// shortcodes may read. The id follows the same allowlist as collection files.
+    pub fn assets_dir(&self, collection: &str) -> Result<PathBuf, WorkspaceError> {
+        id_file(&self.workspace.join("assets"), collection).map(|file| file.with_extension(""))
+    }
+
     pub fn history_file(&self) -> PathBuf {
         self.workspace.join("history.jsonl")
     }

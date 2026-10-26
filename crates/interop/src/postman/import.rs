@@ -25,6 +25,9 @@ pub const SIZE_CAP: usize = 100 * 1024 * 1024;
 /// JSON nesting cap.
 pub const DEPTH_CAP: usize = 256;
 
+/// The item-level key that carries a request's assertions and test script through Postman files.
+pub(crate) const POSTGUY_TESTS: &str = "postguyTests";
+
 /// Reserved extras keys, consumed by the exporter and never emitted as user data.
 pub(crate) mod reserved {
     /// The collection's v2.1/v2.0 schema URL, as written in `info.schema`.
@@ -538,8 +541,16 @@ fn map_request_item(
         http.settings = mapped;
         http.extras.0.shift_remove(reserved::PPB_AT_REQUEST_LEVEL);
     }
-    let mut item_extras =
-        unknown_keys_of(object, &["name", "request", "response", "description", "event", "auth", "variable", "protocolProfileBehavior"]);
+    if let Some(tests) = object.get(POSTGUY_TESTS) {
+        match serde_json::from_value::<postguy_model::RequestTests>(tests.clone()) {
+            Ok(parsed) => http.tests = parsed,
+            Err(error) => report.normal(&format!("{path}.{POSTGUY_TESTS}"), format!("could not read the request tests ({error}); dropped")),
+        }
+    }
+    let mut item_extras = unknown_keys_of(
+        object,
+        &["name", "request", "response", "description", "event", "auth", "variable", "protocolProfileBehavior", POSTGUY_TESTS],
+    );
     item_extras.extend(std::mem::take(&mut http.extras.0));
     let request_description = item_extras.shift_remove(reserved::REQUEST_DESCRIPTION);
     let description_at_request_level = !object.contains_key("description");

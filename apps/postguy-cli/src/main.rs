@@ -39,7 +39,7 @@ fn out(line: impl std::fmt::Display) {
 
 fn usage() {
     eprintln!(
-        "usage:\n  postguy-cli tools [--json]\n  postguy-cli call <tool> --json '<args>' [--root DIR]\n  postguy-cli run --script FILE [--root DIR]\n  postguy-cli run --collection ID_OR_NAME --workspace DIR [--folder F] [--environment E] [--iterations N] [--delay MS] [--data FILE] [--bail] [--requests ID,ID] [--reporters cli,json,junit,html] [--out DIR] [--root DIR]\n  postguy-cli fuzz-target <name> <seed-file>   (dev tooling)\n  postguy-cli ui --control FILE inspect|command ID|set KEY=VALUE|screenshot --out FILE|click X Y|key NAME|type TEXT [--root DIR]\n\nRun `postguy-cli tools` for the tool table; `ui` talks to an app launched with `--control FILE`."
+        "usage:\n  postguy-cli tools [--json]\n  postguy-cli call <tool> --json '<args>' [--root DIR]\n  postguy-cli run --script FILE [--root DIR]\n  postguy-cli run --collection ID_OR_NAME --workspace DIR [--folder F] [--environment E] [--iterations N] [--delay MS] [--data FILE] [--bail] [--requests ID,ID] [--reporters cli,json,junit,html,csv,xlsx,pdf] [--out DIR] [--root DIR]\n  postguy-cli fuzz-target <name> <seed-file>   (dev tooling)\n  postguy-cli ui --control FILE inspect|command ID|set KEY=VALUE|screenshot --out FILE|click X Y|key NAME|type TEXT [--root DIR]\n\nRun `postguy-cli tools` for the tool table; `ui` talks to an app launched with `--control FILE`."
     );
 }
 

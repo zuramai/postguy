@@ -383,6 +383,183 @@ fn walk_dir(dir: &Path, depth: usize, files: &mut Vec<PathBuf>, problems: &mut V
     }
 }
 
+/// Maximum `.bru` files one Bruno import reads.
+const BRUNO_FILE_CAP: usize = 20_000;
+/// Maximum size of one `.bru` file.
+const BRUNO_FILE_BYTES: usize = 5 << 20;
+/// Maximum size of the `.env` file.
+const BRUNO_ENV_BYTES: usize = 64 << 10;
+/// Maximum non-`.bru` files queued as assets (the asset import applies its own, lower cap).
+const BRUNO_ASSET_QUEUE_CAP: usize = 100_000;
+
+/// What importing a Bruno collection folder produced.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrunoImportOutcome {
+    pub collection: ImportOutcome,
+    pub environments: Vec<ImportOutcome>,
+    pub assets: crate::assets::AssetImportOutcome,
+}
+
+struct BrunoWalk {
+    files: Vec<postguy_interop::BrunoFile>,
+    assets: Vec<(PathBuf, String)>,
+    problems: Vec<String>,
+}
+
+impl Engine {
+    /// Import a Bruno collection folder (`bruno.json` at its root): the requests and
+    /// environments become a collection and environments, every other file is copied into the
+    /// collection's Assets with its relative path. An internal panic becomes an error.
+    pub fn import_bruno(&self, dir: &Path, options: ImportOptions) -> Result<BrunoImportOutcome> {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.import_bruno_inner(dir, options))) {
+            Ok(result) => result,
+            Err(payload) => {
+                let message = payload
+                    .downcast_ref::<&str>()
+                    .map(|text| (*text).to_string())
+                    .or_else(|| payload.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "unknown panic".to_string());
+                Err(EngineError::Import { message: format!("the importer failed unexpectedly: {message}") })
+            }
+        }
+    }
+
+    fn import_bruno_inner(&self, dir: &Path, options: ImportOptions) -> Result<BrunoImportOutcome> {
+        let not_bruno = || EngineError::Import { message: format!("{} is not a Bruno collection (no bruno.json)", dir.display()) };
+        let config_path = dir.join("bruno.json");
+        if !std::fs::metadata(&config_path).is_ok_and(|metadata| metadata.is_file()) {
+            return Err(not_bruno());
+        }
+        let config_bytes = postguy_util::read_file_capped(&config_path, BRUNO_FILE_BYTES)
+            .map_err(|err| EngineError::Import { message: format!("{}: {err}", config_path.display()) })?;
+        let config_text = String::from_utf8_lossy(&config_bytes).into_owned();
+        let config: serde_json::Value = serde_json::from_str(&config_text).unwrap_or(serde_json::Value::Null);
+        let ignored: Vec<String> = config
+            .get("ignore")
+            .and_then(serde_json::Value::as_array)
+            .map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        let named = config.get("name").and_then(serde_json::Value::as_str).is_some_and(|name| !name.trim().is_empty());
+
+        let mut walk = walk_bruno(dir, &ignored)?;
+        walk.files.push(postguy_interop::BrunoFile { path: "bruno.json".into(), text: config_text });
+        let dotenv = read_dotenv(&dir.join(".env"));
+
+        let imported = postguy_interop::import_bruno(&walk.files, &dotenv).map_err(|err| EngineError::Import { message: err.to_string() })?;
+        drop(walk.files);
+        let postguy_interop::BrunoImport { mut collection, environments, mut report, .. } = imported;
+        if !named && let Some(folder) = dir.file_name().and_then(|name| name.to_str()).map(str::trim).filter(|name| !name.is_empty()) {
+            collection.name = folder.to_string();
+        }
+        report.warnings.append(&mut walk.problems);
+        let saved = self.save_imported_collection(collection, report, options)?;
+        let collection_id = Id(saved.id.clone().unwrap_or_default());
+        let mut saved_environments = Vec::with_capacity(environments.len());
+        for environment in environments {
+            // Secret values are split into the secrets store by the workspace save.
+            saved_environments.push(self.save_imported_environment(
+                environment,
+                ImportReport { environments: 1, ..ImportReport::default() },
+                options,
+            )?);
+        }
+        let assets = self.import_asset_files(&collection_id, &walk.assets, options.replace)?;
+        Ok(BrunoImportOutcome { collection: saved, environments: saved_environments, assets })
+    }
+}
+
+fn walk_bruno(root: &Path, ignored: &[String]) -> Result<BrunoWalk> {
+    let mut walk = BrunoWalk { files: Vec::new(), assets: Vec::new(), problems: Vec::new() };
+    let mut bru_count = 0usize;
+    let mut asset_cap_noted = false;
+    let mut stack: Vec<(PathBuf, String, usize)> = vec![(root.to_path_buf(), String::new(), 0)];
+    while let Some((dir, prefix, depth)) = stack.pop() {
+        if depth > MAX_WALK_DEPTH {
+            walk.problems.push(format!("{}: folder depth cap reached", dir.display()));
+            continue;
+        }
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(err) => {
+                walk.problems.push(format!("{}: {err}", dir.display()));
+                continue;
+            }
+        };
+        let mut paths: Vec<(String, PathBuf)> = Vec::new();
+        for entry in entries {
+            match entry {
+                Ok(entry) => match entry.file_name().into_string() {
+                    Ok(name) => paths.push((name, entry.path())),
+                    Err(name) => walk.problems.push(format!("{}: skipped a name that is not UTF-8 ({name:?})", dir.display())),
+                },
+                Err(err) => walk.problems.push(format!("{}: {err}", dir.display())),
+            }
+        }
+        paths.sort();
+        for (name, path) in paths {
+            if name.starts_with('.') || name == "node_modules" || (depth == 0 && ignored.iter().any(|item| item == &name)) {
+                continue;
+            }
+            let relative = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
+            let Ok(metadata) = std::fs::symlink_metadata(&path) else { continue };
+            let file_type = metadata.file_type();
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
+                stack.push((path, relative, depth + 1));
+                continue;
+            }
+            if !file_type.is_file() {
+                continue;
+            }
+            if name.ends_with(".bru") {
+                bru_count += 1;
+                if bru_count > BRUNO_FILE_CAP {
+                    return Err(EngineError::Import { message: format!("Bruno collection has more than {BRUNO_FILE_CAP} requests") });
+                }
+                match postguy_util::read_file_capped(&path, BRUNO_FILE_BYTES) {
+                    Ok(bytes) => match String::from_utf8(bytes) {
+                        Ok(text) => walk.files.push(postguy_interop::BrunoFile { path: relative, text }),
+                        Err(_) => walk.problems.push(format!("{relative}: not UTF-8 text; skipped")),
+                    },
+                    Err(err) => walk.problems.push(format!("{relative}: {err}; skipped")),
+                }
+            } else if (depth == 0 && matches!(name.as_str(), "bruno.json" | "package.json" | "package-lock.json"))
+                || relative.starts_with("environments/")
+            {
+                continue;
+            } else if walk.assets.len() < BRUNO_ASSET_QUEUE_CAP {
+                walk.assets.push((path, relative));
+            } else if !asset_cap_noted {
+                asset_cap_noted = true;
+                walk.problems.push(format!("more than {BRUNO_ASSET_QUEUE_CAP} non-request files; the rest were not imported as assets"));
+            }
+        }
+    }
+    Ok(walk)
+}
+
+fn read_dotenv(path: &Path) -> std::collections::BTreeMap<String, String> {
+    let mut map = std::collections::BTreeMap::new();
+    let Ok(bytes) = postguy_util::read_file_capped(path, BRUNO_ENV_BYTES) else { return map };
+    let text = String::from_utf8_lossy(&bytes);
+    for line in text.lines() {
+        let Some((key, value)) = line.split_once('=') else { continue };
+        let key = key.trim();
+        let valid =
+            key.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !valid {
+            continue;
+        }
+        let value = value.trim();
+        let unquoted = ['"', '\''].iter().find_map(|quote| value.strip_prefix(*quote).and_then(|rest| rest.strip_suffix(*quote))).unwrap_or(value);
+        map.insert(key.to_string(), unquoted.to_string());
+    }
+    map
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

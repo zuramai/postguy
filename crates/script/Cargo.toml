@@ -17,6 +17,7 @@ postguy-urlkit.workspace = true
 rquickjs.workspace = true
 serde_json.workspace = true
 base64.workspace = true
+uuid.workspace = true
 
 # rquickjs-sys ships no pregenerated bindings for these targets (Windows x86 release build,
 # FreeBSD), so bindgen generates them there.

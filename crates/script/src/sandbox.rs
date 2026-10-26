@@ -12,6 +12,7 @@ use postguy_model::{NextRequest, ScriptFailure, ScriptPhase};
 use rquickjs::context::EvalOptions;
 use rquickjs::{Array, CatchResultExt, Ctx, Function, Object, Runtime, Value};
 
+use crate::assert;
 use crate::pm::{self, MAX_TIMERS, Shared, State, TIMERS};
 use crate::{CancelCheck, Context, Limits, Outcome, ScriptSource, Variables};
 
@@ -94,6 +95,7 @@ fn run_inner(sources: &[ScriptSource], context: Context, limits: &Limits, cancel
         Err(err) => return engine_failure(context, &origin, format!("the script engine could not start: {err}")),
     };
 
+    let tests_block = context.tests;
     let state: Shared = Rc::new(RefCell::new(State {
         phase: context.phase,
         info: context.info,
@@ -111,6 +113,8 @@ fn run_inner(sources: &[ScriptSource], context: Context, limits: &Limits, cancel
         skip: false,
         tests_overflowed: false,
         origin: origin.clone(),
+        report: serde_json::Map::new(),
+        modules_loaded: 0,
     }));
 
     let phase = context.phase;
@@ -124,33 +128,46 @@ fn run_inner(sources: &[ScriptSource], context: Context, limits: &Limits, cancel
             push_failure(&state, failure_of(&origin, format!("the script engine could not start: {message}"), None));
             return;
         }
-        for source in sources {
-            // Each script runs in its own function so `const`/`let` names never collide
-            // between the collection, folder and request scripts. No newline is added, so
-            // line numbers still match the editor.
-            let wrapped = format!("(function(){{{}\n}})();", source.text);
+        // Runs one script in its own function so `const`/`let` names never collide between
+        // the collection, folder and request scripts. No newline is added, so line numbers
+        // still match the editor. Returns `true` when the run must stop.
+        let exec = |origin: &str, text: &str| -> bool {
+            let wrapped = format!("(function(){{{text}\n}})();");
             let mut options = EvalOptions::default();
             options.global = true;
             options.strict = false;
-            options.filename = Some(source.origin.clone());
+            options.filename = Some(origin.to_string());
             if let Err(err) = ctx.eval_with_options::<Value, _>(wrapped, options).catch(&ctx).map(|_| ()).map_err(|e| e.to_string()) {
-                let (message, line) = split_caught(&err, &source.origin);
+                let (message, line) = split_caught(&err, origin);
                 let message = limit_message(&message, &reason, timeout_ms, memory_mib);
-                push_failure(&state, failure_of(&source.origin, message, line));
-                if phase == ScriptPhase::PreRequest {
-                    break;
-                }
-                if reason.load(Ordering::Relaxed) != REASON_NONE {
-                    break;
-                }
-                continue;
+                push_failure(&state, failure_of(origin, message, line));
+                return phase == ScriptPhase::PreRequest || reason.load(Ordering::Relaxed) != REASON_NONE;
             }
             if let Err(message) = drain(&ctx, &reason, deadline) {
                 let message = limit_message(&message, &reason, timeout_ms, memory_mib);
-                push_failure(&state, failure_of(&source.origin, message, None));
-                if phase == ScriptPhase::PreRequest || reason.load(Ordering::Relaxed) != REASON_NONE {
-                    break;
-                }
+                push_failure(&state, failure_of(origin, message, None));
+                return phase == ScriptPhase::PreRequest || reason.load(Ordering::Relaxed) != REASON_NONE;
+            }
+            false
+        };
+        for source in sources {
+            if exec(&source.origin, &source.text) {
+                break;
+            }
+        }
+        // The Tests tab: assertions first, then its script (Bruno's order).
+        if phase == ScriptPhase::PostResponse
+            && reason.load(Ordering::Relaxed) == REASON_NONE
+            && let Some(block) = &tests_block
+        {
+            if let Err(err) = assert::run_assertions(&ctx, &state, &block.assertions) {
+                let message = describe(&ctx, err, &reason, timeout_ms, memory_mib).0;
+                push_failure(&state, failure_of(&block.origin, message, None));
+            }
+            if reason.load(Ordering::Relaxed) == REASON_NONE
+                && let Some(script) = block.script.as_deref().filter(|s| !s.trim().is_empty())
+            {
+                exec(&block.origin, script);
             }
         }
     });
@@ -177,6 +194,8 @@ fn run_inner(sources: &[ScriptSource], context: Context, limits: &Limits, cancel
                 skip: state.skip,
                 tests_overflowed: state.tests_overflowed,
                 origin: state.origin.clone(),
+                report: state.report.clone(),
+                modules_loaded: state.modules_loaded,
             },
             Err(_) => {
                 return Outcome {
@@ -212,7 +231,7 @@ fn run_inner(sources: &[ScriptSource], context: Context, limits: &Limits, cancel
         logs: state.logs,
         next_request: state.next,
         skip_request: state.skip,
-        report: serde_json::Map::new(),
+        report: state.report,
     }
 }
 
@@ -229,7 +248,8 @@ fn limit_message(message: &str, reason: &AtomicU8, timeout_ms: u64, memory_mib: 
         REASON_CANCELLED => return "the script was cancelled".to_string(),
         _ => {}
     }
-    if message.contains("out of memory") {
+    // QuickJS throws `null` when it cannot even allocate the out-of-memory error object.
+    if message.contains("out of memory") || message.contains("Exception generated by quickjs: Null") {
         return format!("the script used more than {memory_mib} MiB of memory");
     }
     message.to_string()

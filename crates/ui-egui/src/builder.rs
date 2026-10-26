@@ -14,7 +14,7 @@ use postguy_urlkit::{Param, Url, encode_query, params_of_query, path_vars_of, qu
 
 use crate::theme::Theme;
 use crate::widgets::field::VariableInfo;
-use crate::widgets::{self, CodeEditor, CodeLanguage, TableVariant};
+use crate::widgets::{self, AssetIndex, CodeEditor, CodeLanguage, TableVariant};
 
 /// One builder tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
@@ -26,6 +26,7 @@ pub enum BuilderTab {
     Headers,
     Body,
     Scripts,
+    Tests,
     Settings,
     Docs,
 }
@@ -91,6 +92,8 @@ pub struct RequestBuilder<'a> {
     pub oauth2_action: &'a mut Option<crate::auth::OAuth2Action>,
     /// Introspected GraphQL types for this request, if any.
     pub graphql_schema: Option<&'a [String]>,
+    /// The collection's asset paths, for colouring `{{% file('…') %}}` shortcodes in bodies.
+    pub assets: Option<&'a AssetIndex>,
 }
 
 impl RequestBuilder<'_> {
@@ -115,6 +118,7 @@ impl RequestBuilder<'_> {
             BuilderTab::Headers => self.headers(ui, &theme),
             BuilderTab::Body => self.body(ui, &theme),
             BuilderTab::Scripts => self.scripts(ui, &theme),
+            BuilderTab::Tests => self.tests(ui, &theme),
             BuilderTab::Settings => self.settings(ui, &theme),
             BuilderTab::Docs => self.docs(ui, &theme),
         });
@@ -254,7 +258,7 @@ impl RequestBuilder<'_> {
             let url_rect = egui::Rect::from_min_max(egui::pos2(method_rect.right() + 1.0, bar.top()), bar.max);
             let response = ui
                 .scope_builder(egui::UiBuilder::new().max_rect(url_rect), |ui| {
-                    widgets::variable_field_frameless(ui, url_id, &mut self.draft.url, "https://api.example.com/users", self.variables)
+                    widgets::variable_field_frameless(ui, url_id, &mut self.draft.url, "https://api.example.com/users", self.variables, None)
                 })
                 .inner;
             let response = response.on_hover_text("Paste a cURL command here to import it");
@@ -323,12 +327,14 @@ impl RequestBuilder<'_> {
         ui.horizontal(|ui| {
             let headers = self.draft.headers.iter().filter(|row| row.enabled && !row.key.is_empty()).count();
             let params = self.draft.params.iter().filter(|row| row.enabled && !row.key.is_empty()).count();
+            let assertions = self.draft.tests.assertions.iter().filter(|row| row.enabled).count();
             for (tab, label, dot, count) in [
                 (BuilderTab::Params, "Params", false, Some(params)),
                 (BuilderTab::Authorization, "Authorization", self.draft.auth.resolves(), None),
                 (BuilderTab::Headers, "Headers", headers > 0, Some(headers)),
                 (BuilderTab::Body, "Body", self.draft.body.is_non_none(), None),
                 (BuilderTab::Scripts, "Scripts", !self.draft.scripts.is_empty(), None),
+                (BuilderTab::Tests, "Tests", self.draft.tests.script.as_ref().is_some_and(|script| !script.is_empty()), Some(assertions)),
                 (BuilderTab::Settings, "Settings", false, None),
                 (BuilderTab::Docs, "Docs", !self.description.is_empty(), None),
             ] {
@@ -350,7 +356,7 @@ impl RequestBuilder<'_> {
     fn params(&mut self, ui: &mut Ui, theme: &Theme) {
         ui.label(RichText::new("Query Params").small().color(theme.palette.text_muted));
         let before = self.draft.url.clone();
-        let response = widgets::key_value_table(ui, &mut self.draft.params, TableVariant::Normal);
+        let response = widgets::key_value_table(ui, &mut self.draft.params, TableVariant::Normal, None);
         let bulk = bulk_edit(ui, ("params-bulk", self.name.as_str()), &mut self.draft.params, theme);
         if response.changed || bulk {
             *self.dirty = true;
@@ -362,7 +368,7 @@ impl RequestBuilder<'_> {
             ui.label(RichText::new("Add `:name` segments to the URL to edit their values here.").small().color(theme.palette.text_muted));
         } else {
             let before = self.draft.url.clone();
-            let response = widgets::key_value_table(ui, &mut self.draft.path_vars, TableVariant::Normal);
+            let response = widgets::key_value_table(ui, &mut self.draft.path_vars, TableVariant::Normal, None);
             if response.changed {
                 *self.dirty = true;
                 sync_to_url(self.draft, &before);
@@ -403,7 +409,7 @@ impl RequestBuilder<'_> {
             });
             ui.label(RichText::new("Built-in sets; custom presets are not available yet.").small().color(theme.palette.text_muted));
         });
-        let table = widgets::key_value_table(ui, &mut self.draft.headers, TableVariant::Normal);
+        let table = widgets::key_value_table(ui, &mut self.draft.headers, TableVariant::Normal, None);
         let bulk = bulk_edit(ui, ("headers-bulk", self.name.as_str()), &mut self.draft.headers, theme);
         if table.changed || bulk {
             *self.dirty = true;
@@ -456,12 +462,21 @@ impl RequestBuilder<'_> {
         }
         ui.add_space(8.0);
         let mut changed = false;
+        let assets = self.assets;
+        let mut shortcode_problem: Option<String> = None;
+        let problem_of = |text: &str| widgets::first_problem(&widgets::shortcode_marks(text, assets)).map(str::to_string);
         match &mut self.draft.body {
             Body::None => {
                 ui.label(RichText::new("This request has no body.").color(theme.palette.text_muted));
             }
-            Body::FormData(rows) => changed = widgets::key_value_table(ui, rows, TableVariant::FileText).changed,
-            Body::UrlEncoded(rows) => changed = widgets::key_value_table(ui, rows, TableVariant::Normal).changed,
+            Body::FormData(rows) => {
+                changed = widgets::key_value_table(ui, rows, TableVariant::FileText, Some(shortcode_scope(assets))).changed;
+                shortcode_problem = rows.iter().filter(|row| row.enabled).find_map(|row| problem_of(&row.value));
+            }
+            Body::UrlEncoded(rows) => {
+                changed = widgets::key_value_table(ui, rows, TableVariant::Normal, Some(shortcode_scope(assets))).changed;
+                shortcode_problem = rows.iter().filter(|row| row.enabled).find_map(|row| problem_of(&row.value));
+            }
             Body::Raw { language, text, .. } => {
                 ui.horizontal(|ui| {
                     let languages = [("text", "Text"), ("json", "JSON"), ("javascript", "JavaScript"), ("html", "HTML"), ("xml", "XML")];
@@ -501,7 +516,10 @@ impl RequestBuilder<'_> {
                     RawLanguage::Text => CodeLanguage::Plain,
                 })
                 .rows(14)
-                .id(egui::Id::new("body-raw"));
+                .id(egui::Id::new("body-raw"))
+                .assets(assets);
+                // Above the editor: it fills the pane height, so a line below it would be off screen.
+                problem_line(ui, theme, problem_of(text));
                 if editor.show(ui, text).changed() {
                     changed = true;
                 }
@@ -523,12 +541,13 @@ impl RequestBuilder<'_> {
                         ui.label(RichText::new("No schema loaded").small().color(theme.palette.text_muted));
                     }
                 });
+                problem_line(ui, theme, problem_of(query).or_else(|| problem_of(variables)));
                 ui.label(RichText::new("Query").small().color(theme.palette.text_muted));
-                if CodeEditor::new(CodeLanguage::GraphQl).rows(8).id(egui::Id::new("gql-query")).show(ui, query).changed() {
+                if CodeEditor::new(CodeLanguage::GraphQl).rows(8).id(egui::Id::new("gql-query")).assets(assets).show(ui, query).changed() {
                     changed = true;
                 }
                 ui.label(RichText::new("Variables (JSON)").small().color(theme.palette.text_muted));
-                if CodeEditor::new(CodeLanguage::Json).rows(4).id(egui::Id::new("gql-vars")).show(ui, variables).changed() {
+                if CodeEditor::new(CodeLanguage::Json).rows(4).id(egui::Id::new("gql-vars")).assets(assets).show(ui, variables).changed() {
                     changed = true;
                 }
                 let mut name = operation_name.clone().unwrap_or_default();
@@ -548,6 +567,7 @@ impl RequestBuilder<'_> {
             }
             _ => {}
         }
+        problem_line(ui, theme, shortcode_problem);
         if changed {
             *self.dirty = true;
         }
@@ -558,6 +578,18 @@ impl RequestBuilder<'_> {
         let scripts = &mut self.draft.scripts;
         let mut changed = script_editor(ui, theme, "Pre-request", egui::Id::new(("script", "Pre-request")), 6, &mut scripts.prerequest, PRE_REQUEST);
         changed |= script_editor(ui, theme, "Post-response", egui::Id::new(("script", "Post-response")), 6, &mut scripts.test, POST_RESPONSE);
+        if changed {
+            *self.dirty = true;
+        }
+    }
+
+    fn tests(&mut self, ui: &mut Ui, theme: &Theme) {
+        use crate::script_snippets::{TESTS, script_editor};
+        ui.label(RichText::new("Assertions").small().color(theme.palette.text_muted));
+        let response = widgets::assertion_table(ui, &mut self.draft.tests.assertions);
+        let mut changed = response.changed;
+        ui.add_space(12.0);
+        changed |= script_editor(ui, theme, "Test script", egui::Id::new(("script", "Tests")), 8, &mut self.draft.tests.script, TESTS);
         if changed {
             *self.dirty = true;
         }
@@ -623,6 +655,20 @@ impl RequestBuilder<'_> {
             *self.dirty = true;
         }
         let _ = theme;
+    }
+}
+
+/// Shortcode colouring in a table needs *some* index to switch on; with none loaded yet an
+/// empty, not-loaded one keeps the check to syntax only.
+fn shortcode_scope(assets: Option<&AssetIndex>) -> &AssetIndex {
+    static UNLOADED: AssetIndex = AssetIndex { paths: std::collections::BTreeSet::new(), loaded: false };
+    assets.unwrap_or(&UNLOADED)
+}
+
+/// The first invalid shortcode's reason, as one danger line.
+fn problem_line(ui: &mut Ui, theme: &Theme, reason: Option<String>) {
+    if let Some(reason) = reason {
+        ui.label(RichText::new(format!("Shortcode: {reason}")).small().color(theme.palette.danger));
     }
 }
 

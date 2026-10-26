@@ -28,6 +28,12 @@ pub struct ScriptReport {
     pub next_request: NextRequest,
     /// A script wrote an environment, globals or collection variable that is now on disk.
     pub variables_changed: bool,
+    /// A script wrote a collection variable: a runner holding a collection snapshot reloads it.
+    #[serde(skip)]
+    pub collection_changed: bool,
+    /// Custom report fields set with `pg.report.set`, pre-request first, later keys overwrite.
+    #[serde(skip_serializing_if = "serde_json::Map::is_empty")]
+    pub report: serde_json::Map<String, serde_json::Value>,
 }
 
 /// The scripts that run in `phase`, outermost first, with the label failures report.
@@ -261,6 +267,8 @@ struct EngineHost {
     handle: tokio::runtime::Handle,
     cancel: Cancel,
     environment: Option<Id>,
+    /// The collection whose assets scripts may read; `None` for inline sends.
+    collection: Option<Id>,
     iteration: Option<IterationScope>,
 }
 
@@ -293,6 +301,7 @@ impl js::Host for EngineHost {
             cancel: Some(self.cancel.clone()),
             run_scripts: false,
             iteration: self.iteration.clone(),
+            skip_history: false,
         };
         let target = SendTarget::Inline { request: Box::new(http), name: "pm.sendRequest".to_string() };
         let outcome = self.handle.block_on(crate::pipeline::execute(&self.engine, target, options)).map_err(|err| err.to_string())?;
@@ -307,16 +316,35 @@ impl js::Host for EngineHost {
         })
     }
 
+    fn read_asset(&self, path: &str) -> std::result::Result<Vec<u8>, String> {
+        let collection = self.collection.as_ref().ok_or_else(no_collection_message)?;
+        self.engine.read_asset(collection, path).map_err(|err| crate::assets::error_text(&err))
+    }
+
+    fn list_assets(&self, dir: &str) -> std::result::Result<Vec<String>, String> {
+        let collection = self.collection.as_ref().ok_or_else(no_collection_message)?;
+        self.engine.list_asset_names(collection, dir).map_err(|err| crate::assets::error_text(&err))
+    }
+
     fn cookies_for(&self, url: &str) -> Vec<(String, String)> {
         let header = self.engine.jar().lock().map(|jar| jar.header_for(url)).unwrap_or_default();
         header.split(';').filter_map(|pair| pair.trim().split_once('=')).map(|(k, v)| (k.to_string(), v.to_string())).collect()
     }
 }
 
+fn no_collection_message() -> String {
+    "assets are only available for requests saved in a collection".to_string()
+}
+
 /// One phase's result, ready for the pipeline.
 pub(crate) struct PhaseOutput {
     pub outcome: js::Outcome,
-    pub variables_changed: bool,
+    /// Environment, globals or collection variables were written to disk.
+    pub persisted: bool,
+    /// Collection variables changed (a subset of `persisted`).
+    pub collection_changed: bool,
+    /// Any scope the resolver reads changed (persisted or runtime): reload the scopes.
+    pub scopes_changed: bool,
 }
 
 /// Everything a phase needs besides the located request.
@@ -337,7 +365,17 @@ pub(crate) async fn run_phase(
     warnings: &mut Vec<String>,
 ) -> Result<Option<PhaseOutput>> {
     let scripts = sources(located, input.phase);
-    if scripts.is_empty() {
+    let tests = if input.phase == ScriptPhase::PostResponse && located.http.tests.has_work() {
+        let block = &located.http.tests;
+        Some(js::TestBlock {
+            origin: format!("request {} tests", located.request_name),
+            assertions: block.assertions.iter().filter(|a| a.enabled).cloned().collect(),
+            script: block.script.as_ref().filter(|s| !s.is_empty()).map(|s| s.text.clone()),
+        })
+    } else {
+        None
+    };
+    if scripts.is_empty() && tests.is_none() {
         return Ok(None);
     }
     let before = script_variables(input.scopes, input.options.iteration.as_ref(), input.locals);
@@ -360,9 +398,10 @@ pub(crate) async fn run_phase(
             handle: tokio::runtime::Handle::current(),
             cancel: cancel.clone(),
             environment: input.options.environment.clone(),
+            collection: Some(located.collection.id.clone()).filter(|id| !id.0.is_empty() && !located.request_id.is_empty()),
             iteration: input.options.iteration.clone(),
         }),
-        tests: None,
+        tests,
     };
     let check_cancel = cancel.clone();
     let cancelled: js::CancelCheck = Arc::new(move || check_cancel.is_cancelled());
@@ -376,10 +415,11 @@ pub(crate) async fn run_phase(
         line: None,
     })?;
 
-    let mut variables_changed = persist(engine, located, input.scopes.environment.as_ref(), &before, &outcome.variables, warnings)?;
-    if outcome.variables.runtime != before.runtime {
+    let persisted = persist(engine, located, input.scopes.environment.as_ref(), &before, &outcome.variables, warnings)?;
+    let collection_changed = persisted && outcome.variables.collection != before.collection;
+    let runtime_changed = outcome.variables.runtime != before.runtime;
+    if runtime_changed {
         engine.set_runtime_variables(&located.collection.id, outcome.variables.runtime.clone());
-        variables_changed = true;
     }
     let secret_scopes = &input.scopes.scopes;
     for line in &outcome.logs {
@@ -391,7 +431,7 @@ pub(crate) async fn run_phase(
         let message = format!("[{}] {}", input.phase.label(), line.message);
         engine.console().push(level, ConsoleKind::Log, postguy_vars::mask_secrets(&message, secret_scopes));
     }
-    Ok(Some(PhaseOutput { outcome, variables_changed }))
+    Ok(Some(PhaseOutput { outcome, persisted, collection_changed, scopes_changed: persisted || runtime_changed }))
 }
 
 /// The scope set with `locals` appended, as a resolver.

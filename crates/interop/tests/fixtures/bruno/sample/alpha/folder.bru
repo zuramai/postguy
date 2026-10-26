@@ -1,0 +1,12 @@
+meta {
+  name: Orders
+  seq: 2
+}
+
+vars:pre-request {
+  folderVar: one
+}
+
+script:pre-request {
+  bru.setVar("order_scope", "alpha");
+}

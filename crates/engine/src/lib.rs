@@ -6,6 +6,7 @@
 //! escaped panic becomes [`EngineError::Panicked`] and the session keeps its data. The UI calls
 //! [`Engine::send_async`] from the runtime and never blocks its own thread.
 
+pub mod assets;
 pub mod console;
 pub mod edit;
 pub mod error;
@@ -26,9 +27,10 @@ use std::collections::{HashMap, VecDeque};
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};
 
+pub use assets::{AssetImportOutcome, AssetInfo};
 pub use error::{EngineError, Result};
 pub use exports::CollectionFormat;
-pub use import::{Detected, IMPORT_FILE_CAP, ImportKind, ImportOptions, ImportOutcome, detect, walk_import_paths};
+pub use import::{BrunoImportOutcome, Detected, IMPORT_FILE_CAP, ImportKind, ImportOptions, ImportOutcome, detect, walk_import_paths};
 pub use oauth2::{OAuth2Callback, StoredToken};
 pub use pipeline::{IterationScope, ResponseView, SendOptions, SendOutcome, SendTarget, SentRequest};
 pub use postguy_runner::{DataSet, RunConfig, RunEvent, RunResult, RunSummary};

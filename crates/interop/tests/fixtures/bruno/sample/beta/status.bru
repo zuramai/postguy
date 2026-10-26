@@ -1,0 +1,21 @@
+meta {
+  name: Status
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/status/:code
+  body: none
+  auth: inherit
+}
+
+params:path {
+  code: 200
+}
+
+headers {
+  Accept: application/json
+  ~X-Skip:
+  Empty:
+}

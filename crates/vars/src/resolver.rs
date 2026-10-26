@@ -300,12 +300,20 @@ pub fn resolve(template: &str) -> Resolution {
 }
 
 /// Find the FIRST complete `{{name}}` in `text`; (open byte, byte AFTER `}}`), also tolerating
-/// an empty name `{{}}` (the caller reports unresolved).
+/// an empty name `{{}}` (the caller reports unresolved). A `{{%` opens a shortcode, never a
+/// variable, so it is skipped.
 fn next_var(text: &str) -> Option<(usize, usize)> {
-    let open = text.find("{{")?;
-    let after_open = open + "{{".len();
-    let close = text.get(after_open..)?.find("}}")? + after_open;
-    Some((open, close + "}}".len()))
+    let mut from = 0usize;
+    loop {
+        let open = from + text.get(from..)?.find("{{")?;
+        let after_open = open + "{{".len();
+        if text.as_bytes().get(after_open) == Some(&b'%') {
+            from = after_open;
+            continue;
+        }
+        let close = text.get(after_open..)?.find("}}")? + after_open;
+        return Some((open, close + "}}".len()));
+    }
 }
 
 #[cfg(test)]
@@ -324,6 +332,13 @@ mod tests {
     fn precedence_says_narrowest_wins() {
         let resolution = base().resolve("{{both}} {{env}}");
         assert_eq!(resolution.text, "from-env e");
+        assert_eq!(resolution.unresolved_names(), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn shortcodes_are_left_literal_and_plain_variables_still_resolve() {
+        let resolution = base().resolve("{{% base64(file('a.jpg')) %}} {{env}} {{%x%}}");
+        assert_eq!(resolution.text, "{{% base64(file('a.jpg')) %}} e {{%x%}}");
         assert_eq!(resolution.unresolved_names(), Vec::<&str>::new());
     }
 

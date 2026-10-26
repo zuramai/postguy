@@ -1,0 +1,70 @@
+meta {
+  name: Create order
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/orders
+  body: json
+  auth: apikey
+}
+
+headers {
+  Content-Type: application/json
+  x-app: request-wins
+}
+
+auth:apikey {
+  key: X-Key
+  value: {{process.env.API_KEY}}
+  placement: header
+}
+
+body:json {
+  {
+    "note": "a } brace",
+    "image": "{{% base64(file('lib/images/a.png')) %}}",
+    "nested": {
+      "x": 1
+    }
+  }
+}
+
+vars:pre-request {
+  attempt: 1
+}
+
+vars:post-response {
+  order_id: res.body.id
+}
+
+assert {
+  res.status: eq 201
+  res.body.kind: in new, repeat
+  res.body.code: neq 0
+  res.body.id: isDefined
+  ~res.body.skip: eq 1
+  res.body.weird: sortOf 3
+}
+
+script:pre-request {
+  const utils = require('./lib/utils');
+  const axios = require('axios');
+  const fs = require('fs');
+  req.setHeader('X-Image', utils.image('a.png'));
+}
+
+script:post-response {
+  bru.setVar("last_order", res.body.id);
+}
+
+tests {
+  test("created", function () {
+    expect(res.status).to.equal(201);
+  });
+}
+
+docs {
+  Creates an order.
+}

@@ -117,7 +117,7 @@ impl Js {
     }
 }
 
-fn number_json(n: f64) -> Json {
+pub(crate) fn number_json(n: f64) -> Json {
     if n.is_finite() {
         if n.fract() == 0.0 && n.abs() < 9.0e15 {
             return Json::from(n as i64);

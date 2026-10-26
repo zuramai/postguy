@@ -3755,11 +3755,13 @@ name = "postguy-runner"
 version = "0.1.0"
 dependencies = [
  "csv",
+ "flate2",
  "postguy-model",
  "postguy-util",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "zip",
 ]
 
 [[package]]
@@ -3773,6 +3775,7 @@ dependencies = [
  "postguy-vars",
  "rquickjs",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -3839,6 +3842,8 @@ dependencies = [
  "postguy-model",
  "postguy-snippets",
  "postguy-urlkit",
+ "postguy-util",
+ "postguy-vars",
  "serde",
  "serde_json",
 ]
@@ -3865,8 +3870,11 @@ dependencies = [
 name = "postguy-vars"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "fastrand",
+ "md-5",
  "proptest",
+ "sha2",
  "uuid",
 ]
 

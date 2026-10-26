@@ -634,6 +634,17 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
             destructive: false,
         },
         ToolDef {
+            name: "import_bruno",
+            title: "Import a Bruno collection folder",
+            description: "Imports a Bruno collection folder (it must contain bruno.json): requests become a collection, environments/*.bru become environments (secret values go to the secrets store), and every other file (scripts, images) is copied into the collection's Assets keeping its relative path. Returns the collection, environments and assets outcome. The path resolves inside --root.",
+            input_schema: schema! {
+                "path": req("the Bruno collection folder"),
+                "replace": opt_bool("replace instead of suffixing")
+            },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
             name: "proto_import",
             title: "Import .proto files",
             description: "Copies the .proto files (and the imports they pull in) into a workspace proto set under protos/<name>/, compiles it, and creates a collection with one gRPC request per service method (url {{grpcUrl}}). Compile errors name file:line:column. Paths resolve inside --root.",
@@ -642,6 +653,51 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
                 "name": opt("proto set and collection name (default: the first file's name)"),
                 "replace": opt_bool("move an existing set of the same name to the trash instead of suffixing the new one")
             },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "asset_list",
+            title: "List collection assets",
+            description: "The files of a collection's Assets tab (`path`, `size`, `modifiedMs`), sorted by path. Scripts read them through `pg.assets`/`require`/`fs`, and bodies through `{{% base64(file('path')) %}}`.",
+            input_schema: schema! { "collection": req("collection id") },
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "asset_import",
+            title: "Import assets into a collection",
+            description: "Copies files and folders (kept with their structure) into the collection's assets under `dir`; returns `imported` and `skipped` (with reasons). Name clashes get a ` (2)` suffix unless `replace` is set. Paths resolve inside --root.",
+            input_schema: schema! {
+                "collection": req("collection id"),
+                "paths": opt_string_array("files and folders to import"),
+                "dir": opt("destination folder inside the assets (default: the root)"),
+                "replace": opt_bool("overwrite same-named assets instead of suffixing")
+            },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "asset_delete",
+            title: "Delete an asset",
+            description: "Removes one asset file (a .bak copy stays beside it) and any folders left empty.",
+            input_schema: schema! { "collection": req("collection id"), "path": req("asset path, e.g. images/a.jpg") },
+            read_only: false,
+            destructive: true,
+        },
+        ToolDef {
+            name: "asset_rename",
+            title: "Rename or move an asset",
+            description: "Renames an asset path; refuses when the target already exists. Returns the new AssetInfo.",
+            input_schema: schema! { "collection": req("collection id"), "from": req("current asset path"), "to": req("new asset path") },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "runtime_variables",
+            title: "Script runtime variables",
+            description: "The runtime variables scripts set with `pg.setVar`/`bru.setVar` for a collection (session-lived, never saved). Returns them as an object; with `clear` they are dropped afterwards.",
+            input_schema: schema! { "collection": req("collection id"), "clear": opt_bool("drop the variables after reading them") },
             read_only: false,
             destructive: false,
         },
@@ -745,11 +801,11 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
         ToolDef {
             name: "run_export",
             title: "Export a stored run",
-            description: "Renders a stored run as `json`, `junit` (XML) or `html` (one self-contained file) and writes it to `out` (inside --root).",
+            description: "Renders a stored run as `json`, `junit` (XML), `html` (one self-contained file), `csv` (requests table), `xlsx` (Summary, Requests and Tests sheets) or `pdf` and writes it to `out` (inside --root). Datetimes use the local time zone.",
             input_schema: schema! {
                 "collection": req("collection id"),
                 "run": req("run id from run_list"),
-                "format": req("json, junit or html"),
+                "format": req("json, junit, html, csv, xlsx or pdf"),
                 "out": req("file path to write")
             },
             read_only: false,
@@ -932,6 +988,7 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
                 clone_with_new_ids(item);
             }
             session.save_collection(&collection)?;
+            session.engine()?.copy_collection_assets(&Id(id), &collection.id);
             Ok(json!({"collection": collection.id.0, "name": collection.name}))
         }
         "collection_delete" => {
@@ -1415,6 +1472,13 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
             let outcome = session.engine()?.import_file(&resolved, ImportOptions { replace, folders })?;
             serde_json::to_value(outcome).map_err(json_error)
         }
+        "import_bruno" => {
+            let path = string_arg(args, tool, "path")?;
+            let resolved = session.resolve_existing(&path)?;
+            let replace = bool_arg(args, tool, "replace", false)?;
+            let outcome = session.engine()?.import_bruno(&resolved, ImportOptions { replace, ..ImportOptions::default() })?;
+            serde_json::to_value(outcome).map_err(json_error)
+        }
         "proto_import" => {
             let paths = optional_string_array(args, tool, "paths", "an array of .proto file paths")?
                 .filter(|paths| !paths.is_empty())
@@ -1427,6 +1491,48 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
                 postguy_engine::ProtoImportOptions { name: optional_string(args, tool, "name")?, replace: bool_arg(args, tool, "replace", false)? };
             let outcome = session.engine()?.import_protos(&resolved, options)?;
             serde_json::to_value(outcome).map_err(json_error)
+        }
+        "asset_list" => {
+            let id = string_arg(args, tool, "collection")?;
+            let assets = session.engine()?.assets(&Id(id))?;
+            serde_json::to_value(assets).map_err(json_error)
+        }
+        "asset_import" => {
+            let id = string_arg(args, tool, "collection")?;
+            let paths = optional_string_array(args, tool, "paths", "an array of file or folder paths")?
+                .filter(|paths| !paths.is_empty())
+                .ok_or_else(|| AutomationError::MissingArgument { tool: tool.to_string(), argument: "paths".to_string() })?;
+            let mut resolved = Vec::with_capacity(paths.len());
+            for path in &paths {
+                resolved.push(session.resolve_existing(path)?);
+            }
+            let dir = optional_string(args, tool, "dir")?.unwrap_or_default();
+            let replace = bool_arg(args, tool, "replace", false)?;
+            let outcome = session.engine()?.import_assets(&Id(id), &resolved, &dir, replace)?;
+            serde_json::to_value(outcome).map_err(json_error)
+        }
+        "asset_delete" => {
+            let id = string_arg(args, tool, "collection")?;
+            let path = string_arg(args, tool, "path")?;
+            session.engine()?.delete_asset(&Id(id), &path)?;
+            Ok(json!({"deleted": path}))
+        }
+        "asset_rename" => {
+            let id = string_arg(args, tool, "collection")?;
+            let from = string_arg(args, tool, "from")?;
+            let to = string_arg(args, tool, "to")?;
+            let info = session.engine()?.rename_asset(&Id(id), &from, &to)?;
+            serde_json::to_value(info).map_err(json_error)
+        }
+        "runtime_variables" => {
+            let id = Id(string_arg(args, tool, "collection")?);
+            let clear = bool_arg(args, tool, "clear", false)?;
+            let engine = session.engine()?;
+            let held = engine.runtime_variables(&id);
+            if clear {
+                engine.clear_runtime_variables(&id);
+            }
+            serde_json::to_value(held).map_err(json_error)
         }
         "import_zip" => {
             let path = string_arg(args, tool, "path")?;
@@ -1485,11 +1591,19 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
                 "json" => serde_json::to_vec_pretty(&postguy_runner::report::json(&result)).map_err(json_error)?,
                 "junit" => postguy_runner::report::junit(&result).into_bytes(),
                 "html" => postguy_runner::report::html(&result).into_bytes(),
+                "csv" | "xlsx" | "pdf" => {
+                    let table = postguy_runner::report::table(&result, postguy_util::time::local_offset_seconds(result.started_ms));
+                    match format.as_str() {
+                        "csv" => postguy_runner::report::csv(&table),
+                        "xlsx" => postguy_runner::report::xlsx(&table).map_err(|err| AutomationError::Failed { message: err.to_string() })?,
+                        _ => postguy_runner::report::pdf(&table),
+                    }
+                }
                 other => {
                     return Err(AutomationError::BadArgument {
                         tool: tool.to_string(),
                         argument: "format".to_string(),
-                        expected: "json, junit or html".to_string(),
+                        expected: "json, junit, html, csv, xlsx or pdf".to_string(),
                         got: other.to_string(),
                     });
                 }

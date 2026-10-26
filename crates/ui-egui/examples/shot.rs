@@ -38,6 +38,10 @@ struct DemoState {
     settings_state: postguy_ui_egui::settings::SettingsState,
     runner_view: postguy_ui_egui::runner::RunnerView,
     runner_state: postguy_ui_egui::runner::RunnerState,
+    asset_index: Option<postguy_ui_egui::AssetIndex>,
+    detail_collection: Collection,
+    detail_state: postguy_ui_egui::collection::DetailState,
+    asset_rows: Vec<postguy_ui_egui::collection::AssetRow>,
 }
 
 impl DemoState {
@@ -79,6 +83,10 @@ impl DemoState {
             settings_state: postguy_ui_egui::settings::SettingsState::default(),
             runner_view: postguy_ui_egui::runner::RunnerView::default(),
             runner_state: postguy_ui_egui::runner::RunnerState::default(),
+            asset_index: None,
+            detail_collection: Collection { id: Id("demo-collection".into()), name: "Payments API".into(), ..Default::default() },
+            detail_state: Default::default(),
+            asset_rows: Vec::new(),
             variables: vec![
                 postguy_ui_egui::widgets::field::VariableInfo {
                     name: "baseUrl".into(),
@@ -261,6 +269,10 @@ fn runner_scene(demo: &mut DemoState) {
         tests,
         error: None,
         skipped: None,
+        script_failures: Vec::new(),
+        started_ms: 0,
+        report: Vec::new(),
+        response_excerpt: None,
     };
     let state = &mut demo.runner_state;
     state.collection = Some("demo-collection".into());
@@ -394,6 +406,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         inherited_auth: Some("basic"),
                         oauth2_action: &mut oauth2_action,
                         graphql_schema: None,
+                        assets: state.asset_index.as_ref(),
                     };
                     if two_pane {
                         let area = ui.available_rect_before_wrap();
@@ -437,6 +450,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     };
                     editor.show(ui).map(PanelAction::Environment)
                 }
+                TabDoc::Collection { .. } => {
+                    let mut detail = postguy_ui_egui::collection::CollectionDetail {
+                        collection: &mut state.detail_collection,
+                        folder: None,
+                        state: &mut state.detail_state,
+                        runs: &[],
+                        assets: Some(&state.asset_rows),
+                    };
+                    detail.show(ui).map(PanelAction::Collection)
+                }
                 TabDoc::Runner => postguy_ui_egui::runner::runner_panel(ui, &state.runner_view, &mut state.runner_state).map(PanelAction::Runner),
                 TabDoc::Settings => {
                     let mut editor =
@@ -471,6 +494,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             if base == "runner" {
                 runner_scene(&mut demo);
+            }
+            if base == "shortcode" {
+                let mut index = postguy_ui_egui::AssetIndex { loaded: true, ..Default::default() };
+                index.paths.insert("lib/images/live.png".into());
+                demo.asset_index = Some(index);
+                demo.tab = BuilderTab::Body;
+                demo.builder_share = 1.0;
+                demo.draft.method = HttpMethod::Post;
+                demo.draft.body = postguy_model::Body::Raw {
+                    language: postguy_model::RawLanguage::Json,
+                    text: "{\n  \"live\": \"{{% base64(file('lib/images/live.png')) %}}\",\n  \"fake\": \"{{% base64(file('nope.png')) %}}\",\n  \"id\": \"{{subject}}\"\n}".into(),
+                    extras: Default::default(),
+                };
+            }
+            if base == "assets" {
+                let now = postguy_util::time::now_unix_ms();
+                demo.asset_rows = vec![
+                    postguy_ui_egui::collection::AssetRow { path: "lib/utils.js".into(), size: 1_820, modified_ms: now - 3_600_000 },
+                    postguy_ui_egui::collection::AssetRow { path: "lib/images/live.png".into(), size: 254_912, modified_ms: now - 86_400_000 * 2 },
+                    postguy_ui_egui::collection::AssetRow { path: "lib/images/spoof.jpg".into(), size: 1_482_300, modified_ms: now - 86_400_000 * 40 },
+                ];
+                demo.detail_state.tab = postguy_ui_egui::collection::DetailTab::Assets;
+                demo.shell.tabs.open(TabDoc::Collection { id: "demo-collection".into() }, "Payments API");
             }
             if base == "export" {
                 export::open(&mut demo.export, ExportTarget::Collection { id: "demo-collection".into(), name: "Payments API".into() });

@@ -10,7 +10,10 @@ publish = false
 workspace = true
 
 [dependencies]
+base64.workspace = true
 fastrand.workspace = true
+md-5.workspace = true
+sha2.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]

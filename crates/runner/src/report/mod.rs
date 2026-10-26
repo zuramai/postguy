@@ -5,6 +5,24 @@ use std::fmt::Write as _;
 
 use postguy_model::TestStatus;
 
+mod csv;
+mod pdf;
+mod table;
+mod xlsx;
+
+pub use csv::csv;
+pub use pdf::pdf;
+pub use table::{Cell, ReportTable, RowStatus, table};
+pub use xlsx::xlsx;
+
+/// A report file could not be built.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ReportError {
+    #[error("building the xlsx archive failed: {0}")]
+    Zip(String),
+}
+
 use crate::result::{RequestRun, RunResult};
 
 /// The CLI report: per-iteration lines, then a summary table.
@@ -234,6 +252,17 @@ pub fn html(result: &RunResult) -> String {
             for failure in &run.failures {
                 let _ =
                     writeln!(out, "<p class=\"fail\">{} script in {}: {}</p>", failure.phase.label(), xml(&failure.origin), xml(&failure.message));
+            }
+            if !run.report.is_empty() {
+                let fields: Vec<String> = run
+                    .report
+                    .iter()
+                    .map(|(key, value)| {
+                        let text = value.as_str().map(str::to_string).unwrap_or_else(|| value.to_string());
+                        format!("{}={}", xml(key), xml(&text))
+                    })
+                    .collect();
+                let _ = writeln!(out, "<p class=\"muted\">Report fields: {}</p>", fields.join(", "));
             }
             out.push_str("<ul>\n");
             for test in &run.tests {

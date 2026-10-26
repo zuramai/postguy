@@ -5,13 +5,14 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use postguy_model::auth::BasicAuth;
 use postguy_model::{AuthConfig, Collection, Folder, Id, Item, Request, RequestKind, Variable};
-use postguy_ui_egui::collection::{CollectionAction, CollectionDetail, DetailState, DetailTab};
+use postguy_ui_egui::collection::{AssetRow, CollectionAction, CollectionDetail, DetailState, DetailTab};
 
 struct State {
     collection: Collection,
     folder: Option<Id>,
     detail: DetailState,
     runs: Vec<postguy_ui_egui::RunSummaryView>,
+    assets: Option<Vec<AssetRow>>,
     action: Option<CollectionAction>,
     last: Option<CollectionAction>,
 }
@@ -42,8 +43,13 @@ fn harness(folder: bool) -> Harness<'static, State> {
     let collection = sample();
     Harness::new_ui_state(
         |ui, state: &mut State| {
-            let mut detail =
-                CollectionDetail { collection: &mut state.collection, folder: state.folder.clone(), state: &mut state.detail, runs: &state.runs };
+            let mut detail = CollectionDetail {
+                collection: &mut state.collection,
+                folder: state.folder.clone(),
+                state: &mut state.detail,
+                runs: &state.runs,
+                assets: state.assets.as_deref(),
+            };
             state.action = detail.show(ui);
             if state.action.is_some() {
                 state.last = state.action.clone();
@@ -54,6 +60,7 @@ fn harness(folder: bool) -> Harness<'static, State> {
             folder: if folder { Some(Id("folder1".into())) } else { None },
             detail: DetailState::default(),
             runs: Vec::new(),
+            assets: Some(Vec::new()),
             action: None,
             last: None,
         },
@@ -173,4 +180,64 @@ fn runs_tab_lists_runs_and_opens_one() {
     harness.get_by_label_contains("1 passed, 2 failed").click();
     harness.run();
     assert_eq!(harness.state().last, Some(CollectionAction::OpenRun("run-a".into())));
+}
+
+fn asset(path: &str, size: u64) -> AssetRow {
+    AssetRow { path: path.into(), size, modified_ms: 1_700_000_000_000 }
+}
+
+#[test]
+fn assets_tab_lists_rows_and_emits_its_intents() {
+    let mut harness = harness(false);
+    harness.state_mut().assets = Some(vec![asset("images/live.png", 2048)]);
+    harness.run();
+    harness.get_by_label("Assets").click();
+    harness.run();
+    assert!(harness.query_by_label_contains("images/live.png").is_some() || harness.query_by_label("Delete asset").is_some());
+    assert!(harness.query_by_label("Copy shortcode").is_some());
+
+    harness.get_by_label_contains("Import files").click();
+    harness.run();
+    assert_eq!(harness.state().last, Some(CollectionAction::ImportAssets { folder: false }));
+    harness.get_by_label_contains("Import folder").click();
+    harness.run();
+    assert_eq!(harness.state().last, Some(CollectionAction::ImportAssets { folder: true }));
+
+    harness.state_mut().last = None;
+    harness.get_by_label("Delete asset").click();
+    harness.run();
+    assert_eq!(harness.state().last, None, "the trash button only arms the row");
+    assert!(harness.query_by_label("Cancel").is_some());
+    harness.get_by_label("Cancel").click();
+    harness.run();
+    assert!(harness.state().detail.asset_delete_armed.is_none());
+    harness.get_by_label("Delete asset").click();
+    harness.run();
+    harness.get_by_label("Delete").click();
+    harness.run();
+    assert_eq!(harness.state().last, Some(CollectionAction::DeleteAsset("images/live.png".into())));
+
+    harness.get_by_label("Rename").click();
+    harness.run();
+    assert_eq!(harness.state().detail.asset_rename, Some(("images/live.png".into(), "images/live.png".into())));
+    harness.state_mut().detail.asset_rename = Some(("images/live.png".into(), "images/new.png".into()));
+    harness.run();
+    harness.key_press(egui::Key::Enter);
+    harness.run();
+    assert_eq!(harness.state().last, Some(CollectionAction::RenameAsset { from: "images/live.png".into(), to: "images/new.png".into() }));
+}
+
+#[test]
+fn assets_tab_empty_and_folder_states() {
+    let mut harness = harness(false);
+    harness.state_mut().detail.tab = DetailTab::Assets;
+    harness.run();
+    assert!(harness.query_by_label_contains("No assets yet.").is_some());
+    harness.state_mut().assets = None;
+    harness.run();
+    assert!(harness.query_by_label_contains("Loading assets").is_some());
+
+    let mut folder = self::harness(true);
+    folder.run();
+    assert!(folder.query_by_label("Assets").is_none(), "folders have no Assets tab");
 }

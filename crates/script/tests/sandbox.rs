@@ -3,8 +3,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use postguy_model::{NextRequest, ScriptPhase, TestStatus};
-use postguy_script::{Context, Header, Host, Info, Limits, Outcome, ScriptBody, ScriptRequest, ScriptResponse, ScriptSource, Variables, run};
+use postguy_model::{AssertOperator, Assertion, NextRequest, ScriptPhase, TestKind, TestStatus};
+use postguy_script::{
+    Context, Header, Host, Info, Limits, Outcome, ScriptBody, ScriptRequest, ScriptResponse, ScriptSource, TestBlock, Variables, run,
+};
 
 struct NoHost;
 
@@ -311,12 +313,6 @@ fn console_lines_are_captured_and_capped() {
 }
 
 #[test]
-fn require_is_refused_with_a_message() {
-    let outcome = post(r#"require("fs");"#);
-    assert_eq!(only_failure(&outcome), "require('fs') is not available in Postguy scripts");
-}
-
-#[test]
 fn a_syntax_error_names_the_origin_and_line() {
     let outcome = post("let a = 1;\nlet b = ;\n");
     assert_eq!(outcome.failures.len(), 1);
@@ -504,4 +500,563 @@ fn the_test_count_is_capped() {
     );
     assert_eq!(outcome.tests.len(), 3);
     assert_eq!(only_failure(&outcome), "more than 3 tests; the rest were ignored");
+}
+
+// ----------------------------------------------------------------------------------------
+// Tests tab, pg, Bruno globals, require
+
+struct AssetHost(BTreeMap<String, Vec<u8>>);
+
+impl Host for AssetHost {
+    fn send_request(&self, _: ScriptRequest) -> Result<ScriptResponse, String> {
+        Err("no network in tests".to_string())
+    }
+    fn cookies_for(&self, _: &str) -> Vec<(String, String)> {
+        Vec::new()
+    }
+    fn read_asset(&self, path: &str) -> Result<Vec<u8>, String> {
+        self.0.get(path).cloned().ok_or_else(|| format!("asset `{path}` does not exist in this collection"))
+    }
+    fn list_assets(&self, dir: &str) -> Result<Vec<String>, String> {
+        let prefix = if dir.is_empty() { String::new() } else { format!("{dir}/") };
+        let mut names: Vec<String> = Vec::new();
+        for key in self.0.keys() {
+            if let Some(rest) = key.strip_prefix(&prefix) {
+                let name = rest.split('/').next().unwrap_or(rest).to_string();
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+        if names.is_empty() && !dir.is_empty() { Err(format!("asset folder `{dir}` does not exist")) } else { Ok(names) }
+    }
+}
+
+fn assets(files: &[(&str, &[u8])]) -> Arc<dyn Host> {
+    Arc::new(AssetHost(files.iter().map(|(k, v)| (k.to_string(), v.to_vec())).collect()))
+}
+
+fn json_response(body: &str) -> ScriptResponse {
+    ScriptResponse {
+        code: 200,
+        status: "OK".into(),
+        headers: vec![("Content-Type".into(), "application/json".into()), ("X-Multi".into(), "a".into()), ("x-multi".into(), "b".into())],
+        body: body.as_bytes().to_vec(),
+        response_time_ms: 12,
+        size: body.len() as u64,
+    }
+}
+
+fn post_with(response: ScriptResponse, host: Arc<dyn Host>, sources: &[ScriptSource], tests: Option<TestBlock>) -> Outcome {
+    let mut ctx = context(ScriptPhase::PostResponse, false, Variables::default());
+    ctx.response = Some(response);
+    ctx.host = host;
+    ctx.tests = tests;
+    run(sources, ctx, &Limits::default(), never())
+}
+
+fn assertion(expr: &str, operator: AssertOperator, value: &str) -> Assertion {
+    Assertion { enabled: true, expr: expr.into(), operator, value: value.into(), ..Assertion::default() }
+}
+
+const FACE_BODY: &str = r#"{"status_code":"FACE-16","n":2,"list":[1,2],"s":"abc","e":"","o":{}}"#;
+
+fn run_assertions(list: Vec<Assertion>) -> Outcome {
+    let block = TestBlock { origin: "request Login tests".into(), assertions: list, script: None };
+    post_with(json_response(FACE_BODY), assets(&[]), &[], Some(block))
+}
+
+#[test]
+fn assertions_cover_every_operator() {
+    use AssertOperator::*;
+    // (expr, operator, value, passes)
+    let table: Vec<(&str, AssertOperator, &str, bool)> = vec![
+        ("res.status", Eq, "200", true),
+        ("res.status", In, "200, 201", true),
+        ("res.body.status_code", Eq, "FACE-16", true),
+        ("res.body.n", Eq, "2", true),
+        ("res.body.n", Eq, "3", false),
+        ("res.body.n", Neq, "3", true),
+        ("res.body.n", Neq, "2", false),
+        ("res.body.n", Gt, "1", true),
+        ("res.body.n", Gt, "2", false),
+        ("res.body.n", Gte, "2", true),
+        ("res.body.n", Gte, "3", false),
+        ("res.body.n", Lt, "3", true),
+        ("res.body.n", Lt, "2", false),
+        ("res.body.n", Lte, "2", true),
+        ("res.body.n", Lte, "1", false),
+        ("res.status", In, "404, 500", false),
+        ("res.status", NotIn, "404", true),
+        ("res.status", NotIn, "200", false),
+        ("res.body.s", Contains, "b", true),
+        ("res.body.s", Contains, "z", false),
+        ("res.body.list", Contains, "2", true),
+        ("res.body.s", NotContains, "z", true),
+        ("res.body.s", NotContains, "b", false),
+        ("res.body.s", StartsWith, "ab", true),
+        ("res.body.s", StartsWith, "bc", false),
+        ("res.body.s", EndsWith, "bc", true),
+        ("res.body.s", EndsWith, "ab", false),
+        ("res.body.s", Matches, "^a.c$", true),
+        ("res.body.s", Matches, "/^A/i", true),
+        ("res.body.s", Matches, "^x", false),
+        ("res.body.s", NotMatches, "^x", true),
+        ("res.body.s", NotMatches, "^a", false),
+        ("res.body.n", Between, "1,3", true),
+        ("res.body.n", Between, "[3, 5]", false),
+        ("res.body.list", Length, "2", true),
+        ("res.body.list", Length, "3", false),
+        ("res.body.e", IsEmpty, "", true),
+        ("res.body.s", IsEmpty, "", false),
+        ("res.body.s", IsNotEmpty, "", true),
+        ("res.body.e", IsNotEmpty, "", false),
+        ("null", IsNull, "", true),
+        ("res.body.s", IsNull, "", false),
+        ("res.body.nope", IsUndefined, "", true),
+        ("res.body.s", IsUndefined, "", false),
+        ("res.body.s", IsDefined, "", true),
+        ("res.body.nope", IsDefined, "", false),
+        ("res.body.s", IsTruthy, "", true),
+        ("res.body.e", IsTruthy, "", false),
+        ("res.body.e", IsFalsy, "", true),
+        ("res.body.s", IsFalsy, "", false),
+        ("res.body.n", IsNumber, "", true),
+        ("res.body.s", IsNumber, "", false),
+        ("res.body.s", IsString, "", true),
+        ("res.body.n", IsString, "", false),
+        ("true", IsBoolean, "", true),
+        ("res.body.n", IsBoolean, "", false),
+        ("res.body.list", IsArray, "", true),
+        ("res.body.o", IsArray, "", false),
+        ("res.body.o", IsJson, "", true),
+        ("res.body.s", IsJson, "", false),
+    ];
+    let covered: std::collections::BTreeSet<&str> = table.iter().map(|(_, op, _, _)| op.token()).collect();
+    for op in AssertOperator::ALL {
+        assert!(covered.contains(op.token()), "operator {} has no case", op.token());
+    }
+    let outcome = run_assertions(table.iter().map(|(e, op, v, _)| assertion(e, *op, v)).collect());
+    assert!(outcome.failures.is_empty(), "{:?}", outcome.failures);
+    assert_eq!(outcome.tests.len(), table.len());
+    for (result, (expr, op, value, passes)) in outcome.tests.iter().zip(&table) {
+        assert_eq!(result.kind, TestKind::Assertion);
+        assert_eq!(result.phase, ScriptPhase::PostResponse);
+        let expected = if *passes { TestStatus::Passed } else { TestStatus::Failed };
+        assert_eq!(result.status, expected, "{expr} {} {value}: {:?}", op.token(), result.message);
+    }
+}
+
+#[test]
+fn assertion_names_and_messages() {
+    let outcome = run_assertions(vec![
+        assertion("res.status", AssertOperator::Eq, "404"),
+        assertion("res.body.s", AssertOperator::IsNumber, ""),
+        assertion("res.body.s", AssertOperator::Gt, "1"),
+        Assertion { enabled: false, ..assertion("res.status", AssertOperator::Eq, "1") },
+    ]);
+    assert_eq!(outcome.tests.len(), 3, "disabled rows are skipped");
+    assert_eq!(outcome.tests[0].name, "res.status eq 404");
+    assert_eq!(outcome.tests[0].message.as_deref(), Some("expected res.status equals 404, got 200"));
+    assert_eq!(outcome.tests[1].name, "res.body.s isNumber");
+    assert_eq!(outcome.tests[1].message.as_deref(), Some("expected res.body.s is number, got \"abc\""));
+    assert!(outcome.tests[2].message.as_deref().is_some_and(|m| m.contains("expected a number")));
+}
+
+#[test]
+fn assertion_value_interpolates_variables() {
+    let mut ctx = context(ScriptPhase::PostResponse, false, Variables { locals: map(&[("want", "200")]), ..Variables::default() });
+    ctx.response = Some(json_response(FACE_BODY));
+    ctx.tests = Some(TestBlock { origin: "t".into(), assertions: vec![assertion("res.status", AssertOperator::Eq, "{{want}}")], script: None });
+    let outcome = run(&[], ctx, &Limits::default(), never());
+    assert_eq!(outcome.tests[0].status, TestStatus::Passed, "{:?}", outcome.tests[0].message);
+}
+
+#[test]
+fn assertion_expression_errors_fail_with_message() {
+    let outcome = run_assertions(vec![
+        assertion("res.body.o.x.y", AssertOperator::Eq, "1"),
+        assertion("nosuchname", AssertOperator::IsDefined, ""),
+        assertion("res.body.s", AssertOperator::Matches, "(unclosed"),
+    ]);
+    assert_eq!(outcome.tests.len(), 3);
+    assert!(outcome.failures.is_empty());
+    assert_eq!(outcome.tests[0].status, TestStatus::Failed);
+    assert!(
+        outcome.tests[0].message.as_deref().is_some_and(|m| m.starts_with("could not evaluate res.body.o.x.y: ")),
+        "{:?}",
+        outcome.tests[0].message
+    );
+    assert!(outcome.tests[1].message.as_deref().is_some_and(|m| m.starts_with("could not evaluate nosuchname: ")), "{:?}", outcome.tests[1].message);
+    assert_eq!(outcome.tests[2].status, TestStatus::Failed);
+}
+
+#[test]
+fn assertions_run_between_post_response_and_tests_script() {
+    let block = TestBlock {
+        origin: "request Login tests".into(),
+        assertions: vec![assertion(r#"pg.getVar("k")"#, AssertOperator::Eq, "v")],
+        script: Some(r#"pg.test("script sees " + pg.getVar("k"), () => {});"#.into()),
+    };
+    let outcome = post_with(json_response("{}"), assets(&[]), &script(r#"pg.setVar("k", "v"); pg.test("post", () => {});"#), Some(block));
+    assert!(outcome.failures.is_empty(), "{:?}", outcome.failures);
+    let names: Vec<(&str, TestKind, TestStatus)> = outcome.tests.iter().map(|t| (t.name.as_str(), t.kind, t.status)).collect();
+    assert_eq!(
+        names,
+        vec![
+            ("post", TestKind::Test, TestStatus::Passed),
+            (r#"pg.getVar("k") eq v"#, TestKind::Assertion, TestStatus::Passed),
+            ("script sees v", TestKind::Test, TestStatus::Passed),
+        ]
+    );
+}
+
+#[test]
+fn a_failing_tests_script_is_reported_under_the_tests_origin() {
+    let block = TestBlock { origin: "request Login tests".into(), assertions: Vec::new(), script: Some("throw new Error('boom');".into()) };
+    let outcome = post_with(json_response("{}"), assets(&[]), &[], Some(block));
+    assert_eq!(outcome.failures.len(), 1);
+    assert_eq!(outcome.failures[0].origin, "request Login tests");
+    assert!(outcome.failures[0].message.contains("boom"));
+}
+
+#[test]
+fn assertions_count_toward_the_test_limit() {
+    let list: Vec<Assertion> = (0..5).map(|_| assertion("res.status", AssertOperator::Eq, "200")).collect();
+    let block = TestBlock { origin: "t".into(), assertions: list, script: None };
+    let mut ctx = context(ScriptPhase::PostResponse, false, Variables::default());
+    ctx.response = Some(json_response("{}"));
+    ctx.tests = Some(block);
+    let outcome = run(&[], ctx, &Limits { max_tests: 3, ..Limits::default() }, never());
+    assert_eq!(outcome.tests.len(), 3);
+    assert_eq!(outcome.failures.len(), 1);
+}
+
+#[test]
+fn pg_has_every_pm_member_and_bruno_methods() {
+    let outcome = post(
+        r#"
+        const missing = Object.keys(pm).filter((k) => !(k in pg));
+        const same = pg.test === pm.test && pg.expect === pm.expect && pg.sendRequest === pm.sendRequest && pg.variables === pm.variables;
+        const pgNames = ["getVar","setVar","hasVar","deleteVar","getEnvVar","setEnvVar","hasEnvVar","deleteEnvVar","getGlobalVar","setGlobalVar",
+          "getCollectionVar","setCollectionVar","getFolderVar","getRequestVar","getEnvName","getProcessEnv","interpolate",
+          "setNextRequest","skipRequest","stopExecution"];
+        const bruNames = pgNames.filter((n) => n !== "skipRequest" && n !== "stopExecution").concat(["getGlobalEnvVar","setGlobalEnvVar","sendRequest","sleep","cwd","runRequest"]);
+        const noPg = pgNames.filter((n) => typeof pg[n] !== "function");
+        const noBru = bruNames.filter((n) => typeof bru[n] !== "function");
+        const reqNames = ["getUrl","setUrl","getMethod","setMethod","getName","getHeader","getHeaders","setHeader","setHeaders","deleteHeader","getBody","setBody"];
+        const noReq = reqNames.filter((n) => typeof req[n] !== "function" || typeof pg.request[n] !== "function");
+        const resNames = ["getStatus","getStatusText","getHeader","getHeaders","getBody","getResponseTime","getSize"];
+        const noRes = resNames.filter((n) => typeof res[n] !== "function");
+        const runner = ["setNextRequest","skipRequest","stopExecution"].filter((n) => typeof bru.runner[n] !== "function");
+        pg.setVar("report", JSON.stringify({missing, same, noPg, noBru, noReq, noRes, runner, tt: test === pm.test, ee: expect === pm.expect,
+          assets: ["base64","text","exists","list"].filter((n) => typeof pg.assets[n] !== "function"),
+          rep: ["set","get","toObject"].filter((n) => typeof pg.report[n] !== "function")}));
+        "#,
+    );
+    assert!(outcome.failures.is_empty(), "{:?}", outcome.failures);
+    assert_eq!(
+        outcome.variables.runtime["report"],
+        r#"{"missing":[],"same":true,"noPg":[],"noBru":[],"noReq":[],"noRes":[],"runner":[],"tt":true,"ee":true,"assets":[],"rep":[]}"#
+    );
+}
+
+#[test]
+fn unsupported_bruno_methods_throw_actionable_errors() {
+    for (call, name) in [("bru.sleep(10)", "bru.sleep"), ("bru.cwd()", "bru.cwd"), ("bru.runRequest('x')", "bru.runRequest")] {
+        let outcome = post(call);
+        assert_eq!(only_failure(&outcome), format!("{name} is not supported in Postguy scripts"));
+    }
+}
+
+#[test]
+fn bru_runtime_vars_round_trip() {
+    let variables = Variables {
+        runtime: map(&[("seed", "1"), ("shadowed", "runtime")]),
+        data: vec![("shadowed".into(), serde_json::json!("data"))],
+        locals: map(&[("local", "L")]),
+        ..Variables::default()
+    };
+    let outcome = pre(
+        r#"
+        bru.setVar("a", "1");
+        pg.setVar("b", {x: 1});
+        const seen = [bru.getVar("seed"), pg.getVar("a"), bru.hasVar("a"), bru.hasVar("zzz"), pm.variables.get("shadowed"), pg.getRequestVar("local")];
+        bru.deleteVar("seed");
+        pg.setVar("seen", JSON.stringify(seen));
+        pg.setVar("gone", String(bru.getVar("seed")));
+        "#,
+        variables,
+    );
+    assert!(outcome.failures.is_empty(), "{:?}", outcome.failures);
+    let runtime = &outcome.variables.runtime;
+    assert_eq!(runtime["a"], "1");
+    assert_eq!(runtime["b"], r#"{"x":1}"#);
+    assert_eq!(runtime["seen"], r#"["1","1",true,false,"runtime","L"]"#);
+    assert_eq!(runtime["gone"], "undefined");
+    assert!(!runtime.contains_key("seed"));
+    assert!(!outcome.variables.locals.contains_key("a"), "runtime writes never land in locals");
+}
+
+#[test]
+fn bruno_env_global_and_collection_vars_use_the_pm_scopes() {
+    let variables = Variables {
+        environment: Some(("dev".into(), map(&[("host", "h")]))),
+        globals: map(&[("g", "1")]),
+        collection: map(&[("c", "2")]),
+        folders: map(&[("f", "3")]),
+        ..Variables::default()
+    };
+    let outcome = pre(
+        r#"
+        bru.setEnvVar("token", "t", {persist: true});
+        bru.setGlobalVar("g2", "x");
+        bru.setCollectionVar("c2", "y");
+        pg.setVar("r", [bru.getEnvName(), bru.getEnvVar("host"), bru.getGlobalVar("g"), bru.getCollectionVar("c"), bru.getFolderVar("f"),
+                       bru.getProcessEnv("host"), bru.interpolate("{{host}}-{{c}}")].join("|"));
+        "#,
+        variables,
+    );
+    assert!(outcome.failures.is_empty(), "{:?}", outcome.failures);
+    assert_eq!(outcome.variables.runtime["r"], "dev|h|1|2|3|h|h-2");
+    assert_eq!(outcome.variables.environment.as_ref().map(|e| e.1["token"].clone()), Some("t".to_string()));
+    assert_eq!(outcome.variables.globals["g2"], "x");
+    assert_eq!(outcome.variables.collection["c2"], "y");
+    let none = pre(r#"bru.setEnvVar("a", "b");"#, Variables::default());
+    assert!(only_failure(&none).contains("no environment is selected"));
+}
+
+#[test]
+fn req_get_set_body_json() {
+    let mut ctx = context(ScriptPhase::PreRequest, false, Variables::default());
+    ctx.request.body = ScriptBody::Raw(r#"{"subject_id":"{{subject_id}}","n":1}"#.into());
+    ctx.request.method = "POST".into();
+    let sources = script(
+        r#"
+        req.setBody({...req.getBody(), image: "x"});
+        req.setHeader("X-A", "1");
+        req.setHeaders({"X-B": "2", "accept": "application/json"});
+        req.deleteHeader("X-A");
+        req.setUrl(req.getUrl() + "&z=1");
+        req.setMethod("put");
+        pg.setVar("h", JSON.stringify([req.getHeader("x-b"), req.getHeaders()["Accept"] || req.getHeaders()["accept"], req.method, req.url]));
+        "#,
+    );
+    let outcome = run(&sources, ctx, &Limits::default(), never());
+    assert!(outcome.failures.is_empty(), "{:?}", outcome.failures);
+    let ScriptBody::Raw(text) = &outcome.request.body else { panic!("body is {:?}", outcome.request.body) };
+    let value: serde_json::Value = serde_json::from_str(text).expect("raw json");
+    assert_eq!(value, serde_json::json!({"subject_id": "{{subject_id}}", "n": 1, "image": "x"}));
+    assert_eq!(outcome.request.method, "PUT");
+    assert_eq!(outcome.request.url, "https://api.test/users?a=1&z=1");
+    assert!(outcome.request.headers.iter().all(|h| !h.key.eq_ignore_ascii_case("x-a")));
+    assert!(outcome.request.headers.iter().any(|h| h.key == "X-B" && h.value == "2"));
+    assert_eq!(outcome.variables.runtime["h"], r#"["2","application/json","PUT","https://api.test/users?a=1&z=1"]"#);
+}
+
+#[test]
+fn req_setters_are_read_only_after_the_response() {
+    let outcome = post(r#"req.setUrl("x");"#);
+    assert_eq!(only_failure(&outcome), "req is read-only in post-response scripts");
+    let outcome = post(r#"pg.request.setHeader("a", "b");"#);
+    assert_eq!(only_failure(&outcome), "pg.request is read-only in post-response scripts");
+}
+
+#[test]
+fn res_callable_query() {
+    let body = r#"{"data":{"items":[{"id":1,"k":{"id":9}},{"id":2}]},"s":"x"}"#;
+    let sources = script(
+        r#"
+        pg.setVar("out", JSON.stringify([
+          res("data.items[1].id"), res("..id"), res("data.nope.x"), res.status, res.statusText, res.headers["content-type"],
+          res.headers["x-multi"], res.getHeader("Content-Type"), res.getStatus(), res.getResponseTime(), res.body.s, res.getBody().s,
+          res.getSize(), res.getHeaders()["content-type"]
+        ]));
+        "#,
+    );
+    let outcome = post_with(json_response(body), assets(&[]), &sources, None);
+    assert!(outcome.failures.is_empty(), "{:?}", outcome.failures);
+    let header_bytes = ("Content-Type".len() + "application/json".len() + 4) + ("X-Multi".len() + 1 + 4) + ("x-multi".len() + 1 + 4);
+    let expected = format!(
+        r#"[2,[1,9,2],null,200,"OK","application/json","a, b","application/json",200,12,"x","x",{{"body":{},"headers":{header_bytes},"total":{}}},"application/json"]"#,
+        body.len(),
+        body.len() + header_bytes
+    );
+    assert_eq!(outcome.variables.runtime["out"], expected);
+}
+
+const UTILS_JS: &str = r#"
+const fs = require("fs");
+const path = require("path");
+exports.img = () => fs.readFileSync(path.join(__dirname, "images/a.png")).toString("base64");
+exports.dir = __dirname;
+exports.file = __filename;
+"#;
+
+#[test]
+fn require_loads_asset_modules_with_fs_and_path_shims() {
+    let host = assets(&[
+        ("lib/utils.js", UTILS_JS.as_bytes()),
+        ("lib/images/a.png", &[1, 2, 3, 250]),
+        ("data.json", br#"{"k":[1,2]}"#),
+        ("note.txt", b"hello"),
+    ]);
+    let sources = script(
+        r#"
+        const u = require("./lib/utils");
+        const again = require("./lib/utils.js") === u;
+        const crypto = require("crypto");
+        const id = crypto.randomUUID();
+        const fs = require("fs");
+        pg.setVar("r", JSON.stringify({
+          img: u.img(), dir: u.dir, file: u.file, again,
+          b64: Buffer.from("{}", "utf8").toString("base64"),
+          hex: Buffer.from("6a6b", "hex").toString("utf8"),
+          roundtrip: Buffer.from(Buffer.from("héllo")).toString("utf8"),
+          isBuf: Buffer.isBuffer(fs.readFileSync("/note.txt")),
+          text: fs.readFileSync("note.txt", "utf8"),
+          text2: fs.readFileSync("note.txt", {encoding: "utf8"}),
+          exists: [fs.existsSync("lib/utils.js"), fs.existsSync("lib"), fs.existsSync("nope.txt")],
+          dirList: fs.readdirSync("/lib"),
+          json: require("./data.json").k,
+          assets: [pg.assets.exists("note.txt"), pg.assets.text("note.txt"), pg.assets.base64("lib/images/a.png"), pg.assets.list("lib")],
+          uuid: /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id),
+          uuidDiffers: id !== crypto.randomUUID(),
+          nodePrefix: require("node:path").basename("/a/b.txt", ".txt"),
+          bufferModule: typeof require("buffer").Buffer.from,
+        }));
+        "#,
+    );
+    let outcome = run(&sources, context_with_host(host), &Limits::default(), never());
+    assert!(outcome.failures.is_empty(), "{:?}", outcome.failures);
+    let value: serde_json::Value = serde_json::from_str(&outcome.variables.runtime["r"]).expect("json");
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "img": "AQID+g==", "dir": "/lib", "file": "/lib/utils.js", "again": true, "b64": "e30=", "hex": "jk", "roundtrip": "héllo",
+            "isBuf": true, "text": "hello", "text2": "hello", "exists": [true, true, false], "dirList": ["images", "utils.js"],
+            "json": [1, 2], "assets": [true, "hello", "AQID+g==", ["images", "utils.js"]], "uuid": true, "uuidDiffers": true,
+            "nodePrefix": "b", "bufferModule": "function"
+        })
+    );
+}
+
+fn context_with_host(host: Arc<dyn Host>) -> Context {
+    let mut ctx = context(ScriptPhase::PreRequest, false, Variables::default());
+    ctx.host = host;
+    ctx
+}
+
+#[test]
+fn require_npm_package_is_actionable_error() {
+    let outcome = post(r#"require("lodash");"#);
+    assert_eq!(only_failure(&outcome), "require('lodash') is not available in Postguy scripts; npm packages are not supported");
+    let outcome = post(r#"require("axios");"#);
+    assert_eq!(only_failure(&outcome), "require('axios') is not available in Postguy scripts; npm packages are not supported; use pg.sendRequest");
+}
+
+#[test]
+fn require_of_a_missing_module_names_it() {
+    let outcome = run(&script(r#"require("./nope");"#), context_with_host(assets(&[])), &Limits::default(), never());
+    assert!(only_failure(&outcome).starts_with("Cannot find module './nope'"));
+}
+
+#[test]
+fn require_cycle_returns_partial_exports() {
+    let host = assets(&[
+        ("a.js", b"exports.a1 = 1; const b = require('./b'); exports.a2 = b.sawA1;"),
+        ("b.js", b"const a = require('./a'); exports.sawA1 = a.a1; exports.partialHasA2 = 'a2' in a;"),
+    ]);
+    let outcome = run(
+        &script(r#"const a = require("./a"); pg.setVar("r", JSON.stringify([a.a1, a.a2, require("./b").partialHasA2]));"#),
+        context_with_host(host),
+        &Limits::default(),
+        never(),
+    );
+    assert!(outcome.failures.is_empty(), "{:?}", outcome.failures);
+    assert_eq!(outcome.variables.runtime["r"], "[1,1,false]");
+}
+
+#[test]
+fn a_module_that_throws_is_not_cached() {
+    let host = assets(&[("bad.js", b"throw new Error('bad module');")]);
+    let outcome = run(
+        &script(r#"let n = 0; for (let i = 0; i < 2; i++) { try { require("./bad"); } catch (e) { n++; } } pg.setVar("n", String(n));"#),
+        context_with_host(host),
+        &Limits::default(),
+        never(),
+    );
+    assert_eq!(outcome.variables.runtime["n"], "2");
+}
+
+#[test]
+fn the_module_count_is_capped() {
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    for i in 0..70 {
+        files.push((format!("m{i}.js"), b"module.exports = 1;".to_vec()));
+    }
+    let host: Arc<dyn Host> = Arc::new(AssetHost(files.into_iter().collect()));
+    let outcome = run(&script(r#"for (let i = 0; i < 70; i++) require("./m" + i);"#), context_with_host(host), &Limits::default(), never());
+    assert!(only_failure(&outcome).contains("at most 64 modules"));
+}
+
+#[test]
+fn fs_write_is_refused() {
+    let outcome = post(r#"require("fs").writeFileSync("x", "y");"#);
+    assert_eq!(only_failure(&outcome), "fs.writeFileSync is not available in Postguy scripts (scripts can only read collection assets)");
+}
+
+#[test]
+fn fs_cannot_leave_the_assets_and_unknown_encodings_are_refused() {
+    let host = assets(&[("a.txt", b"x")]);
+    let outcome = run(&script(r#"require("fs").readFileSync("/../etc/passwd");"#), context_with_host(host.clone()), &Limits::default(), never());
+    assert_eq!(only_failure(&outcome), "path /../etc/passwd leaves the collection assets");
+    let outcome = run(&script(r#"require("fs").readFileSync("a.txt", "ucs2");"#), context_with_host(host), &Limits::default(), never());
+    assert_eq!(only_failure(&outcome), "Buffer encoding 'ucs2' is not supported in Postguy scripts");
+}
+
+#[test]
+fn assets_without_a_collection_are_an_actionable_error() {
+    let outcome = post(r#"pg.assets.base64("a.png");"#);
+    assert_eq!(only_failure(&outcome), "assets are only available for requests saved in a collection");
+}
+
+#[test]
+fn pg_assets_text_refuses_binary() {
+    let host = assets(&[("a.bin", &[0xff, 0xfe, 0x00])]);
+    let outcome = run(&script(r#"pg.assets.text("a.bin");"#), context_with_host(host), &Limits::default(), never());
+    assert_eq!(only_failure(&outcome), "asset a.bin is not UTF-8 text; use pg.assets.base64");
+}
+
+#[test]
+fn pg_report_set_caps() {
+    let outcome = post(
+        r#"
+        pg.report.set("a", 1);
+        pg.report.set("b", "text");
+        pg.report.set("c", {x: [1, 2]});
+        pg.report.set("d", true);
+        pg.report.set("gone", 1);
+        pg.report.set("gone", undefined);
+        pg.report.set("long", "é".repeat(40000));
+        pg.report.set("a", 2);
+        const errors = [];
+        try { pg.report.set("k".repeat(129), 1); } catch (e) { errors.push(e.message); }
+        for (let i = 0; i < 120; i++) {
+          try { pg.report.set("f" + i, i); } catch (e) { if (errors.length < 2) errors.push(e.message); }
+        }
+        pg.setVar("errors", JSON.stringify(errors));
+        pg.setVar("got", JSON.stringify([pg.report.get("a"), pg.report.get("nope"), Object.keys(pg.report.toObject()).length]));
+        "#,
+    );
+    assert!(outcome.failures.is_empty(), "{:?}", outcome.failures);
+    assert_eq!(outcome.variables.runtime["errors"], r#"["pg.report keys may be at most 128 characters","pg.report holds at most 100 fields"]"#);
+    assert_eq!(outcome.variables.runtime["got"], "[2,null,100]");
+    let keys: Vec<&String> = outcome.report.keys().collect();
+    assert_eq!(&keys[..5], ["a", "b", "c", "d", "long"]);
+    assert_eq!(outcome.report.len(), 100);
+    assert_eq!(outcome.report["a"], serde_json::json!(2));
+    assert_eq!(outcome.report["c"], serde_json::json!(r#"{"x":[1,2]}"#));
+    let long = outcome.report["long"].as_str().expect("string");
+    assert!(long.ends_with('…') && long.len() <= 32 * 1024 + '…'.len_utf8(), "len {}", long.len());
 }

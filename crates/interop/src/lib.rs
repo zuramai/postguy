@@ -17,12 +17,14 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod bruno;
 pub mod curl;
 pub mod error;
 pub mod har;
 pub mod openapi;
 pub mod postman;
 
+pub use bruno::{BrunoFile, BrunoImport, import_bruno};
 pub use curl::{ParsedCurl, generate_curl, parse_curl, parse_curl_from_str};
 pub use error::{CurlError, PostmanError, Result, SpecError};
 pub use har::{import_har, is_har};

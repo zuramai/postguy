@@ -49,6 +49,9 @@ fn vars_target(text: &str) -> Result<(), String> {
         .with_scope(postguy_vars::Scope::new(postguy_vars::ScopeKind::Globals, [("self".into(), text.chars().take(4096).collect::<String>())]))
         .with_scope(postguy_vars::Scope::new(postguy_vars::ScopeKind::Environment, [("chain".into(), "{{self}}{{self||{{self}}}}".into())]));
     let _ = resolver.resolve_text(text);
+    let _ = postguy_vars::shortcode::scan(text);
+    let _ = postguy_vars::shortcode::single_file(text);
+    let _ = postguy_vars::shortcode::expand(text, &|arg| resolver.resolve_text(arg).text, &|path| Ok(path.as_bytes().repeat(3)));
     Ok(())
 }
 

@@ -5,22 +5,22 @@
 | Layer | Crate | Role |
 |---|---|---|
 | L0 | postguy-model | Plain data and serde: ids, collections, folders, requests (HTTP/gRPC/WS), key-value rows, bodies, auth configs, settings, environments, examples, history. No I/O; unknown fields preserved in `extras`. |
-| L0 | postguy-util | Size-capped readers, depth-limited JSON walker, ring buffer, fractional ordering, atomic file helpers, time. |
-| L1 | postguy-vars | Variable scopes and precedence, `{{var}}` resolver (depth limit, cycle guard), dynamic variables, secret masking. Pure. |
+| L0 | postguy-util | Size-capped readers, depth-limited JSON walker, ring buffer, fractional ordering, atomic file helpers, time (local-time formatting through `jiff`; the offset falls back to UTC when the system zone is unreadable). |
+| L1 | postguy-vars | Variable scopes and precedence, `{{var}}` resolver (depth limit, cycle guard), dynamic variables, secret masking, `{{% %}}` body shortcodes (`shortcode`). Pure. |
 | L1 | postguy-urlkit | URL parse/build, per-component percent-encoding, query/URL two-way sync, path variables, host matching. Pure. |
 | L2 | postguy-auth | Pure signing and credential algorithms; a canonical request in, headers/params out; no sockets. |
-| L2 | postguy-interop | Import/export (Postman v2.0/v2.1, environments, cURL, OpenAPI, HAR) with `ImportReport`; bounded sizes and nesting. |
+| L2 | postguy-interop | Import/export (Postman v2.0/v2.1, environments, cURL, OpenAPI, HAR, Bruno folders) with `ImportReport`; bounded sizes and nesting. |
 | L2 | postguy-store | Workspace on disk: atomic writes with `.bak`, lock file, trash, history, session, settings, secrets split. |
 | L3 | postguy-http | hyper-direct connector: connect/TLS/timing, redirects, compression, cookie jar, proxy, auth retries, streaming, cancellation. |
 | L3 | postguy-grpc | protox compile, descriptor pool, reflection, dynamic invoke, examples, status/trailers. |
 | L3 | postguy-ws | tokio-tungstenite WebSocket client: handshake, TLS, frames, reconnect policy, message log. |
-| L3 | postguy-script | rquickjs (QuickJS) sandbox with the `pm` API, Chai-style `pm.expect` and hard wall-clock, memory, stack and cancel limits. The `pm` API is Rust closures; `Settings.disable_scripts` is the off switch. |
+| L3 | postguy-script | rquickjs (QuickJS) sandbox with the `pm` API, its superset `pg` (plus Bruno's `bru`/`req`/`res`/`test`/`expect`), request assertions, asset-backed `require` with read-only `fs`/`path`/`Buffer`/`crypto.randomUUID` shims, Chai-style `pm.expect` and hard wall-clock, memory, stack and cancel limits. All of it is Rust closures; `Settings.disable_scripts` is the off switch. |
 | L3 | postguy-snippets | Code generation (cURL, fetch, requests, Go, reqwest, PowerShell, axios, grpcurl). Pure. |
 | L3 | postguy-testkit | Loopback servers for tests only; dev-dependency, never shipped. |
-| L4 | postguy-runner | Collection runs: plans, iterations, CSV/JSON data files, `setNextRequest` sequencing, results model, CLI/JSON/JUnit/HTML reporters. Pure. |
-| L6 | postguy-engine | Façade and session: workspace handle, edits/undo, send pipeline (12 steps), command registry, console, history, runtime. |
+| L4 | postguy-runner | Collection runs: plans, iterations, CSV/JSON data files, `setNextRequest` sequencing, results model, CLI/JSON/JUnit/HTML/CSV/XLSX/PDF reporters (one `ReportTable` feeds the CSV, XLSX and PDF writers). Pure. |
+| L6 | postguy-engine | Façade and session: workspace handle, edits/undo, send pipeline (12 steps), per-collection assets, Bruno folder import, runtime variables, command registry, console, history, runtime. |
 | L7 | postguy-platform | OS services: dirs, dialogs, reveal, open URL, clipboard, system proxy, system font fallback. |
-| L7 | postguy-ui-egui | The egui shell (eframe + glow); widgets and screens. |
+| L7 | postguy-ui-egui | The egui shell (eframe + glow); widgets and screens. Depends on postguy-vars (shortcode highlighting) and postguy-util (times). |
 | L7 | postguy-automation | Headless tool table over the engine, CLI backend, opt-in MCP, opt-in UI control channel. |
 | apps | postguy, postguy-cli | Desktop app (with the opt-in `--control` server in `apps/postguy/src/control.rs`); headless CLI (`run`, `tools`/`call`, `import`/`export`, `snippet`, `mcp`, `ui`). |
 
@@ -37,7 +37,7 @@ Tooling: `xtask` (build system, gates, fuzz, icons/logo, size) is outside the la
   receives events and repaints once per batch; every long operation takes a cancellation token
   and wraps panics into error rows.
 - **Workspace on disk:** one folder; `postguy.json`, `collections/<id>.json`,
-  `environments/`, `globals.json`, `protos/`, `files/`, `history.jsonl`, `.trash/`,
+  `environments/`, `globals.json`, `protos/`, `files/`, `assets/<collection id>/`, `history.jsonl`, `.trash/`,
   `.postguy/{secrets,cookies,responses,runs,lock}`; atomic writes, `.bak`, corrupt-file recovery.
 
 ## Decisions made with measurements

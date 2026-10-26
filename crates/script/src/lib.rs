@@ -11,8 +11,12 @@
 //! engine before it calls [`run`].
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod assert;
+mod bru;
 mod convert;
 mod expect;
+mod node;
+mod pg;
 mod pm;
 mod sandbox;
 

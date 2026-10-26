@@ -131,6 +131,32 @@ fn filtering_keeps_parents_and_matches_urls() {
 }
 
 #[test]
+fn history_rows_carry_their_time_and_match_the_full_local_datetime() {
+    use postguy_util::time::{DateStyle, format_datetime, local_offset_seconds};
+    let mut sidebar = Sidebar::new();
+    let data = sample_data();
+    let rows = sidebar.rows(&data, "");
+    let history = rows.iter().find(|row| row.kind == RowKind::History).expect("history row");
+    assert_eq!((history.time_ms, history.status, history.duration_ms), (Some(1_790_000_000_000), Some(200), Some(12)));
+    assert!(rows.iter().filter(|row| row.kind != RowKind::History).all(|row| row.time_ms.is_none()));
+
+    let time = 1_790_000_000_000;
+    let full = format_datetime(time, local_offset_seconds(time), DateStyle::Full, time);
+    let by_time = sidebar.rows(&data, &full[..16]);
+    assert!(by_time.iter().any(|row| row.kind == RowKind::History), "search matches the full datetime {full}");
+}
+
+#[test]
+fn a_history_row_renders_its_compact_time() {
+    use postguy_util::time::{DateStyle, format_datetime, local_offset_seconds, now_unix_ms};
+    let mut harness = harness();
+    harness.run();
+    let now = now_unix_ms();
+    let compact = format_datetime(1_790_000_000_000, local_offset_seconds(now), DateStyle::Compact, now);
+    assert!(harness.query_by_label_contains(&compact).is_some(), "the history row shows {compact}");
+}
+
+#[test]
 fn clicking_a_request_opens_it_as_a_preview() {
     let mut harness = harness();
     harness.run();

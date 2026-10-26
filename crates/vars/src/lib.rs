@@ -6,6 +6,7 @@
 pub mod dynamic;
 pub mod mask;
 pub mod resolver;
+pub mod shortcode;
 pub mod words;
 
 pub use mask::mask_secrets;

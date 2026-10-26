@@ -7,6 +7,7 @@ use egui::text::LayoutJob;
 use egui::{FontId, Response, TextEdit, TextFormat, Ui};
 
 use crate::theme::Theme;
+use crate::widgets::shortcode::{AssetIndex, mark_colors, shortcode_marks};
 
 /// One variable available to a field: enough for autocomplete and the per-chip hover popover.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,7 +25,7 @@ pub fn variable_spans(text: &str) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
     let mut index = 0usize;
     while index + 1 < bytes.len() {
-        if bytes.get(index) == Some(&b'{') && bytes.get(index + 1) == Some(&b'{') {
+        if bytes.get(index) == Some(&b'{') && bytes.get(index + 1) == Some(&b'{') && bytes.get(index + 2) != Some(&b'%') {
             let start = index;
             let mut end = index + 2;
             while end < bytes.len() && bytes.get(end) != Some(&b'}') {
@@ -44,7 +45,7 @@ pub fn variable_spans(text: &str) -> Vec<(usize, usize)> {
 /// A `{{var}}`-aware single-line text field. Returns the edit response; `text` is updated in
 /// place. `hint` is the placeholder.
 pub fn variable_field(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str) -> Response {
-    variable_field_with(ui, id, text, hint, &[])
+    variable_field_with(ui, id, text, hint, &[], None)
 }
 
 /// The colours a `{{var}}` chip is painted with: resolved names take the accent tint, dynamic
@@ -62,17 +63,39 @@ pub fn chip_tint(name: &str, variables: &[VariableInfo], palette: &crate::theme:
 
 /// The same field with variable metadata: hovering a `{{chip}}` explains its scope and value
 /// (secrets masked unless Cmd/Ctrl is held).
-pub fn variable_field_with(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str, variables: &[VariableInfo]) -> Response {
-    variable_field_impl(ui, id, text, hint, variables, true)
+pub fn variable_field_with(
+    ui: &mut Ui,
+    id: egui::Id,
+    text: &mut String,
+    hint: &str,
+    variables: &[VariableInfo],
+    assets: Option<&AssetIndex>,
+) -> Response {
+    variable_field_impl(ui, id, text, hint, variables, assets, true)
 }
 
 /// [`variable_field_with`] without its own border or fill, for a field that sits inside a
 /// container (the URL bar) which draws them.
-pub fn variable_field_frameless(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str, variables: &[VariableInfo]) -> Response {
-    variable_field_impl(ui, id, text, hint, variables, false)
+pub fn variable_field_frameless(
+    ui: &mut Ui,
+    id: egui::Id,
+    text: &mut String,
+    hint: &str,
+    variables: &[VariableInfo],
+    assets: Option<&AssetIndex>,
+) -> Response {
+    variable_field_impl(ui, id, text, hint, variables, assets, false)
 }
 
-fn variable_field_impl(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str, variables: &[VariableInfo], frame: bool) -> Response {
+fn variable_field_impl(
+    ui: &mut Ui,
+    id: egui::Id,
+    text: &mut String,
+    hint: &str,
+    variables: &[VariableInfo],
+    assets: Option<&AssetIndex>,
+    frame: bool,
+) -> Response {
     let theme = Theme::current(ui.ctx());
     let palette = theme.palette;
     let font = FontId::proportional(theme.metrics.ui_font);
@@ -85,19 +108,34 @@ fn variable_field_impl(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str,
         let _ = wrap_width;
         job.wrap.max_width = f32::INFINITY;
         job.wrap.max_rows = 1;
-        let spans = variable_spans(text);
-        let mut cursor = 0usize;
-        for (start, end) in spans {
-            if start > cursor {
-                job.append(&text[cursor..start], 0.0, TextFormat { font_id: font.clone(), color: palette.text, ..Default::default() });
+        // Shortcodes first; a `{{var}}` inside one belongs to its colour, not a chip.
+        let marks = shortcode_marks(text, assets);
+        let mut segments: Vec<(usize, usize, (egui::Color32, egui::Color32))> =
+            marks.iter().map(|(range, valid, _)| (range.start, range.end, mark_colors(*valid, &palette))).collect();
+        for (start, end) in variable_spans(text) {
+            if !marks.iter().any(|(range, _, _)| start < range.end && end > range.start) {
+                let name = text.get(start + 2..end.saturating_sub(2)).unwrap_or_default().trim();
+                segments.push((start, end, chip_tint(name, &scoped, &palette)));
             }
-            let name = text.get(start + 2..end.saturating_sub(2)).unwrap_or_default().trim();
-            let (color, background) = chip_tint(name, &scoped, &palette);
+        }
+        segments.sort_by_key(|segment| segment.0);
+        let mut cursor = 0usize;
+        for (start, end, (color, background)) in segments {
+            if start < cursor {
+                continue;
+            }
+            if start > cursor {
+                job.append(
+                    text.get(cursor..start).unwrap_or_default(),
+                    0.0,
+                    TextFormat { font_id: font.clone(), color: palette.text, ..Default::default() },
+                );
+            }
             job.append(text.get(start..end).unwrap_or_default(), 0.0, TextFormat { font_id: font.clone(), color, background, ..Default::default() });
             cursor = end;
         }
         if cursor < text.len() {
-            job.append(&text[cursor..], 0.0, TextFormat { font_id: font.clone(), color: palette.text, ..Default::default() });
+            job.append(text.get(cursor..).unwrap_or_default(), 0.0, TextFormat { font_id: font.clone(), color: palette.text, ..Default::default() });
         }
         if text.is_empty() {
             // An empty job has zero height, which misplaces the caret and the hint text.
