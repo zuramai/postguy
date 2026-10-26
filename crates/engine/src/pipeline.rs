@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use postguy_http::client::ResponseSize;
 use postguy_http::{AuthPlacement, Cancel, RedirectHop, RedirectPolicy, RequestSpec, ResponseData, ResponseTimings};
 use postguy_model::{
-    AuthConfig, Body, Collection, Folder, HistoryEntry, HttpRequest, Id, Item, KeyValue, NextRequest, Request, RequestKind, ScriptFailure,
-    ScriptPhase, Variable,
+    AuthConfig, Body, Collection, Folder, HistoryEntry, HttpRequest, Id, Item, KeyValue, KeyValueKind, NextRequest, Request, RequestKind,
+    ScriptFailure, ScriptPhase, Variable,
 };
 use postguy_urlkit::{Param, Url, encode_component, encode_query, host_to_ascii, query_of_params};
 use postguy_vars::{Resolver, Scope, ScopeKind};
@@ -31,6 +31,8 @@ pub enum SendTarget {
     /// A stored request sent with the builder's unsaved draft (scopes, auth inheritance and
     /// scripts come from the stored ancestors; nothing is written to the collection file).
     StoredDraft { collection: Id, request: Id, draft: Box<HttpRequest> },
+    /// A request of a collection the caller already loaded (the runner: no disk read per request).
+    Snapshot { collection: std::sync::Arc<Collection>, request: Id },
 }
 
 /// Knobs for one send.
@@ -44,6 +46,8 @@ pub struct SendOptions {
     pub run_scripts: bool,
     /// The collection runner's iteration: its data row joins the variable scopes.
     pub iteration: Option<IterationScope>,
+    /// Leave this send out of History (the collection runner keeps its own run record).
+    pub skip_history: bool,
 }
 
 /// One iteration of a data-driven run.
@@ -166,11 +170,13 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
             scripts::apply_request(&mut located.http, &before, &outcome.request, &format!("request {}", located.request_name))?;
             locals = outcome.variables.locals.clone();
             report.tests.extend(outcome.tests);
+            report.report.extend(outcome.report);
             if outcome.next_request != NextRequest::Unchanged {
                 report.next_request = outcome.next_request;
             }
-            if phase.variables_changed {
-                report.variables_changed = true;
+            report.variables_changed |= phase.persisted;
+            report.collection_changed |= phase.collection_changed;
+            if phase.scopes_changed {
                 scopes = load_scopes(engine, &located, options.environment.as_ref(), options.iteration.as_ref())?;
             }
         }
@@ -211,8 +217,34 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
     let digest_pending = matches!(&auth, Some(AuthConfig::Digest(digest)) if digest.nonce.trim().is_empty());
 
     // 6. Body and automatic headers.
-    request.body = resolve_body(&request.body, &resolver);
-    let load_file = file_loader(engine.store_paths(), &global.working_directory, global.allow_files_outside_working_directory);
+    // Inline sends carry a placeholder collection; only stored requests own assets.
+    let collection_id = if located.request_id.is_empty() { Id(String::new()) } else { located.collection.id.clone() };
+    let expand = |raw: &str| -> std::result::Result<String, String> {
+        if collection_id.0.is_empty() {
+            return Err("assets belong to a collection; save this request in a collection to use {{% %}} shortcodes".to_string());
+        }
+        if raw.is_empty() {
+            return Ok(String::new());
+        }
+        postguy_vars::shortcode::expand(raw, &|argument| resolver.resolve_text(argument).text, &|path| {
+            engine.read_asset(&collection_id, path).map_err(|err| crate::assets::error_text(&err))
+        })
+    };
+    request.body = match resolve_body(&request.body, &resolver, &expand) {
+        Ok(body) => body,
+        Err(message) => {
+            let reason = format!("body shortcode: {message}");
+            engine.console().push(ConsoleLevel::Error, ConsoleKind::Error, reason.clone());
+            return Err(EngineError::BadRequest { reason });
+        }
+    };
+    let disk_loader = file_loader(engine.store_paths(), &global.working_directory, global.allow_files_outside_working_directory);
+    let load_file = |raw: &str| -> std::result::Result<Vec<u8>, String> {
+        match raw.strip_prefix("asset://") {
+            Some(path) => engine.read_asset(&collection_id, path).map_err(|err| crate::assets::error_text(&err)),
+            None => disk_loader(raw),
+        }
+    };
     let built = postguy_http::build::build(postguy_http::BuildInput {
         method: postguy_http::build::method_text(request.method),
         url: &url,
@@ -325,6 +357,7 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
             Ok(Some(phase)) => {
                 let outcome = phase.outcome;
                 report.tests.extend(outcome.tests);
+                report.report.extend(outcome.report);
                 for failure in outcome.failures {
                     warnings.push(format!("post-response script in {} failed: {}", failure.origin, failure.message));
                     report.failures.push(failure);
@@ -332,7 +365,8 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
                 if outcome.next_request != NextRequest::Unchanged {
                     report.next_request = outcome.next_request;
                 }
-                report.variables_changed |= phase.variables_changed;
+                report.variables_changed |= phase.persisted;
+                report.collection_changed |= phase.collection_changed;
             }
             Ok(None) => {}
             Err(err) => {
@@ -363,6 +397,7 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
         body: request.body,
         auth: request.auth,
         scripts: request.scripts,
+        tests: request.tests,
         settings: request.settings,
         extras: Default::default(),
     };
@@ -376,14 +411,16 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
         response_ref: None,
         extras: serde_json::Map::new(),
     };
-    if global.save_history_responses {
-        match save_response(engine.store_paths(), &history.id, &response.body) {
-            Ok(reference) => history.response_ref = Some(reference),
-            Err(err) => warnings.push(format!("could not save the response body: {err}")),
+    if !options.skip_history {
+        if global.save_history_responses {
+            match save_response(engine.store_paths(), &history.id, &response.body) {
+                Ok(reference) => history.response_ref = Some(reference),
+                Err(err) => warnings.push(format!("could not save the response body: {err}")),
+            }
         }
-    }
-    if let Err(err) = engine.workspace().append_history(&history) {
-        warnings.push(format!("could not record history: {err}"));
+        if let Err(err) = engine.workspace().append_history(&history) {
+            warnings.push(format!("could not record history: {err}"));
+        }
     }
 
     let masked_url = postguy_vars::mask_secrets(&url, resolver.scopes());
@@ -476,13 +513,17 @@ fn millis(duration: std::time::Duration) -> u64 {
 }
 
 fn scripts_present(located: &Located) -> bool {
-    !located.collection.scripts.is_empty() || located.folders.iter().any(|folder| !folder.scripts.is_empty()) || !located.http.scripts.is_empty()
+    !located.collection.scripts.is_empty()
+        || located.folders.iter().any(|folder| !folder.scripts.is_empty())
+        || !located.http.scripts.is_empty()
+        || located.http.tests.has_work()
 }
 
 fn locate(engine: &Engine, target: &SendTarget) -> Result<Located> {
     match target {
         SendTarget::Inline { request, name } => Ok(Located {
-            collection: Collection::default(),
+            // An empty id marks the inline placeholder: no assets, runtime variables under "".
+            collection: Collection { id: Id(String::new()), ..Collection::default() },
             folders: Vec::new(),
             http: (**request).clone(),
             request_name: name.clone(),
@@ -494,39 +535,79 @@ fn locate(engine: &Engine, target: &SendTarget) -> Result<Located> {
             Ok(located)
         }
         SendTarget::Stored { collection, request } => locate_stored(engine, collection, request),
+        SendTarget::Snapshot { collection, request } => locate_in(collection, request),
     }
 }
 
 pub(crate) fn locate_stored(engine: &Engine, collection: &Id, request_id: &Id) -> Result<Located> {
-    {
-        {
-            let collection = engine.workspace().load_collection(collection)?.into_value();
-            let mut stack: Vec<(Vec<Folder>, Vec<Item>)> = vec![(Vec::new(), collection.items.clone())];
-            let mut visited = 0usize;
-            while let Some((folders, items)) = stack.pop() {
-                visited = visited.saturating_add(items.len());
-                if visited > 200_000 {
-                    return Err(EngineError::BadRequest { reason: "the collection tree is too large to search".into() });
-                }
-                for item in items {
-                    match item {
-                        Item::Folder(folder) => {
-                            let mut child = folders.clone();
-                            child.push((*folder).clone());
-                            stack.push((child, folder.items.clone()));
-                        }
-                        Item::Request(found) if found.id == *request_id => {
-                            let Some(http) = http_of(&found).cloned() else {
-                                return Err(EngineError::Unsupported { what: format!("{} requests", found.kind.protocol()) });
-                            };
-                            return Ok(Located { collection, folders, http, request_name: found.name.clone(), request_id: found.id.0.clone() });
-                        }
-                        Item::Request(_) => {}
-                    }
-                }
-            }
-            Err(EngineError::NotFound { what: "request".into(), id: request_id.0.clone() })
+    let collection = engine.workspace().load_collection(collection)?.into_value();
+    locate_in(&collection, request_id)
+}
+
+/// Find a request in an already loaded collection (no disk access). Walks by reference and
+/// copies only the found request and the item-free headers of its collection and folders, so a
+/// send never copies the rest of the tree.
+pub(crate) fn locate_in(collection: &Collection, request_id: &Id) -> Result<Located> {
+    let mut stack: Vec<(Vec<&Folder>, &[Item])> = vec![(Vec::new(), collection.items.as_slice())];
+    let mut visited = 0usize;
+    while let Some((folders, items)) = stack.pop() {
+        visited = visited.saturating_add(items.len());
+        if visited > 200_000 {
+            return Err(EngineError::BadRequest { reason: "the collection tree is too large to search".into() });
         }
+        for item in items {
+            match item {
+                Item::Folder(folder) => {
+                    let mut child = folders.clone();
+                    child.push(folder);
+                    stack.push((child, folder.items.as_slice()));
+                }
+                Item::Request(found) if found.id == *request_id => {
+                    let Some(http) = http_of(found).cloned() else {
+                        return Err(EngineError::Unsupported { what: format!("{} requests", found.kind.protocol()) });
+                    };
+                    return Ok(Located {
+                        collection: collection_header(collection),
+                        folders: folders.into_iter().map(folder_header).collect(),
+                        http,
+                        request_name: found.name.clone(),
+                        request_id: found.id.0.clone(),
+                    });
+                }
+                Item::Request(_) => {}
+            }
+        }
+    }
+    Err(EngineError::NotFound { what: "request".into(), id: request_id.0.clone() })
+}
+
+/// A collection without its items: what a send reads (id, name, variables, auth, scripts).
+fn collection_header(collection: &Collection) -> Collection {
+    Collection {
+        id: collection.id.clone(),
+        name: collection.name.clone(),
+        description: String::new(),
+        variables: collection.variables.clone(),
+        auth: collection.auth.clone(),
+        scripts: collection.scripts.clone(),
+        pinned_environment: collection.pinned_environment.clone(),
+        favourite: collection.favourite,
+        items: Vec::new(),
+        extras: Default::default(),
+    }
+}
+
+/// A folder without its items, for the located request's folder chain.
+fn folder_header(folder: &Folder) -> Folder {
+    Folder {
+        id: folder.id.clone(),
+        name: folder.name.clone(),
+        description: String::new(),
+        variables: folder.variables.clone(),
+        auth: folder.auth.clone(),
+        scripts: folder.scripts.clone(),
+        items: Vec::new(),
+        extras: Default::default(),
     }
 }
 
@@ -538,7 +619,7 @@ fn http_of(request: &Request) -> Option<&HttpRequest> {
     }
 }
 
-/// Scopes: globals < collection < folders outer→inner < environment < data. Secret
+/// Scopes: globals < collection < folders outer→inner < environment < data < runtime. Secret
 /// variable values come from the secrets store, never from the model files.
 pub(crate) fn load_scopes(engine: &Engine, located: &Located, environment: Option<&Id>, iteration: Option<&IterationScope>) -> Result<ScopeSet> {
     let mut scopes: Vec<Scope> = Vec::new();
@@ -571,6 +652,10 @@ pub(crate) fn load_scopes(engine: &Engine, located: &Located, environment: Optio
             (key.clone(), text)
         });
         scopes.push(Scope::new(ScopeKind::Data, rows));
+    }
+    let runtime = engine.runtime_variables(&located.collection.id);
+    if !runtime.is_empty() {
+        scopes.push(Scope::new(ScopeKind::Runtime, runtime));
     }
     Ok(ScopeSet { scopes, environment: active })
 }
@@ -798,21 +883,60 @@ fn resolve_rows(rows: &[KeyValue], resolver: &Resolver) -> Vec<KeyValue> {
         .collect()
 }
 
-fn resolve_body(body: &Body, resolver: &Resolver) -> Body {
-    match body.clone() {
+/// Body resolution. `shortcodes` expands `{{% … %}}` in a text (before `{{var}}` resolution of
+/// that same text). A binary path or form-data file row that is exactly `{{% file('p') %}}`
+/// becomes `asset://p`, which the file loader reads from the collection's assets.
+fn resolve_body(
+    body: &Body,
+    resolver: &Resolver,
+    shortcodes: &dyn Fn(&str) -> std::result::Result<String, String>,
+) -> std::result::Result<Body, String> {
+    let text = |raw: &str| -> std::result::Result<String, String> {
+        if raw.contains("{{%") { Ok(resolver.resolve_text(&shortcodes(raw)?).text) } else { Ok(resolver.resolve_text(raw).text) }
+    };
+    let file_path = |raw: &str| -> std::result::Result<String, String> {
+        match postguy_vars::shortcode::single_file(raw) {
+            Some(Ok(path)) => {
+                // Validates the collection context (an inline send has none) without loading.
+                shortcodes("")?;
+                Ok(format!("asset://{}", resolver.resolve_text(&path).text))
+            }
+            Some(Err(message)) => Err(message),
+            None if raw.contains("{{%") => Err("a file path may only be exactly {{% file('name') %}}; other shortcodes produce text".to_string()),
+            None => Ok(resolver.resolve_text(raw).text),
+        }
+    };
+    let rows = |rows: &[KeyValue]| -> std::result::Result<Vec<KeyValue>, String> {
+        let mut out = Vec::with_capacity(rows.len());
+        for row in rows.iter().filter(|row| row.enabled && !row.key.trim().is_empty()) {
+            let value = if row.kind == KeyValueKind::File { file_path(&row.value)? } else { text(&row.value)? };
+            out.push(KeyValue {
+                key: resolver.resolve_text(&row.key).text,
+                value,
+                description: row.description.clone(),
+                enabled: true,
+                kind: row.kind,
+                content_type: row.content_type.clone(),
+                secret: row.secret,
+                extras: row.extras.clone(),
+            });
+        }
+        Ok(out)
+    };
+    Ok(match body.clone() {
         Body::None => Body::None,
-        Body::FormData(rows) => Body::FormData(resolve_rows(&rows, resolver)),
-        Body::UrlEncoded(rows) => Body::UrlEncoded(resolve_rows(&rows, resolver)),
-        Body::Raw { language, text, extras } => Body::Raw { language, text: resolver.resolve_text(&text).text, extras },
-        Body::Binary { path, extras } => Body::Binary { path: resolver.resolve_text(&path).text, extras },
+        Body::FormData(items) => Body::FormData(rows(&items)?),
+        Body::UrlEncoded(items) => Body::UrlEncoded(rows(&items)?),
+        Body::Raw { language, text: raw, extras } => Body::Raw { language, text: text(&raw)?, extras },
+        Body::Binary { path, extras } => Body::Binary { path: file_path(&path)?, extras },
         Body::GraphQL { query, operation_name, variables, extras } => Body::GraphQL {
-            query: resolver.resolve_text(&query).text,
-            operation_name: operation_name.map(|name| resolver.resolve_text(&name).text),
-            variables: resolver.resolve_text(&variables).text,
+            query: text(&query)?,
+            operation_name: operation_name.map(|name| text(&name)).transpose()?,
+            variables: text(&variables)?,
             extras,
         },
         other => other,
-    }
+    })
 }
 
 /// The file loader for binary and form-data rows: working-directory confinement (unless the

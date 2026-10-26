@@ -20,6 +20,7 @@ struct State {
     undo_paste: bool,
     inherited: Option<String>,
     sending: Option<SendProgress>,
+    assets: Option<postguy_ui_egui::AssetIndex>,
 }
 
 fn harness() -> Harness<'static, State> {
@@ -40,6 +41,7 @@ fn harness() -> Harness<'static, State> {
                 inherited_auth: state.inherited.as_deref(),
                 oauth2_action: &mut oauth2_action,
                 graphql_schema: None,
+                assets: state.assets.as_ref(),
             };
             let action = builder.show(ui);
             state.action = if let Some(action) = oauth2_action { Some(BuilderAction::OAuth2(action)) } else { action };
@@ -63,6 +65,7 @@ fn harness() -> Harness<'static, State> {
             undo_paste: false,
             inherited: None,
             sending: None,
+            assets: None,
         },
     )
 }
@@ -241,6 +244,56 @@ fn the_docs_tab_edits_the_description_and_marks_dirty() {
 }
 
 #[test]
+fn the_tests_tab_adds_an_assertion_changes_its_operator_and_deletes_it() {
+    use postguy_model::AssertOperator;
+    let mut harness = harness();
+    harness.run();
+    harness.get_by_label("Tests").click();
+    harness.run();
+    assert!(harness.query_by_label("Delete assertion").is_none(), "only the ghost row exists");
+    // The ghost row's Expr and Value are the last two single-line inputs.
+    let inputs: Vec<_> = harness.get_all_by_role(egui::accesskit::Role::TextInput).collect();
+    let expr = inputs.get(inputs.len().saturating_sub(2)).expect("ghost expr");
+    expr.click();
+    expr.type_text("res.status");
+    harness.run();
+    {
+        let state = harness.state();
+        assert_eq!(state.draft.tests.assertions.len(), 1, "typing in the ghost row creates an assertion");
+        let assertion = &state.draft.tests.assertions[0];
+        assert_eq!((assertion.enabled, assertion.expr.as_str(), assertion.operator), (true, "res.status", AssertOperator::Eq));
+        assert!(state.dirty);
+    }
+    harness.state_mut().dirty = false;
+    harness.get_by_label_contains("equals").click();
+    harness.run();
+    harness.get_by_label("contains").click();
+    harness.run();
+    assert_eq!(harness.state().draft.tests.assertions[0].operator, AssertOperator::Contains);
+    assert!(harness.state().dirty, "changing the operator marks the request dirty");
+    harness.state_mut().dirty = false;
+    harness.get_by_label("Delete assertion").click();
+    harness.run();
+    assert!(harness.state().draft.tests.assertions.is_empty());
+    assert!(harness.state().dirty);
+}
+
+#[test]
+fn typing_a_value_first_keeps_the_expression_empty() {
+    let mut harness = harness();
+    harness.run();
+    harness.get_by_label("Tests").click();
+    harness.run();
+    let inputs: Vec<_> = harness.get_all_by_role(egui::accesskit::Role::TextInput).collect();
+    let value = inputs.last().expect("ghost value");
+    value.click();
+    value.type_text("200");
+    harness.run();
+    let assertion = &harness.state().draft.tests.assertions[0];
+    assert_eq!((assertion.expr.as_str(), assertion.value.as_str()), ("", "200"));
+}
+
+#[test]
 fn the_send_button_and_the_request_tabs_show_the_pointing_hand() {
     let mut harness = harness();
     harness.run();
@@ -269,4 +322,23 @@ fn sending_keeps_the_layout_in_place() {
     assert!((url_before.max.x - url_after.max.x).abs() < 0.5, "the URL field resized: {url_before:?} -> {url_after:?}");
     let cancel = harness.get_by_label("Cancel").rect();
     assert!(cancel.width() >= send_width - 0.5, "Cancel ({}) is narrower than Send ({send_width})", cancel.width());
+}
+
+#[test]
+fn a_raw_body_with_an_unknown_asset_shows_the_shortcode_problem() {
+    let mut harness = harness();
+    harness.state_mut().draft.body =
+        Body::Raw { language: RawLanguage::Json, text: "{\"image\": \"{{% base64(file('nope.png')) %}}\"}".into(), extras: Default::default() };
+    harness.state_mut().tab = BuilderTab::Body;
+    let mut index = postguy_ui_egui::AssetIndex::default();
+    index.paths.insert("yes.png".into());
+    index.loaded = true;
+    harness.state_mut().assets = Some(index);
+    harness.run();
+    assert!(harness.query_by_label("Shortcode: asset `nope.png` not found in this collection").is_some());
+
+    harness.state_mut().draft.body =
+        Body::Raw { language: RawLanguage::Json, text: "{\"image\": \"{{% base64(file('yes.png')) %}}\"}".into(), extras: Default::default() };
+    harness.run();
+    assert!(harness.query_by_label_contains("Shortcode:").is_none(), "an existing asset is valid");
 }

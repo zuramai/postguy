@@ -48,6 +48,9 @@ pub(crate) struct State {
     pub skip: bool,
     pub tests_overflowed: bool,
     pub origin: String,
+    pub report: serde_json::Map<String, serde_json::Value>,
+    /// Modules loaded by `require` so far (capped).
+    pub modules_loaded: usize,
 }
 
 pub(crate) type Shared = Rc<RefCell<State>>;
@@ -64,7 +67,7 @@ pub(crate) fn with_state<'js, R>(ctx: &Ctx<'js>, shared: &Shared, f: impl FnOnce
     }
 }
 
-fn def<'js, P, F>(ctx: &Ctx<'js>, object: &Object<'js>, name: &str, f: F) -> Result<()>
+pub(crate) fn def<'js, P, F>(ctx: &Ctx<'js>, object: &Object<'js>, name: &str, f: F) -> Result<()>
 where
     F: IntoJsFunc<'js, P> + 'js,
 {
@@ -73,7 +76,7 @@ where
 }
 
 /// `value` as variable text: strings as-is, everything else through `JSON.stringify`.
-fn var_text<'js>(ctx: &Ctx<'js>, value: &Value<'js>) -> Result<String> {
+pub(crate) fn var_text<'js>(ctx: &Ctx<'js>, value: &Value<'js>) -> Result<String> {
     let text = if let Some(s) = value.as_string() {
         s.to_string()?
     } else if value.is_undefined() {
@@ -91,7 +94,7 @@ fn var_text<'js>(ctx: &Ctx<'js>, value: &Value<'js>) -> Result<String> {
 }
 
 /// Any value as display text (`String(value)` for primitives, JSON for objects).
-fn display_text<'js>(value: &Value<'js>) -> String {
+pub(crate) fn display_text<'js>(value: &Value<'js>) -> String {
     if let Some(s) = value.as_string() {
         return s.to_string().unwrap_or_default();
     }
@@ -118,12 +121,16 @@ pub(crate) fn error_message<'js>(value: &Value<'js>) -> String {
 // Variable scopes
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Scope {
+pub(crate) enum Scope {
     Globals,
     Collection,
     Environment,
     Variables,
     Data,
+    /// Bruno runtime variables (`pg.setVar`).
+    Runtime,
+    /// Merged folder variables, read-only.
+    Folders,
 }
 
 fn merged(vars: &Variables) -> Vec<(String, String)> {
@@ -152,6 +159,9 @@ fn merged(vars: &Variables) -> Vec<(String, String)> {
     for (k, v) in &vars.data {
         put(k, json_text(v));
     }
+    for (k, v) in &vars.runtime {
+        put(k, v.clone());
+    }
     for (k, v) in &vars.locals {
         put(k, v.clone());
     }
@@ -165,7 +175,7 @@ fn json_text(value: &serde_json::Value) -> String {
     }
 }
 
-fn get_var<'js>(ctx: &Ctx<'js>, shared: &Shared, scope: Scope, key: &str) -> Result<Value<'js>> {
+pub(crate) fn get_var<'js>(ctx: &Ctx<'js>, shared: &Shared, scope: Scope, key: &str) -> Result<Value<'js>> {
     enum Found {
         Text(String),
         Json(serde_json::Value),
@@ -178,8 +188,13 @@ fn get_var<'js>(ctx: &Ctx<'js>, shared: &Shared, scope: Scope, key: &str) -> Res
             Scope::Collection => v.collection.get(key).cloned().map_or(Found::Missing, Found::Text),
             Scope::Environment => v.environment.as_ref().and_then(|(_, m)| m.get(key)).cloned().map_or(Found::Missing, Found::Text),
             Scope::Data => v.data.iter().find(|(k, _)| k == key).map_or(Found::Missing, |(_, j)| Found::Json(j.clone())),
+            Scope::Runtime => v.runtime.get(key).cloned().map_or(Found::Missing, Found::Text),
+            Scope::Folders => v.folders.get(key).cloned().map_or(Found::Missing, Found::Text),
             Scope::Variables => {
                 if let Some(text) = v.locals.get(key) {
+                    return Found::Text(text.clone());
+                }
+                if let Some(text) = v.runtime.get(key) {
                     return Found::Text(text.clone());
                 }
                 if let Some((_, json)) = v.data.iter().find(|(k, _)| k == key) {
@@ -210,8 +225,39 @@ fn writable_map(vars: &mut Variables, scope: Scope) -> std::result::Result<&mut 
             Some((_, values)) => Ok(values),
             None => Err("no environment is selected; choose one before setting environment variables"),
         },
+        Scope::Runtime => Ok(&mut vars.runtime),
+        Scope::Folders => Err("folder variables are read-only"),
         Scope::Data => Err("pm.iterationData is read-only"),
     }
+}
+
+/// Store `value` in `scope` (`pm.*.set`, `pg.setVar`, ...).
+pub(crate) fn set_var<'js>(ctx: &Ctx<'js>, shared: &Shared, scope: Scope, key: String, value: &Value<'js>) -> Result<()> {
+    let text = var_text(ctx, value)?;
+    let outcome = with_state(ctx, shared, |s| writable_map(&mut s.vars, scope).map(|map| map.insert(key, text)).map(|_| ()))?;
+    outcome.map_err(|message| throw(ctx, message))
+}
+
+/// Remove `key` from `scope`.
+pub(crate) fn unset_var<'js>(ctx: &Ctx<'js>, shared: &Shared, scope: Scope, key: &str) -> Result<()> {
+    let outcome = with_state(ctx, shared, |s| writable_map(&mut s.vars, scope).map(|map| map.remove(key)).map(|_| ()))?;
+    outcome.map_err(|message| throw(ctx, message))
+}
+
+/// `{{var}}` replacement over every scope, in the same precedence as `pm.variables`.
+pub(crate) fn interpolate(v: &Variables, text: &str) -> String {
+    let to_scope = |kind, map: &std::collections::BTreeMap<String, String>| VarScope::new(kind, map.clone());
+    let mut resolver = Resolver::new()
+        .with_scope(to_scope(ScopeKind::Globals, &v.globals))
+        .with_scope(to_scope(ScopeKind::Collection, &v.collection))
+        .with_scope(to_scope(ScopeKind::Folder, &v.folders));
+    if let Some((_, env)) = &v.environment {
+        resolver = resolver.with_scope(to_scope(ScopeKind::Environment, env));
+    }
+    resolver = resolver.with_scope(VarScope::new(ScopeKind::Data, v.data.iter().map(|(k, j)| (k.clone(), json_text(j)))));
+    resolver = resolver.with_scope(to_scope(ScopeKind::Runtime, &v.runtime));
+    resolver = resolver.with_scope(to_scope(ScopeKind::Local, &v.locals));
+    resolver.resolve_text(text).text
 }
 
 fn scope_object<'js>(ctx: &Ctx<'js>, shared: &Shared, scope: Scope) -> Result<Object<'js>> {
@@ -233,6 +279,8 @@ fn scope_object<'js>(ctx: &Ctx<'js>, shared: &Shared, scope: Scope) -> Result<Ob
                 Scope::Environment => s.vars.environment.as_ref().map(|(_, m)| m.clone().into_iter().collect()).unwrap_or_default(),
                 Scope::Variables => merged(&s.vars),
                 Scope::Data => s.vars.data.iter().map(|(k, v)| (k.clone(), json_text(v))).collect(),
+                Scope::Runtime => s.vars.runtime.clone().into_iter().collect(),
+                Scope::Folders => s.vars.folders.clone().into_iter().collect(),
             })?;
             if scope == Scope::Data {
                 let object = Object::new(ctx.clone())?;
@@ -250,18 +298,11 @@ fn scope_object<'js>(ctx: &Ctx<'js>, shared: &Shared, scope: Scope) -> Result<Ob
     }
     {
         let shared = shared.clone();
-        def(ctx, &object, "set", move |ctx: Ctx<'js>, key: String, value: Value<'js>| -> Result<()> {
-            let text = var_text(&ctx, &value)?;
-            let outcome = with_state(&ctx, &shared, |s| writable_map(&mut s.vars, scope).map(|map| map.insert(key, text)).map(|_| ()))?;
-            outcome.map_err(|message| throw(&ctx, message))
-        })?;
+        def(ctx, &object, "set", move |ctx: Ctx<'js>, key: String, value: Value<'js>| -> Result<()> { set_var(&ctx, &shared, scope, key, &value) })?;
     }
     {
         let shared = shared.clone();
-        def(ctx, &object, "unset", move |ctx: Ctx<'js>, key: String| -> Result<()> {
-            let outcome = with_state(&ctx, &shared, |s| writable_map(&mut s.vars, scope).map(|map| map.remove(&key)).map(|_| ()))?;
-            outcome.map_err(|message| throw(&ctx, message))
-        })?;
+        def(ctx, &object, "unset", move |ctx: Ctx<'js>, key: String| -> Result<()> { unset_var(&ctx, &shared, scope, &key) })?;
     }
     {
         let shared = shared.clone();
@@ -273,20 +314,7 @@ fn scope_object<'js>(ctx: &Ctx<'js>, shared: &Shared, scope: Scope) -> Result<Ob
     if scope == Scope::Variables {
         let shared = shared.clone();
         def(ctx, &object, "replaceIn", move |ctx: Ctx<'js>, text: String| -> Result<String> {
-            with_state(&ctx, &shared, |s| {
-                let v = &s.vars;
-                let to_scope = |kind, map: &std::collections::BTreeMap<String, String>| VarScope::new(kind, map.clone());
-                let mut resolver = Resolver::new()
-                    .with_scope(to_scope(ScopeKind::Globals, &v.globals))
-                    .with_scope(to_scope(ScopeKind::Collection, &v.collection))
-                    .with_scope(to_scope(ScopeKind::Folder, &v.folders));
-                if let Some((_, env)) = &v.environment {
-                    resolver = resolver.with_scope(to_scope(ScopeKind::Environment, env));
-                }
-                resolver = resolver.with_scope(VarScope::new(ScopeKind::Data, v.data.iter().map(|(k, j)| (k.clone(), json_text(j)))));
-                resolver = resolver.with_scope(to_scope(ScopeKind::Local, &v.locals));
-                resolver.resolve_text(&text).text
-            })
+            with_state(&ctx, &shared, |s| interpolate(&s.vars, &text))
         })?;
     }
     if scope == Scope::Environment {
@@ -305,11 +333,35 @@ fn scope_object<'js>(ctx: &Ctx<'js>, shared: &Shared, scope: Scope) -> Result<Ob
 // ----------------------------------------------------------------------------------------
 // pm.request
 
-fn ensure_writable<'js>(ctx: &Ctx<'js>, shared: &Shared) -> Result<()> {
+pub(crate) fn ensure_writable_as<'js>(ctx: &Ctx<'js>, shared: &Shared, label: &str) -> Result<()> {
     if with_state(ctx, shared, |s| s.phase == ScriptPhase::PostResponse)? {
-        return Err(throw(ctx, "pm.request is read-only in post-response scripts"));
+        return Err(throw(ctx, &format!("{label} is read-only in post-response scripts")));
     }
     Ok(())
+}
+
+fn ensure_writable<'js>(ctx: &Ctx<'js>, shared: &Shared) -> Result<()> {
+    ensure_writable_as(ctx, shared, "pm.request")
+}
+
+/// The first enabled header called `key` (case-insensitive).
+pub(crate) fn header_get(s: &State, key: &str) -> Option<String> {
+    s.request.headers.iter().find(|h| h.enabled && h.key.eq_ignore_ascii_case(key)).map(|h| h.value.clone())
+}
+
+/// Set `key` (replacing a header of the same name, else appending).
+pub(crate) fn header_upsert(s: &mut State, key: String, value: String) {
+    match s.request.headers.iter_mut().find(|h| h.key.eq_ignore_ascii_case(&key)) {
+        Some(header) => {
+            header.value = value;
+            header.enabled = true;
+        }
+        None => s.request.headers.push(Header { key, value, enabled: true }),
+    }
+}
+
+pub(crate) fn header_remove(s: &mut State, key: &str) {
+    s.request.headers.retain(|h| !h.key.eq_ignore_ascii_case(key));
 }
 
 fn key_value<'js>(ctx: &Ctx<'js>, object: &Object<'js>) -> Result<(String, String)> {
@@ -325,9 +377,7 @@ fn headers_object<'js>(ctx: &Ctx<'js>, shared: &Shared) -> Result<Object<'js>> {
     let object = Object::new(ctx.clone())?;
     {
         let shared = shared.clone();
-        def(ctx, &object, "get", move |ctx: Ctx<'js>, key: String| -> Result<Option<String>> {
-            with_state(&ctx, &shared, |s| s.request.headers.iter().find(|h| h.enabled && h.key.eq_ignore_ascii_case(&key)).map(|h| h.value.clone()))
-        })?;
+        def(ctx, &object, "get", move |ctx: Ctx<'js>, key: String| -> Result<Option<String>> { with_state(&ctx, &shared, |s| header_get(s, &key)) })?;
     }
     {
         let shared = shared.clone();
@@ -357,20 +407,14 @@ fn headers_object<'js>(ctx: &Ctx<'js>, shared: &Shared) -> Result<Object<'js>> {
         def(ctx, &object, "upsert", move |ctx: Ctx<'js>, item: Object<'js>| -> Result<()> {
             ensure_writable(&ctx, &shared)?;
             let (key, value) = key_value(&ctx, &item)?;
-            with_state(&ctx, &shared, |s| match s.request.headers.iter_mut().find(|h| h.key.eq_ignore_ascii_case(&key)) {
-                Some(header) => {
-                    header.value = value;
-                    header.enabled = true;
-                }
-                None => s.request.headers.push(Header { key, value, enabled: true }),
-            })
+            with_state(&ctx, &shared, |s| header_upsert(s, key, value))
         })?;
     }
     {
         let shared = shared.clone();
         def(ctx, &object, "remove", move |ctx: Ctx<'js>, key: String| -> Result<()> {
             ensure_writable(&ctx, &shared)?;
-            with_state(&ctx, &shared, |s| s.request.headers.retain(|h| !h.key.eq_ignore_ascii_case(&key)))
+            with_state(&ctx, &shared, |s| header_remove(s, &key))
         })?;
     }
     Ok(object)
@@ -537,7 +581,7 @@ fn body_object<'js>(ctx: &Ctx<'js>, shared: &Shared) -> Result<Object<'js>> {
     Ok(object)
 }
 
-fn request_object<'js>(ctx: &Ctx<'js>, shared: &Shared) -> Result<Object<'js>> {
+pub(crate) fn request_object<'js>(ctx: &Ctx<'js>, shared: &Shared) -> Result<Object<'js>> {
     let object = Object::new(ctx.clone())?;
     let (name, id) = with_state(ctx, shared, |s| (s.request.name.clone(), s.request.id.clone()))?;
     object.set("name", name)?;
@@ -677,7 +721,18 @@ fn cookies_object<'js>(ctx: &Ctx<'js>, shared: &Shared) -> Result<Object<'js>> {
 // ----------------------------------------------------------------------------------------
 // pm.test, pm.sendRequest, console and the small globals
 
-fn record_test(state: &mut State, name: String, status: TestStatus, message: Option<String>) -> Option<usize> {
+pub(crate) fn record_test(state: &mut State, name: String, status: TestStatus, message: Option<String>) -> Option<usize> {
+    record_result(state, name, status, message, postguy_model::TestKind::Test)
+}
+
+/// Record a test or assertion result, honouring `Limits.max_tests`.
+pub(crate) fn record_result(
+    state: &mut State,
+    name: String,
+    status: TestStatus,
+    message: Option<String>,
+    kind: postguy_model::TestKind,
+) -> Option<usize> {
     if state.tests.len() >= state.limits.max_tests {
         if !state.tests_overflowed {
             state.tests_overflowed = true;
@@ -687,7 +742,7 @@ fn record_test(state: &mut State, name: String, status: TestStatus, message: Opt
         return None;
     }
     let phase = state.phase;
-    state.tests.push(TestResult { name, status, message, phase });
+    state.tests.push(TestResult { name, status, message, phase, kind });
     Some(state.tests.len() - 1)
 }
 
@@ -886,7 +941,7 @@ fn console_object<'js>(ctx: &Ctx<'js>, shared: &Shared) -> Result<Object<'js>> {
     Ok(console)
 }
 
-fn next_request_fn<'js>(ctx: &Ctx<'js>, shared: &Shared) -> Result<Function<'js>> {
+pub(crate) fn next_request_fn<'js>(ctx: &Ctx<'js>, shared: &Shared) -> Result<Function<'js>> {
     let shared = shared.clone();
     Function::new(ctx.clone(), move |ctx: Ctx<'js>, target: Opt<Value<'js>>| -> Result<()> {
         let next = match target.0 {
@@ -945,6 +1000,9 @@ pub(crate) fn install<'js>(ctx: &Ctx<'js>, shared: &Shared) -> Result<()> {
     let postman = Object::new(ctx.clone())?;
     postman.set("setNextRequest", next_request_fn(ctx, shared)?)?;
     globals.set("postman", postman)?;
+    crate::node::install(ctx, shared)?;
+    crate::pg::install(ctx, shared)?;
+    crate::bru::install(ctx, shared)?;
     globals.set("console", console_object(ctx, shared)?)?;
 
     def(ctx, &globals, "btoa", move |ctx: Ctx<'js>, text: String| -> Result<String> {
@@ -963,9 +1021,6 @@ pub(crate) fn install<'js>(ctx: &Ctx<'js>, shared: &Shared) -> Result<()> {
             Ok(bytes) => Ok(bytes.into_iter().map(char::from).collect()),
             Err(_) => Err(throw(&ctx, "InvalidCharacterError: the string to be decoded is not correctly encoded")),
         }
-    })?;
-    def(ctx, &globals, "require", move |ctx: Ctx<'js>, name: Opt<String>| -> Result<()> {
-        Err(throw(&ctx, &format!("require('{}') is not available in Postguy scripts", name.0.unwrap_or_default())))
     })?;
 
     globals.prop(TIMERS, rquickjs::object::Property::from(Array::new(ctx.clone())?).writable())?;

@@ -31,7 +31,7 @@ pub mod widgets;
 pub mod window;
 
 pub use builder::{BodyDrafts, BuilderAction, BuilderTab, RequestBuilder, SendProgress};
-pub use collection::{CollectionAction, CollectionDetail, DetailState, DetailTab};
+pub use collection::{AssetRow, CollectionAction, CollectionDetail, DetailState, DetailTab};
 pub use commands::{Command, CommandAction, CommandRegistry, PaletteItem, PaletteState, command_palette};
 pub use console::{ConsoleAction, ConsoleFilter, ConsoleRow, ConsoleState, console_view};
 pub use cookies::{CookieAction, CookieData, CookieRow, CookieState, cookie_manager};
@@ -48,7 +48,7 @@ pub use tabs::{CloseChoice, Tab, TabAction, TabDoc, Tabs, tab_strip};
 pub use theme::{Palette, Theme, ThemeMode};
 pub use trash::{TrashAction, TrashEntryView, trash_view};
 pub use widgets::{
-    CodeEditor, CodeLanguage, ConfirmOutcome, InlineRename, LargeTextView, MessageDirection, RenameAction, SelectGroup, SelectItem, TableVariant,
-    Timeline, TimelineEntry, checkbox, compact_checkbox, context_menu, icon_button, inline_rename, key_value_table, menu_item, modal, radio,
-    searchable_popup, select, split_button, switch, typed_confirm, variable_field, variable_spans,
+    AssetIndex, CodeEditor, CodeLanguage, ConfirmOutcome, InlineRename, LargeTextView, MessageDirection, RenameAction, SelectGroup, SelectItem,
+    TableVariant, Timeline, TimelineEntry, checkbox, compact_checkbox, context_menu, icon_button, inline_rename, key_value_table, menu_item, modal,
+    radio, searchable_popup, select, split_button, switch, typed_confirm, variable_field, variable_spans,
 };

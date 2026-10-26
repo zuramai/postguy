@@ -1,0 +1,17 @@
+meta {
+  name: Form
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{baseUrl}}/form
+  body: form-urlencoded
+  auth: oauth2
+}
+
+body:form-urlencoded {
+  @description('''Account id''')
+  account: {{process.env.ACCOUNT}}
+  ~flag: on
+}

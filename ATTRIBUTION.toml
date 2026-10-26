@@ -508,6 +508,18 @@ kind = "font"
 usage = "symbol fallback glyphs in the default egui font stack"
 sha256 = "f426bec371f484646d002717e2c555a95cd5145e635d83a48bbef83f3abf18ca"
 
+[[bundled]]
+crate = "jiff-tzdb"
+version = "0.1.9"
+path = "concatenated-zoneinfo.dat"
+title = "IANA time zone database (compiled TZif data)"
+author = "The IANA tz project contributors; packaged by Andrew Gallant (jiff-tzdb)"
+source = "crates.io/crates/jiff-tzdb/0.1.9 (concatenated-zoneinfo.dat), from the IANA tzdb"
+licence = "LicenseRef-Public-Domain"
+kind = "data"
+usage = "time zone rules for local report and history datetimes; compiled in on Windows only (jiff `tzdb-bundle-platform`), other platforms read the system zoneinfo"
+sha256 = "b1278d744c58f7a35b19cdca67749e72bae2112b9a96d52300b5b81388997478"
+
 [[asset]]
 path = "assets/icons/chevron-down.svg"
 title = "Lucide icon: chevron-down"
@@ -793,3 +805,14 @@ licence_file = "assets/icons/LICENSE-lucide.txt"
 kind = "icon"
 usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.rs)"
 sha256 = "a0c743ab6dbf545d8a6e19ef3874f48ede686ce68d25e231bd81f540d97b1f19"
+
+[[asset]]
+path = "crates/interop/tests/fixtures/bruno/sample/lib/images/a.png"
+title = "Bruno importer test image: 1x1 red pixel PNG"
+author = "The Postguy authors"
+source = "contributor-original; a 1x1 PNG generated for this project"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "image"
+usage = "test fixture asset for the Bruno importer (crates/interop/tests/bruno.rs)"
+sha256 = "4ff6ab670a58c14270e034e2090d9a432caa263a14e0a25785386b0c12f880b5"

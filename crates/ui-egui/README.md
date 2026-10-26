@@ -21,8 +21,14 @@ The egui shell: theme, widgets and all screens.
   per-target context menus. `apps/postguy` applies its `SidebarAction`s through the engine.
 - `builder` — the request builder: method/URL (chips, autocomplete, cURL detection, Enter to
   send), Send/Cancel with elapsed, Params/path-variable two-way sync, auth P0, headers with
-  automatic rows, all body modes with per-mode drafts, Scripts/Settings/Docs, Save and dirty
+  automatic rows, all body modes with per-mode drafts, Scripts/Tests/Settings/Docs (the Tests tab: assertion table plus test script), Save and dirty
   tracking. Data-in/actions-out; the app owns the engine and the async send.
+- `widgets::shortcode` — `shortcode_marks` colours `{{% %}}` spans blue when valid and red when
+  invalid (syntax via `postguy-vars`, asset existence via `AssetIndex`); used by the code editor
+  overlay, single-line fields and key-value tables.
+- `collection` — also the collection Assets tab (import files/folder, search, copy shortcode, rename,
+  delete); `runner` — a virtualised flat results list with a details panel and the "Download report"
+  row (CSV, Excel, PDF, HTML, JSON, JUnit); `sidebar` history rows show local times.
 - `tabs` — the tab model and strip: preview/permanent documents, dirty dots, painted close
   buttons, drag reorder, middle-click, overflow search with recently closed, the tab context
   menu, the strict dirty-close dialog and the environment selector. Tabs (with drafts) are

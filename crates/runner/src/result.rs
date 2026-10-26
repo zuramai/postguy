@@ -24,6 +24,15 @@ pub struct RequestRun {
     /// Why the request did not run (non-HTTP protocol, `skipRequest()`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skipped: Option<String>,
+    /// Unix milliseconds when the send started.
+    #[serde(default)]
+    pub started_ms: i64,
+    /// Custom report columns set by `pg.report.set`, in first-set order.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub report: serde_json::Map<String, serde_json::Value>,
+    /// The first 1,024 characters of the response body, kept for failed requests only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_excerpt: Option<String>,
 }
 
 impl RequestRun {

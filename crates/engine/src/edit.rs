@@ -80,6 +80,7 @@ impl Engine {
         copy.name = name.map(str::to_string).unwrap_or_else(|| format!("{} Copy", source.name));
         regenerate_item_ids(&mut copy.items, 0)?;
         self.workspace().save_collection(&copy)?;
+        self.copy_collection_assets(&source.id, &copy.id);
         Ok(copy)
     }
 

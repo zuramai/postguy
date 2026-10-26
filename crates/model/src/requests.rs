@@ -149,6 +149,278 @@ impl Scripts {
     }
 }
 
+/// One row of a request's assertion table: evaluate `expr` (JavaScript, post-response) and
+/// compare it with `value` through `operator`. Unknown operator tokens read from a file are kept
+/// in `extras["operator"]` and written back, so the file round-trips; they evaluate as `eq`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Assertion {
+    pub enabled: bool,
+    pub expr: String,
+    pub operator: AssertOperator,
+    pub value: String,
+    pub extras: Extras,
+}
+
+impl Assertion {
+    /// Change the operator, forgetting an unknown token kept from the file.
+    pub fn set_operator(&mut self, operator: AssertOperator) {
+        self.operator = operator;
+        self.extras.0.remove("operator");
+    }
+
+    /// The operator token written to files: the unknown original when one was kept.
+    pub fn operator_token(&self) -> &str {
+        match self.extras.0.get("operator") {
+            Some(serde_json::Value::String(original)) if self.operator == AssertOperator::Eq => original,
+            _ => self.operator.token(),
+        }
+    }
+}
+
+impl Default for Assertion {
+    /// A new row is enabled, matching the file default (`enabled` missing means true).
+    fn default() -> Self {
+        Assertion { enabled: true, expr: String::new(), operator: AssertOperator::Eq, value: String::new(), extras: Extras::default() }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AssertionRepr {
+    #[serde(default = "true_value")]
+    enabled: bool,
+    #[serde(default)]
+    expr: String,
+    #[serde(default)]
+    operator: String,
+    #[serde(default)]
+    value: String,
+    #[serde(default, flatten)]
+    extras: Extras,
+}
+
+impl Serialize for Assertion {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut extras = self.extras.clone();
+        extras.0.remove("operator");
+        AssertionRepr {
+            enabled: self.enabled,
+            expr: self.expr.clone(),
+            operator: self.operator_token().to_owned(),
+            value: self.value.clone(),
+            extras,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Assertion {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let repr = AssertionRepr::deserialize(deserializer)?;
+        let mut extras = repr.extras;
+        let operator = match AssertOperator::from_token(&repr.operator) {
+            Some(operator) => operator,
+            None => {
+                if !repr.operator.is_empty() {
+                    extras.0.insert("operator".into(), serde_json::Value::String(repr.operator));
+                }
+                AssertOperator::Eq
+            }
+        };
+        Ok(Assertion { enabled: repr.enabled, expr: repr.expr, operator, value: repr.value, extras })
+    }
+}
+
+/// Comparison of an assertion row. Tokens follow the Bruno `.bru` assertion operators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum AssertOperator {
+    #[default]
+    Eq,
+    Neq,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
+    In,
+    NotIn,
+    Contains,
+    NotContains,
+    StartsWith,
+    EndsWith,
+    Matches,
+    NotMatches,
+    Between,
+    Length,
+    IsEmpty,
+    IsNotEmpty,
+    IsNull,
+    IsUndefined,
+    IsDefined,
+    IsTruthy,
+    IsFalsy,
+    IsNumber,
+    IsString,
+    IsBoolean,
+    IsArray,
+    IsJson,
+}
+
+impl AssertOperator {
+    pub const ALL: [AssertOperator; 28] = [
+        AssertOperator::Eq,
+        AssertOperator::Neq,
+        AssertOperator::Gt,
+        AssertOperator::Gte,
+        AssertOperator::Lt,
+        AssertOperator::Lte,
+        AssertOperator::In,
+        AssertOperator::NotIn,
+        AssertOperator::Contains,
+        AssertOperator::NotContains,
+        AssertOperator::StartsWith,
+        AssertOperator::EndsWith,
+        AssertOperator::Matches,
+        AssertOperator::NotMatches,
+        AssertOperator::Between,
+        AssertOperator::Length,
+        AssertOperator::IsEmpty,
+        AssertOperator::IsNotEmpty,
+        AssertOperator::IsNull,
+        AssertOperator::IsUndefined,
+        AssertOperator::IsDefined,
+        AssertOperator::IsTruthy,
+        AssertOperator::IsFalsy,
+        AssertOperator::IsNumber,
+        AssertOperator::IsString,
+        AssertOperator::IsBoolean,
+        AssertOperator::IsArray,
+        AssertOperator::IsJson,
+    ];
+
+    /// The file token (the serde name): `eq`, `notIn`, `isJson`, ...
+    pub fn token(self) -> &'static str {
+        match self {
+            AssertOperator::Eq => "eq",
+            AssertOperator::Neq => "neq",
+            AssertOperator::Gt => "gt",
+            AssertOperator::Gte => "gte",
+            AssertOperator::Lt => "lt",
+            AssertOperator::Lte => "lte",
+            AssertOperator::In => "in",
+            AssertOperator::NotIn => "notIn",
+            AssertOperator::Contains => "contains",
+            AssertOperator::NotContains => "notContains",
+            AssertOperator::StartsWith => "startsWith",
+            AssertOperator::EndsWith => "endsWith",
+            AssertOperator::Matches => "matches",
+            AssertOperator::NotMatches => "notMatches",
+            AssertOperator::Between => "between",
+            AssertOperator::Length => "length",
+            AssertOperator::IsEmpty => "isEmpty",
+            AssertOperator::IsNotEmpty => "isNotEmpty",
+            AssertOperator::IsNull => "isNull",
+            AssertOperator::IsUndefined => "isUndefined",
+            AssertOperator::IsDefined => "isDefined",
+            AssertOperator::IsTruthy => "isTruthy",
+            AssertOperator::IsFalsy => "isFalsy",
+            AssertOperator::IsNumber => "isNumber",
+            AssertOperator::IsString => "isString",
+            AssertOperator::IsBoolean => "isBoolean",
+            AssertOperator::IsArray => "isArray",
+            AssertOperator::IsJson => "isJson",
+        }
+    }
+
+    /// The label the assertion table shows.
+    pub fn label(self) -> &'static str {
+        match self {
+            AssertOperator::Eq => "equals",
+            AssertOperator::Neq => "not equals",
+            AssertOperator::Gt => "greater than",
+            AssertOperator::Gte => "greater or equal",
+            AssertOperator::Lt => "less than",
+            AssertOperator::Lte => "less or equal",
+            AssertOperator::In => "in",
+            AssertOperator::NotIn => "not in",
+            AssertOperator::Contains => "contains",
+            AssertOperator::NotContains => "not contains",
+            AssertOperator::StartsWith => "starts with",
+            AssertOperator::EndsWith => "ends with",
+            AssertOperator::Matches => "matches",
+            AssertOperator::NotMatches => "not matches",
+            AssertOperator::Between => "between",
+            AssertOperator::Length => "length",
+            AssertOperator::IsEmpty => "is empty",
+            AssertOperator::IsNotEmpty => "is not empty",
+            AssertOperator::IsNull => "is null",
+            AssertOperator::IsUndefined => "is undefined",
+            AssertOperator::IsDefined => "is defined",
+            AssertOperator::IsTruthy => "is truthy",
+            AssertOperator::IsFalsy => "is falsy",
+            AssertOperator::IsNumber => "is number",
+            AssertOperator::IsString => "is string",
+            AssertOperator::IsBoolean => "is boolean",
+            AssertOperator::IsArray => "is array",
+            AssertOperator::IsJson => "is JSON",
+        }
+    }
+
+    /// Whether the operator ignores the value column (every `is*` check).
+    pub fn is_unary(self) -> bool {
+        matches!(
+            self,
+            AssertOperator::IsEmpty
+                | AssertOperator::IsNotEmpty
+                | AssertOperator::IsNull
+                | AssertOperator::IsUndefined
+                | AssertOperator::IsDefined
+                | AssertOperator::IsTruthy
+                | AssertOperator::IsFalsy
+                | AssertOperator::IsNumber
+                | AssertOperator::IsString
+                | AssertOperator::IsBoolean
+                | AssertOperator::IsArray
+                | AssertOperator::IsJson
+        )
+    }
+
+    /// Parse a file token; `equals` and `notEquals` are accepted as `eq` and `neq`.
+    pub fn from_token(token: &str) -> Option<Self> {
+        match token {
+            "equals" => return Some(AssertOperator::Eq),
+            "notEquals" => return Some(AssertOperator::Neq),
+            _ => {}
+        }
+        AssertOperator::ALL.into_iter().find(|op| op.token() == token)
+    }
+}
+
+/// A request's Tests tab: the assertion table, then the test script (run in that order after
+/// the post-response scripts).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestTests {
+    #[serde(default)]
+    pub assertions: Vec<Assertion>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script: Option<Script>,
+    #[serde(default, flatten)]
+    pub extras: Extras,
+}
+
+impl RequestTests {
+    /// No assertions, an empty script and no unknown fields: nothing to write or run.
+    pub fn is_empty(&self) -> bool {
+        self.assertions.is_empty() && self.script.as_ref().is_none_or(Script::is_empty) && self.extras.is_empty()
+    }
+
+    /// Whether running the block can produce results.
+    pub fn has_work(&self) -> bool {
+        self.assertions.iter().any(|a| a.enabled) || self.script.as_ref().is_some_and(|s| !s.is_empty())
+    }
+}
+
 /// The per-protocol request payload of a saved request; tagged for file readability.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -257,6 +529,8 @@ pub struct HttpRequest {
     pub auth: AuthConfig,
     #[serde(default)]
     pub scripts: Scripts,
+    #[serde(default, skip_serializing_if = "RequestTests::is_empty")]
+    pub tests: RequestTests,
     #[serde(default)]
     pub settings: crate::settings::RequestSettings,
     #[serde(default, flatten)]
@@ -555,5 +829,49 @@ mod tests {
     fn method_labels_match_the_tree_brief() {
         assert_eq!(HttpMethod::Delete.short_label(), "DEL");
         assert_eq!(HttpMethod::Options.short_label(), "OPT");
+    }
+
+    #[test]
+    fn assertions_round_trip_and_keep_unknown_operators() {
+        let input = json!({
+            "assertions": [
+                {"expr": "res.status", "operator": "eq", "value": "200"},
+                {"enabled": false, "expr": "res.body.id", "operator": "isDefined", "value": ""},
+                {"expr": "res.body.x", "operator": "fancyOp", "value": "1", "note": "kept"}
+            ],
+            "script": {"text": "test('a', () => {});"}
+        });
+        let tests: RequestTests = serde_json::from_value(input.clone()).unwrap();
+        assert_eq!(tests.assertions[0].operator, AssertOperator::Eq);
+        assert!(tests.assertions[0].enabled, "enabled defaults to true");
+        assert_eq!(tests.assertions[1].operator, AssertOperator::IsDefined);
+        assert_eq!(tests.assertions[2].operator, AssertOperator::Eq, "unknown operators evaluate as eq");
+        assert_eq!(tests.assertions[2].operator_token(), "fancyOp");
+        let back = serde_json::to_value(&tests).unwrap();
+        assert_eq!(back["assertions"][2]["operator"], json!("fancyOp"));
+        assert_eq!(back["assertions"][2]["note"], json!("kept"));
+        assert_eq!(serde_json::from_value::<RequestTests>(back).unwrap(), tests);
+
+        let mut changed = tests.assertions[2].clone();
+        changed.set_operator(AssertOperator::Eq);
+        assert_eq!(serde_json::to_value(&changed).unwrap()["operator"], json!("eq"));
+    }
+
+    #[test]
+    fn operator_tokens_are_the_serde_names() {
+        for op in AssertOperator::ALL {
+            assert_eq!(serde_json::to_value(op).unwrap(), json!(op.token()));
+            assert_eq!(AssertOperator::from_token(op.token()), Some(op));
+            assert_eq!(op.is_unary(), op.token().starts_with("is"));
+        }
+        assert_eq!(AssertOperator::from_token("notEquals"), Some(AssertOperator::Neq));
+    }
+
+    #[test]
+    fn empty_tests_are_not_written() {
+        let value = serde_json::to_value(HttpRequest::default()).unwrap();
+        assert!(value.get("tests").is_none());
+        let blank = RequestTests { script: Some(Script::default()), ..RequestTests::default() };
+        assert!(blank.is_empty());
     }
 }

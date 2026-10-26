@@ -122,8 +122,9 @@ fn conflicting_run_modes_and_bad_names_exit_two() {
     let unknown = run(dir.path(), &["--collection", "Nope"]);
     assert_eq!(unknown.status.code(), Some(2));
     assert!(stderr(&unknown).contains("no collection `Nope`; known: Smoke (col1)"), "{}", stderr(&unknown));
-    let reporter = run(dir.path(), &["--collection", "Smoke", "--reporters", "pdf"]);
+    let reporter = run(dir.path(), &["--collection", "Smoke", "--reporters", "docx"]);
     assert_eq!(reporter.status.code(), Some(2));
+    assert!(stderr(&reporter).contains("use cli, json, junit, html, csv, xlsx or pdf"), "{}", stderr(&reporter));
     let number = run(dir.path(), &["--collection", "Smoke", "--iterations", "many"]);
     assert_eq!(number.status.code(), Some(2));
 }

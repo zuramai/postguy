@@ -295,7 +295,7 @@ struct TableState {
 fn key_value_table_grows_a_row_when_the_empty_row_is_filled() {
     let mut harness = Harness::new_ui_state(
         |ui, state: &mut TableState| {
-            let _ = widgets::key_value_table(ui, &mut state.rows, TableVariant::Normal);
+            let _ = widgets::key_value_table(ui, &mut state.rows, TableVariant::Normal, None);
         },
         TableState { rows: vec![postguy_model::KeyValue { key: "Accept".into(), value: "application/json".into(), ..Default::default() }] },
     );
@@ -486,4 +486,30 @@ fn the_modal_close_button_and_escape_dismiss_it() {
     harness.key_press(egui::Key::Escape);
     harness.run();
     assert!(harness.query_by_label("Modal body").is_none(), "Escape dismisses the dialog");
+}
+
+#[test]
+fn shortcode_marks_check_syntax_and_asset_existence() {
+    use postguy_ui_egui::AssetIndex;
+    use postguy_ui_egui::widgets::shortcode_marks;
+    let text = "a {{% base64(file('x.jpg')) %}} b {{% nope('x') %}}";
+    // Without an index only syntax counts.
+    let marks = shortcode_marks(text, None);
+    assert_eq!(marks.len(), 2);
+    assert!(marks[0].1 && marks[0].2.is_none());
+    assert!(!marks[1].1 && marks[1].2.as_deref().is_some_and(|reason| reason.contains("unknown shortcode function")));
+    assert_eq!(&text[marks[0].0.clone()], "{{% base64(file('x.jpg')) %}}");
+
+    // A loaded index without the file makes it invalid, naming the path.
+    let mut index = AssetIndex { loaded: true, ..Default::default() };
+    let marks = shortcode_marks(text, Some(&index));
+    assert!(!marks[0].1);
+    assert_eq!(marks[0].2.as_deref(), Some("asset `x.jpg` not found in this collection"));
+    index.paths.insert("x.jpg".into());
+    assert!(shortcode_marks(text, Some(&index))[0].1);
+
+    // Still loading: existence is not checked.
+    let loading = AssetIndex::default();
+    assert!(shortcode_marks(text, Some(&loading))[0].1);
+    assert!(shortcode_marks("no shortcode {{var}}", Some(&index)).is_empty());
 }

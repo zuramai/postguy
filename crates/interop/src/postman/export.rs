@@ -14,7 +14,7 @@ use postguy_model::{
 };
 
 use super::auth::auth_to_postman;
-use super::import::reserved;
+use super::import::{POSTGUY_TESTS, reserved};
 
 /// Export a collection to a Postman Collection v2.1 JSON document.
 #[must_use]
@@ -152,6 +152,12 @@ fn export_item(item: &Item) -> Value {
                 } else {
                     out.insert("protocolProfileBehavior".into(), Value::Object(ppb));
                 }
+            }
+            if let RequestKind::Http(http) = &request.kind
+                && !http.tests.is_empty()
+                && let Ok(tests) = serde_json::to_value(&http.tests)
+            {
+                out.insert(POSTGUY_TESTS.into(), tests);
             }
             for (key, value) in passthrough(&request.extras) {
                 out.insert(key, value);

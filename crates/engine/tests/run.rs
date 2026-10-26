@@ -221,3 +221,38 @@ fn data_files_load_from_disk_with_a_cap() {
     std::fs::write(&huge, vec![b'a'; postguy_runner::DATA_FILE_CAP + 1]).expect("write");
     assert!(load_data_file(&huge).is_err());
 }
+
+#[test]
+fn run_does_not_write_history() {
+    let rig = rig(vec![http("a", "{{base}}/echo", PASS), http("b", "{{base}}/echo", "")]);
+    let result = run(&rig, &config(), None);
+    assert_eq!(result.totals.requests, 2);
+    assert!(rig.engine.history(10).expect("history").is_empty(), "runs keep their own record, not History");
+}
+
+#[test]
+fn run_rows_have_started_ms_report_fields_and_failure_excerpt() {
+    let before = postguy_util::time::now_unix_ms();
+    let failing = "pg.report.set('subject', 'abc'); pg.test('bad', () => pg.expect(pg.response.code).to.equal(500));";
+    let rig = rig(vec![http("bad", "{{base}}/echo/marker", failing), http("good", "{{base}}/echo", PASS)]);
+    let result = run(&rig, &config(), None);
+    let rows = &result.iterations[0].requests;
+    let bad = &rows[0];
+    assert!(bad.started_ms >= before, "{bad:?}");
+    assert_eq!(bad.report.get("subject").and_then(|v| v.as_str()), Some("abc"));
+    let excerpt = bad.response_excerpt.as_deref().expect("a failed row keeps an excerpt");
+    assert!(excerpt.contains("/echo/marker"), "{excerpt}");
+    assert!(excerpt.chars().count() <= 1024);
+    let good = &rows[1];
+    assert!(good.started_ms >= bad.started_ms);
+    assert!(good.response_excerpt.is_none(), "passing rows carry no excerpt");
+    assert!(good.report.is_empty());
+}
+
+#[test]
+fn collection_variable_written_by_a_script_is_seen_by_the_next_request() {
+    let rig = rig(vec![http("a", "{{base}}/echo", "pm.collectionVariables.set('token', 'abc123');"), http("b", "{{base}}/echo/{{token}}", "")]);
+    let result = run(&rig, &config(), None);
+    let second = &result.iterations[0].requests[1];
+    assert!(second.url.ends_with("/echo/abc123"), "{}", second.url);
+}

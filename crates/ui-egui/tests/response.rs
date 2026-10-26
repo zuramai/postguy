@@ -218,7 +218,7 @@ fn select_all_copies_the_whole_body() {
 }
 
 fn test(name: &str, status: TestStatus, message: Option<&str>) -> TestResult {
-    TestResult { name: name.into(), status, message: message.map(str::to_string), phase: ScriptPhase::PostResponse }
+    TestResult { name: name.into(), status, message: message.map(str::to_string), phase: ScriptPhase::PostResponse, kind: Default::default() }
 }
 
 #[test]

@@ -9,19 +9,28 @@ use crate::widgets::{self, CodeEditor, CodeLanguage, menu_item};
 
 /// `(menu label, code)` pairs for the pre-request editor.
 pub const PRE_REQUEST: &[(&str, &str)] = &[
-    ("Set a variable", "pm.variables.set(\"name\", \"value\");"),
-    ("Send a request", "pm.sendRequest(\"https://example.com\", (err, res) => {\n  console.log(res.code);\n});"),
+    ("Set a variable", "pg.variables.set(\"name\", \"value\");"),
+    ("Send a request", "pg.sendRequest(\"https://example.com\", (err, res) => {\n  console.log(res.code);\n});"),
 ];
 
 /// `(menu label, code)` pairs for the post-response editor.
 pub const POST_RESPONSE: &[(&str, &str)] = &[
-    ("Status code is 200", "pm.test(\"Status code is 200\", () => {\n  pm.response.to.have.status(200);\n});"),
+    ("Status code is 200", "pg.test(\"Status code is 200\", () => {\n  pg.response.to.have.status(200);\n});"),
     (
         "Response time is below 500 ms",
-        "pm.test(\"Response time is below 500 ms\", () => {\n  pm.expect(pm.response.responseTime).to.be.below(500);\n});",
+        "pg.test(\"Response time is below 500 ms\", () => {\n  pg.expect(pg.response.responseTime).to.be.below(500);\n});",
     ),
-    ("JSON body has a property", "pm.test(\"Body has an id\", () => {\n  pm.expect(pm.response.json()).to.have.property(\"id\");\n});"),
-    ("Save a value to the environment", "pm.environment.set(\"token\", pm.response.json().token);"),
+    ("JSON body has a property", "pg.test(\"Body has an id\", () => {\n  pg.expect(pg.response.json()).to.have.property(\"id\");\n});"),
+    ("Save a value to the environment", "pg.environment.set(\"token\", pg.response.json().token);"),
+];
+
+/// `(menu label, code)` pairs for the request's Tests script.
+pub const TESTS: &[(&str, &str)] = &[
+    ("Status code is 200", "pg.test(\"Status code is 200\", () => pg.expect(pg.response.code).to.equal(200));"),
+    ("Response time below 1s", "pg.test(\"Response time below 1 s\", () => pg.expect(pg.response.responseTime).to.be.below(1000));"),
+    ("JSON field equals", "pg.test(\"status is ok\", () => pg.expect(pg.response.json().status).to.equal(\"ok\"));"),
+    ("Add report column", "pg.report.set(\"subject_id\", pg.response.json().subject_id);"),
+    ("Save runtime variable", "pg.setVar(\"session_id\", pg.response.json().session_id);"),
 ];
 
 /// One script editor under `label` with a Snippets menu. Returns true when the text changed.

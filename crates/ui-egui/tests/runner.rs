@@ -37,7 +37,7 @@ fn harness(runner: RunnerState) -> Harness<'static, State> {
 }
 
 fn test(name: &str, status: TestStatus, message: Option<&str>) -> TestResult {
-    TestResult { name: name.into(), status, message: message.map(str::to_string), phase: ScriptPhase::PostResponse }
+    TestResult { name: name.into(), status, message: message.map(str::to_string), phase: ScriptPhase::PostResponse, kind: Default::default() }
 }
 
 fn request(iteration: u32, name: &str, tests: Vec<TestResult>) -> RunRequestView {
@@ -51,6 +51,10 @@ fn request(iteration: u32, name: &str, tests: Vec<TestResult>) -> RunRequestView
         tests,
         error: None,
         skipped: None,
+        script_failures: Vec::new(),
+        started_ms: 0,
+        report: Vec::new(),
+        response_excerpt: None,
     }
 }
 
@@ -81,13 +85,47 @@ fn runner_panel_runs_selected_requests_and_filters_results() {
     harness.run();
     assert!(harness.query_by_label("Iteration 1").is_some() && harness.query_by_label("Iteration 2").is_some());
     assert!(harness.query_by_label_contains("2 passed").is_some() && harness.query_by_label_contains("1 failed").is_some());
+    assert!(harness.query_by_label("Download report").is_some());
     harness.get_by_label_contains("Failed 1").click();
     harness.run();
-    assert!(harness.query_by_label_contains("GET create - 200").is_some());
-    assert!(harness.query_by_label_contains("GET list - 200").is_none(), "the filter hides passing requests");
-    harness.get_by_label("JUnit").click();
+    assert!(harness.query_by_label("Result GET create").is_some());
+    assert!(harness.query_by_label("Result GET list").is_none(), "the filter hides passing requests");
+    assert!(harness.query_by_label("FAIL").is_some());
+    assert!(harness.query_by_label("0/1 tests").is_some());
+    for (button, format) in [("CSV", "csv"), ("Excel (.xlsx)", "xlsx"), ("PDF", "pdf"), ("HTML", "html"), ("JSON", "json"), ("JUnit", "junit")] {
+        harness.get_by_label(button).click();
+        harness.run();
+        assert_eq!(harness.state().last, Some(RunnerAction::Export(format)));
+        harness.state_mut().last = None;
+    }
+}
+
+#[test]
+fn selecting_a_row_shows_its_details_with_assertion_badges_and_report_fields() {
+    let mut failing = request(0, "create", vec![test("created", TestStatus::Failed, Some("expected 200 to equal 201"))]);
+    failing.tests.push(TestResult {
+        kind: postguy_model::TestKind::Assertion,
+        ..test("res.status eq 201", TestStatus::Failed, Some("expected res.status equals 201, got 200"))
+    });
+    failing.url = "http://x/create".into();
+    failing.report = vec![("subject_id".into(), "s1".into())];
+    failing.response_excerpt = Some("{\"error\":true}".into());
+    failing.script_failures = vec!["post-response script in request create failed: boom".into()];
+    let mut harness = harness(RunnerState {
+        collection: Some("c1".into()),
+        result: Some(RunResultView { id: "run1".into(), collection: "Payments".into(), requests: vec![failing], ..RunResultView::default() }),
+        ..RunnerState::default()
+    });
     harness.run();
-    assert_eq!(harness.state().last, Some(RunnerAction::Export("junit")));
+    assert!(harness.query_by_label("http://x/create").is_none(), "details stay closed until a row is selected");
+    harness.get_by_label("Result GET create").click();
+    harness.run();
+    assert_eq!(harness.state().runner.selected, Some(0));
+    assert!(harness.query_by_label("http://x/create").is_some());
+    assert!(harness.query_by_label("assert").is_some(), "assertions carry an assert badge");
+    assert!(harness.query_by_label_contains("subject_id: s1").is_some());
+    assert!(harness.query_by_label_contains("{\"error\":true}").is_some());
+    assert!(harness.query_by_label_contains("boom").is_some());
 }
 
 #[test]

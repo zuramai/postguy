@@ -16,6 +16,7 @@ use egui::{Color32, FontId, Response, ScrollArea, Sense, TextEdit, TextFormat, U
 use crate::theme::{Palette, Theme};
 use crate::widgets;
 use crate::widgets::field::variable_spans;
+use crate::widgets::shortcode::{AssetIndex, overlay, shortcode_marks};
 use crate::widgets::text_selection::{Motion, Sel, Selections, add_next_occurrence, apply_motion, clamp_to_text, copy_text, line_at, word_at};
 
 /// Which token rules to apply. Unknown languages stay plain (no half-correct colouring).
@@ -60,7 +61,7 @@ impl CodeLanguage {
 /// Editable code area. Kept small: state is the caller's `String`; the widget adds the gutter,
 /// colours and scroll behaviour.
 #[derive(Debug, Clone)]
-pub struct CodeEditor {
+pub struct CodeEditor<'a> {
     pub language: CodeLanguage,
     pub rows: usize,
     /// Above this many bytes highlighting is off (typing stays responsive).
@@ -68,11 +69,31 @@ pub struct CodeEditor {
     /// Generated snippets stay selectable but not editable.
     pub read_only: bool,
     pub id: egui::Id,
+    /// When set, `{{% … %}}` shortcodes are coloured blue (valid) or red (invalid) over the
+    /// language highlighting.
+    pub assets: Option<&'a AssetIndex>,
+    /// Colour shortcodes even without an asset index (syntax only).
+    pub shortcodes: bool,
 }
 
-impl CodeEditor {
-    pub fn new(language: CodeLanguage) -> CodeEditor {
-        CodeEditor { language, rows: 12, highlight_limit: 2_000_000, read_only: false, id: egui::Id::new("code-editor") }
+impl<'a> CodeEditor<'a> {
+    pub fn new(language: CodeLanguage) -> CodeEditor<'a> {
+        CodeEditor {
+            language,
+            rows: 12,
+            highlight_limit: 2_000_000,
+            read_only: false,
+            id: egui::Id::new("code-editor"),
+            assets: None,
+            shortcodes: false,
+        }
+    }
+
+    /// Colour body shortcodes; `assets` (when known) lets missing files read as invalid.
+    pub fn assets(mut self, assets: Option<&'a AssetIndex>) -> Self {
+        self.shortcodes = true;
+        self.assets = assets;
+        self
     }
 
     pub fn rows(mut self, rows: usize) -> Self {
@@ -115,6 +136,8 @@ impl CodeEditor {
                         let language = self.language;
                         let highlight = text.len() <= self.highlight_limit;
                         let layout_font = font.clone();
+                        let shortcodes = self.shortcodes;
+                        let assets = self.assets;
                         let mut layouter = move |ui: &Ui, buffer: &dyn egui::TextBuffer, wrap_width: f32| {
                             let text = buffer.as_str();
                             let job = if highlight {
@@ -125,6 +148,10 @@ impl CodeEditor {
                                 job.append(text, 0.0, TextFormat { font_id: layout_font.clone(), color: palette.text, ..Default::default() });
                                 job
                             };
+                            let mut job = job;
+                            if shortcodes {
+                                overlay(&mut job, &shortcode_marks(text, assets), &palette);
+                            }
                             ui.fonts_mut(|fonts| fonts.layout_job(job))
                         };
                         let output = TextEdit::multiline(text)
@@ -159,7 +186,7 @@ impl CodeEditor {
     }
 }
 
-impl Default for CodeEditor {
+impl Default for CodeEditor<'_> {
     fn default() -> Self {
         CodeEditor::new(CodeLanguage::Plain)
     }
@@ -252,7 +279,7 @@ impl Highlighter<'_> {
 /// The byte end of a `{{var}}` span starting at `start`, when there is one.
 fn variable_end(text: &str, start: usize) -> Option<usize> {
     let tail = text.get(start..)?;
-    if !tail.starts_with("{{") {
+    if !tail.starts_with("{{") || tail.starts_with("{{%") {
         return None;
     }
     let inner = tail.get(2..)?.find('}')?;

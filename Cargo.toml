@@ -82,6 +82,8 @@ serde-saphyr = { version = "2", default-features = false, features = ["deseriali
 # CSV data files for the collection runner (Unlicense OR MIT).
 csv = { version = "1.4", default-features = false }
 base64 = { version = "0.22", default-features = false, features = ["std"] }
+# Local time zone offsets for report and history datetimes (Unlicense OR MIT).
+jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo", "tzdb-bundle-platform"] }
 # Embedded JavaScript (QuickJS, MIT). No `rust-alloc`: it would turn set_memory_limit into a no-op.
 rquickjs = { version = "0.14", default-features = false, features = ["std", "properties"] }
 http-body-util = "0.1"

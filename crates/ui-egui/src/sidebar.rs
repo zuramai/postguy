@@ -69,6 +69,12 @@ pub struct SidebarRow {
     pub collection: Option<String>,
     /// Ancestor folder/collection ids, for collapse filtering.
     pub ancestors: Vec<String>,
+    /// History rows: when the request was sent (unix ms).
+    pub time_ms: Option<i64>,
+    /// History rows: response status, for the hover tooltip.
+    pub status: Option<u16>,
+    /// History rows: round-trip duration in ms, for the hover tooltip.
+    pub duration_ms: Option<u64>,
 }
 
 /// The data the sidebar paints. `revision` invalidates the cached flattening; the app bumps it
@@ -508,10 +514,12 @@ impl Sidebar {
         theme: &Theme,
         action: &mut Option<SidebarAction>,
     ) {
+        let now = postguy_util::time::now_unix_ms();
+        let clock = (now, postguy_util::time::local_offset_seconds(now));
         for index in range {
             if let Some(row) = section_rows.get(index) {
                 let next_row = section_rows.get(index + 1).copied();
-                self.paint_row(ui, state, all_rows, row, next_row, theme, action);
+                self.paint_row(ui, state, all_rows, row, next_row, theme, action, clock);
             }
         }
     }
@@ -526,6 +534,7 @@ impl Sidebar {
         next_row: Option<&SidebarRow>,
         theme: &Theme,
         action: &mut Option<SidebarAction>,
+        clock: (i64, i32),
     ) {
         let indented = ui.available_width().max(1.0);
         let (rect, response) = ui.allocate_exact_size(vec2(indented, ROW_HEIGHT), Sense::click_and_drag());
@@ -633,13 +642,28 @@ impl Sidebar {
         };
 
         let label_color = theme.palette.text;
-        let right_reserve = if hovered || selected {
+        let mut right_reserve = if hovered || selected {
             if row.kind == RowKind::Collection { 46.0 } else { 28.0 }
         } else if row.active {
             26.0
         } else {
             10.0
         };
+        // History rows: the compact local time, right-aligned and muted; the label truncates before it.
+        let compact_time = row
+            .time_ms
+            .filter(|_| row.kind == RowKind::History)
+            .map(|time_ms| postguy_util::time::format_datetime(time_ms, clock.1, postguy_util::time::DateStyle::Compact, clock.0));
+        if let Some(time) = &compact_time {
+            let galley = ui.painter().layout_no_wrap(time.clone(), egui::TextStyle::Small.resolve(ui.style()), theme.palette.text_muted);
+            let right_edge = rect.right() - right_reserve;
+            ui.painter().galley(
+                egui::pos2(right_edge - galley.size().x, rect.center().y - galley.size().y / 2.0),
+                galley.clone(),
+                theme.palette.text_muted,
+            );
+            right_reserve += galley.size().x + 8.0;
+        }
         let available_label = (rect.right() - x - right_reserve).max(20.0);
         let clipped = truncate(&row.label, available_label, 7.2);
         paint_highlighted_name(ui, egui::pos2(x, rect.center().y), &clipped, label_color, &state.filter, theme);
@@ -724,13 +748,30 @@ impl Sidebar {
             });
         }
 
-        // Tooltip with the full name / URL.
-        let tip = match (&row.url, row.kind) {
-            (Some(url), _) => format!("{}\n{url}", row.label),
-            _ => row.label.clone(),
+        // Tooltip with the full name / URL; history rows show the full local time and outcome.
+        let tip = if row.kind == RowKind::History
+            && let Some(time_ms) = row.time_ms
+        {
+            let mut tip = postguy_util::time::format_datetime(time_ms, clock.1, postguy_util::time::DateStyle::Full, clock.0);
+            let outcome: Vec<String> =
+                row.status.map(|status| status.to_string()).into_iter().chain(row.duration_ms.map(|ms| format!("{ms} ms"))).collect();
+            if !outcome.is_empty() {
+                tip.push('\n');
+                tip.push_str(&outcome.join(" · "));
+            }
+            tip
+        } else {
+            match (&row.url, row.kind) {
+                (Some(url), _) => format!("{}\n{url}", row.label),
+                _ => row.label.clone(),
+            }
         };
         let response = response.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip);
-        response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), selected, &row.label));
+        let access_label = match &compact_time {
+            Some(time) => format!("{} {time}", row.label),
+            None => row.label.clone(),
+        };
+        response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), selected, &access_label));
         if response.clicked() {
             let modifiers = ui.input(|input| input.modifiers);
             state.select(row, all_rows, modifiers);
@@ -1129,6 +1170,9 @@ fn flatten(data: &SidebarData, filter: &str) -> Vec<SidebarRow> {
             index: 0,
             collection: Some(collection.id.0.clone()),
             ancestors: Vec::new(),
+            time_ms: None,
+            status: None,
+            duration_ms: None,
         });
         rows.extend(child_rows);
     }
@@ -1150,6 +1194,9 @@ fn flatten(data: &SidebarData, filter: &str) -> Vec<SidebarRow> {
             index: 0,
             collection: None,
             ancestors: Vec::new(),
+            time_ms: None,
+            status: None,
+            duration_ms: None,
         });
     }
     for entry in data.history.iter().rev() {
@@ -1164,7 +1211,11 @@ fn flatten(data: &SidebarData, filter: &str) -> Vec<SidebarRow> {
             _ => None,
         });
         let label = url.clone().unwrap_or_else(|| entry.id.0.clone());
-        if filter_on && !matches_text(&label, &needle, method.as_deref()) && !matches_text(&entry.id.0, &needle, None) {
+        let time_match = |needle: &str| {
+            let full_time = history_time(entry.time_ms, postguy_util::time::DateStyle::Full, postguy_util::time::now_unix_ms());
+            matches_text(&full_time, needle, None)
+        };
+        if filter_on && !matches_text(&label, &needle, method.as_deref()) && !matches_text(&entry.id.0, &needle, None) && !time_match(&needle) {
             continue;
         }
         rows.push(SidebarRow {
@@ -1181,6 +1232,9 @@ fn flatten(data: &SidebarData, filter: &str) -> Vec<SidebarRow> {
             index: 0,
             collection: None,
             ancestors: Vec::new(),
+            time_ms: Some(entry.time_ms),
+            status: entry.status,
+            duration_ms: entry.duration_ms,
         });
     }
     rows
@@ -1220,6 +1274,9 @@ fn collect_children(
                     index,
                     collection: Some(collection.id.0.clone()),
                     ancestors: ancestors.to_vec(),
+                    time_ms: None,
+                    status: None,
+                    duration_ms: None,
                 });
                 rows.extend(children);
             }
@@ -1257,6 +1314,9 @@ fn collect_children(
                                 chain.push(request.id.0.clone());
                                 chain
                             },
+                            time_ms: None,
+                            status: None,
+                            duration_ms: None,
                         })
                         .collect()
                 };
@@ -1277,6 +1337,9 @@ fn collect_children(
                     index,
                     collection: Some(collection.id.0.clone()),
                     ancestors: ancestors.to_vec(),
+                    time_ms: None,
+                    status: None,
+                    duration_ms: None,
                 });
                 rows.extend(examples);
             }
@@ -1287,6 +1350,11 @@ fn collect_children(
 
 fn matches_text(text: &str, needle: &str, extra: Option<&str>) -> bool {
     text.to_ascii_lowercase().contains(needle) || extra.is_some_and(|extra| extra.to_ascii_lowercase().contains(needle))
+}
+
+/// A history timestamp in local time (the offset is looked up at that instant).
+fn history_time(unix_ms: i64, style: postguy_util::time::DateStyle, now_ms: i64) -> String {
+    postguy_util::time::format_datetime(unix_ms, postguy_util::time::local_offset_seconds(unix_ms), style, now_ms)
 }
 
 fn postguy_http_method(method: postguy_model::HttpMethod) -> String {

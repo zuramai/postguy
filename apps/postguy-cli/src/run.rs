@@ -101,8 +101,8 @@ pub fn run(args: &[String]) -> i32 {
     };
     let reporters: Vec<String> =
         reporters.unwrap_or_else(|| "cli".to_string()).split(',').map(|name| name.trim().to_string()).filter(|name| !name.is_empty()).collect();
-    if let Some(bad) = reporters.iter().find(|name| !["cli", "json", "junit", "html"].contains(&name.as_str())) {
-        eprintln!("postguy-cli run: unknown reporter `{bad}`; use cli, json, junit or html");
+    if let Some(bad) = reporters.iter().find(|name| !["cli", "json", "junit", "html", "csv", "xlsx", "pdf"].contains(&name.as_str())) {
+        eprintln!("postguy-cli run: unknown reporter `{bad}`; use cli, json, junit, html, csv, xlsx or pdf");
         return 2;
     }
     let automation = match automation(root.map(PathBuf::from)) {

@@ -3,8 +3,8 @@
 
 use postguy_engine::{Engine, IterationScope, SendOptions, SendTarget};
 use postguy_model::{
-    Body, Collection, Environment, Folder, HttpMethod, HttpRequest, Id, Item, KeyValue, RawLanguage, Request, RequestKind, Script, Scripts,
-    TestStatus, Variable,
+    AssertOperator, Assertion, Body, Collection, Environment, Folder, HttpMethod, HttpRequest, Id, Item, KeyValue, RawLanguage, Request, RequestKind,
+    RequestTests, Script, Scripts, TestKind, TestStatus, Variable,
 };
 use postguy_store::StorePaths;
 use postguy_testkit::Server;
@@ -267,4 +267,130 @@ fn data_scope_resolves_between_environment_and_locals() {
     let rig = Rig::new("", "", request);
     let local = rig.send(SendOptions { iteration: Some(data), ..SendOptions::default() }).expect("send");
     assert_eq!(echo(&local.response.body)["path"], "/echo/local", "locals override data");
+}
+
+#[test]
+fn runtime_vars_survive_between_requests_in_a_run() {
+    let request = get("{{base}}/echo/{{k}}", scripts("", "pg.setVar('k', 'v1');"));
+    let rig = Rig::new("", "", request);
+    let first = rig.send(SendOptions::default()).expect("send");
+    assert_eq!(echo(&first.response.body)["path"], "/echo/{{k}}", "not set yet");
+    assert!(!first.script.variables_changed, "runtime variables never reach a file");
+    let second = rig.send(SendOptions::default()).expect("send");
+    assert_eq!(echo(&second.response.body)["path"], "/echo/v1", "the runtime scope resolves {{k}}");
+    let held = rig.engine.runtime_variables(&Id("col1".into()));
+    assert_eq!(held.get("k").map(String::as_str), Some("v1"));
+    rig.engine.clear_runtime_variables(&Id("col1".into()));
+    assert!(rig.engine.runtime_variables(&Id("col1".into())).is_empty());
+}
+
+#[test]
+fn request_tests_alone_run_the_post_phase() {
+    let mut request = get("{{base}}/echo", scripts("", ""));
+    request.tests = RequestTests {
+        assertions: vec![
+            Assertion { enabled: true, expr: "res.status".into(), operator: AssertOperator::Eq, value: "200".into(), ..Assertion::default() },
+            Assertion { enabled: false, expr: "res.status".into(), operator: AssertOperator::Eq, value: "500".into(), ..Assertion::default() },
+        ],
+        script: Some(Script { text: "pg.report.set('who', 'tests'); pg.test('script ran', () => {});".into(), ..Script::default() }),
+        ..RequestTests::default()
+    };
+    let rig = Rig::new("", "", request);
+    let outcome = rig.send(SendOptions::default()).expect("send");
+    let kinds: Vec<(TestKind, &str)> = outcome.script.tests.iter().map(|t| (t.kind, t.name.as_str())).collect();
+    assert_eq!(kinds, [(TestKind::Assertion, "res.status eq 200"), (TestKind::Test, "script ran")], "{:?}", outcome.script);
+    assert!(outcome.script.tests.iter().all(|t| t.status == TestStatus::Passed));
+    assert_eq!(outcome.script.report.get("who").and_then(|v| v.as_str()), Some("tests"));
+}
+
+fn asset_file(rig: &Rig, name: &str, bytes: &[u8]) {
+    let source = rig._fixture.dir.path().join("src").join(name);
+    std::fs::create_dir_all(source.parent().expect("parent")).expect("src dir");
+    std::fs::write(&source, bytes).expect("source asset");
+    let outcome = rig.engine.import_assets(&Id("col1".into()), &[source], "", false).expect("import");
+    assert!(outcome.skipped.is_empty(), "{:?}", outcome.skipped);
+}
+
+#[test]
+fn shortcodes_expand_in_raw_formdata_and_binary_bodies() {
+    use base64::Engine as _;
+    let mut request = get("{{base}}/echo", scripts("", ""));
+    request.method = HttpMethod::Post;
+    request.body = Body::Raw {
+        language: RawLanguage::Json,
+        text: r#"{"image": "{{% base64(file('pic.bin')) %}}", "v": "{{id}}", "t": "{{% text('note.txt') %}}"}"#.into(),
+        extras: Default::default(),
+    };
+    let rig = Rig::new("", "", request.clone());
+    let png = [0xffu8, 0x00, 0x10, 0x20];
+    asset_file(&rig, "pic.bin", &png);
+    asset_file(&rig, "note.txt", b"hello");
+    let encoded = base64::engine::general_purpose::STANDARD.encode(png);
+
+    let outcome = rig.send(SendOptions::default()).expect("raw send");
+    let body = echo(&outcome.response.body);
+    assert_eq!(body["body"]["utf8"], format!(r#"{{"image": "{encoded}", "v": "1", "t": "hello"}}"#));
+
+    // Form-data: a file row becomes an asset upload named after the asset's base name; a text
+    // row expands.
+    let mut form = request.clone();
+    form.body = Body::FormData(vec![
+        KeyValue { key: "pic".into(), value: "{{% file('pic.bin') %}}".into(), kind: postguy_model::KeyValueKind::File, ..KeyValue::default() },
+        row("text", "{{% base64('abc') %}}"),
+    ]);
+    save_request(&rig, form);
+    let outcome = rig.send(SendOptions::default()).expect("form send");
+    let body = echo(&outcome.response.body);
+    let sent = body["body"]["utf8"].as_str().map(str::to_string).or_else(|| {
+        let raw = base64::engine::general_purpose::STANDARD.decode(body["body"]["base64"].as_str()?).ok()?;
+        Some(String::from_utf8_lossy(&raw).into_owned())
+    });
+    let sent = sent.expect("body text");
+    assert!(sent.contains(r#"filename="pic.bin""#), "{sent}");
+    assert!(sent.contains("YWJj"), "{sent}");
+
+    // Binary body: the asset's bytes are the payload.
+    let mut binary = request;
+    binary.body = Body::Binary { path: "{{% file('pic.bin') %}}".into(), extras: Default::default() };
+    save_request(&rig, binary);
+    let outcome = rig.send(SendOptions::default()).expect("binary send");
+    let body = echo(&outcome.response.body);
+    assert_eq!(body["body"]["base64"], encoded);
+}
+
+fn save_request(rig: &Rig, request: HttpRequest) {
+    let mut collection = rig.engine.collection(&Id("col1".into())).expect("collection");
+    if let Some(Item::Folder(folder)) = collection.items.first_mut()
+        && let Some(Item::Request(stored)) = folder.items.first_mut()
+    {
+        stored.kind = RequestKind::Http(request);
+    }
+    rig.engine.workspace().save_collection(&collection).expect("save");
+}
+
+#[test]
+fn shortcode_errors_abort_the_send_with_the_reason() {
+    let mut request = get("{{base}}/echo", scripts("", ""));
+    request.method = HttpMethod::Post;
+    request.body = Body::Raw { language: RawLanguage::Text, text: "{{% base64(file('missing.png')) %}}".into(), extras: Default::default() };
+    let rig = Rig::new("", "", request);
+    let err = rig.send(SendOptions::default()).expect_err("missing asset");
+    let text = err.to_string();
+    assert!(text.contains("body shortcode:") && text.contains("missing.png") && text.contains("Assets tab"), "{text}");
+}
+
+#[test]
+fn inline_send_with_shortcode_is_actionable_error() {
+    let fixture = Fixture::new();
+    let engine = fixture.engine();
+    let server = Server::start();
+    let request = HttpRequest {
+        method: HttpMethod::Post,
+        url: format!("{}/echo", server.base_url()),
+        body: Body::Raw { language: RawLanguage::Text, text: "{{% base64('x') %}}".into(), extras: Default::default() },
+        ..HttpRequest::default()
+    };
+    let err =
+        engine.send(SendTarget::Inline { request: Box::new(request), name: "inline".into() }, SendOptions::default()).expect_err("inline shortcode");
+    assert!(err.to_string().contains("save this request in a collection to use {{% %}} shortcodes"), "{err}");
 }

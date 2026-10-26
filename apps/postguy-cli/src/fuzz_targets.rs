@@ -49,6 +49,9 @@ fn vars_target(text: &str) -> Result<(), String> {
         .with_scope(postguy_vars::Scope::new(postguy_vars::ScopeKind::Globals, [("self".into(), text.chars().take(4096).collect::<String>())]))
         .with_scope(postguy_vars::Scope::new(postguy_vars::ScopeKind::Environment, [("chain".into(), "{{self}}{{self||{{self}}}}".into())]));
     let _ = resolver.resolve_text(text);
+    let _ = postguy_vars::shortcode::scan(text);
+    let _ = postguy_vars::shortcode::single_file(text);
+    let _ = postguy_vars::shortcode::expand(text, &|arg| resolver.resolve_text(arg).text, &|path| Ok(path.as_bytes().repeat(3)));
     Ok(())
 }
 
@@ -106,6 +109,7 @@ fn script_target(text: &str) -> Result<(), String> {
         request: postguy_script::ScriptRequest { method: "GET".into(), url: "http://localhost/".into(), ..Default::default() },
         response: Some(postguy_script::ScriptResponse { code: 200, status: "OK".into(), body: br#"{"a":1}"#.to_vec(), ..Default::default() }),
         host: std::sync::Arc::new(NoHost),
+        tests: None,
     };
     let limits = postguy_script::Limits { timeout_ms: 200, memory_bytes: 16 << 20, ..Default::default() };
     let source = postguy_script::ScriptSource { origin: "fuzz".into(), text: text.to_string() };

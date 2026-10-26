@@ -116,7 +116,7 @@ title = "Collection Runs tab (past runs, open results, delete)"
 area = "A"
 tier = "P1"
 status = "shipped"
-notes = "The Runs tab lists a collection's stored runs (newest 20, summary per run) and opens one in the Runner tab. Deleting a stored run is not offered yet."
+notes = "The Runs tab lists a collection's stored runs (newest 20, summary per run) and opens one in the Runner tab. Runner rows are a flat virtualised list with a details panel (URL, errors, script failures, tests with assertion badges, pg.report fields, failed-response excerpt) and a Download report row (CSV, Excel, PDF, HTML, JSON, JUnit). Deleting a stored run is not offered yet."
 tools = ["run_list", "run_get"]
 evidence = ["crates/ui-egui/tests/collection.rs::runs_tab_lists_runs_and_opens_one", "crates/engine/tests/run.rs::runs_are_stored_and_pruned_to_twenty", "apps/postguy/src/main.rs::sidebar_run_opens_the_runner_with_the_collection"]
 
@@ -587,8 +587,9 @@ title = "Pre-request and post-response scripts with the pm API subset"
 area = "F"
 tier = "P1"
 status = "partial"
-notes = "QuickJS (rquickjs) sandbox; pre-request and post-response scripts run for HTTP requests in the order collection > folders > request, with the pm API (variables in every scope, request edits, response, cookies, sendRequest, setNextRequest, skipRequest, console). Missing: gRPC and WebSocket script phases, pm.cookies.jar(), pm.visualizer."
-evidence = ["crates/engine/tests/scripts.rs::pre_request_scripts_run_collection_then_folder_then_request", "crates/script/tests/sandbox.rs::variables_set_unset_and_precedence"]
+notes = "QuickJS (rquickjs) sandbox; pre-request and post-response scripts run for HTTP requests in the order collection > folders > request, with the pm API (variables in every scope, request edits, response, cookies, sendRequest, setNextRequest, skipRequest, console). `pg` carries every pm member plus Bruno-style variable methods (runtime scope that lives for the engine session), flow control, pg.assets and pg.report; Bruno globals bru/req/res/test/expect share the same Rust code. require() loads collection assets as CommonJS modules with read-only fs/path/Buffer shims and crypto.randomUUID; npm packages, fs writes, bru.sleep/cwd/runRequest are refused with actionable errors. Missing: gRPC and WebSocket script phases, pm.cookies.jar(), pm.visualizer."
+tools = ["runtime_variables"]
+evidence = ["crates/engine/tests/scripts.rs::pre_request_scripts_run_collection_then_folder_then_request", "crates/script/tests/sandbox.rs::variables_set_unset_and_precedence", "crates/script/tests/sandbox.rs::pg_has_every_pm_member_and_bruno_methods", "crates/script/tests/sandbox.rs::bru_runtime_vars_round_trip", "crates/script/tests/sandbox.rs::req_get_set_body_json", "crates/script/tests/sandbox.rs::res_callable_query", "crates/script/tests/sandbox.rs::require_loads_asset_modules_with_fs_and_path_shims", "crates/script/tests/sandbox.rs::require_npm_package_is_actionable_error", "crates/script/tests/sandbox.rs::fs_write_is_refused", "crates/engine/tests/scripts.rs::runtime_vars_survive_between_requests_in_a_run", "crates/automation/tests/engine_tools.rs::runtime_variables_tool_reads_and_clears"]
 
 [[feature]]
 id = "f.expect"
@@ -596,8 +597,8 @@ title = "pm.test with Chai-compatible expect"
 area = "F"
 tier = "P1"
 status = "shipped"
-notes = "Chai subset in Rust (no JS prelude): equal/eql/deep, above/below/least/most/within, a/an, include, property, lengthOf, keys, members, oneOf, match, string, ok/true/false/null/undefined/NaN/exist/empty, not/deep chains; pm.response.to.* helpers; Chai wording on failures."
-evidence = ["crates/script/tests/sandbox.rs::expect_chains_report_chai_wording", "crates/script/tests/sandbox.rs::response_assertions_check_status_headers_and_json"]
+notes = "Chai subset in Rust (no JS prelude): equal/eql/deep, above/below/least/most/within, a/an, include, property, lengthOf, keys, members, oneOf, match, string, ok/true/false/null/undefined/NaN/exist/empty, not/deep chains; pm.response.to.* helpers; Chai wording on failures. The same functions are exposed as pg.test/pg.expect and the Bruno globals test/expect."
+evidence = ["crates/script/tests/sandbox.rs::expect_chains_report_chai_wording", "crates/script/tests/sandbox.rs::response_assertions_check_status_headers_and_json", "crates/script/tests/sandbox.rs::pg_has_every_pm_member_and_bruno_methods"]
 
 [[feature]]
 id = "f.test-results"
@@ -605,8 +606,37 @@ title = "Test results model and response-area tab"
 area = "F"
 tier = "P1"
 status = "partial"
-notes = "Test Results tab with passed/total in the label, All/Passed/Skipped/Failed filters, PASS/FAIL/SKIP badges, failure messages and a script-failure banner. Refresh does not re-run post-response scripts yet."
-evidence = ["crates/ui-egui/tests/response.rs::test_results_tab_lists_and_filters_tests", "crates/ui-egui/tests/response.rs::test_results_explain_an_empty_list_and_show_script_failures"]
+notes = "Test Results tab with passed/total in the label, All/Passed/Skipped/Failed filters, PASS/FAIL/SKIP badges, failure messages and a script-failure banner. Results carry a kind (script test or assertion row); assertions run between the post-response scripts and the Tests-tab script. Refresh does not re-run post-response scripts yet."
+evidence = ["crates/ui-egui/tests/response.rs::test_results_tab_lists_and_filters_tests", "crates/ui-egui/tests/response.rs::test_results_explain_an_empty_list_and_show_script_failures", "crates/script/tests/sandbox.rs::assertions_run_between_post_response_and_tests_script"]
+
+[[feature]]
+id = "f.tests-tab"
+title = "Request Tests tab: assertion table and test script"
+area = "F"
+tier = "P1"
+status = "shipped"
+notes = "Per-request Tests tab between Scripts and Settings: an assertion table (expression, 28 Bruno-compatible operators, value with {{var}} interpolation; unary operators hide the value) and a test script with snippets. Assertions run after the post-response scripts, then the test script; results are tagged as assertions in the response and runner views. A request with only tests still runs the post-response phase. Postman exports carry them as `postguyTests`."
+evidence = ["crates/script/tests/sandbox.rs::assertions_cover_every_operator", "crates/script/tests/sandbox.rs::assertion_expression_errors_fail_with_message", "crates/script/tests/sandbox.rs::assertions_run_between_post_response_and_tests_script", "crates/engine/tests/scripts.rs::request_tests_alone_run_the_post_phase", "crates/ui-egui/tests/builder.rs::the_tests_tab_adds_an_assertion_changes_its_operator_and_deletes_it", "crates/interop/tests/bruno.rs::postguy_tests_round_trip_through_postman_and_leave_extras"]
+
+[[feature]]
+id = "f.assets"
+title = "Collection assets and body shortcodes"
+area = "F"
+tier = "P1"
+status = "shipped"
+notes = "Each collection has an Assets tab (import files or folders, search, copy shortcode, rename, delete with an inline confirm). Request bodies expand {{% file('x') %}}, text, base64, base64url, hex, sha256 and md5 shortcodes before {{var}} resolution (raw, url-encoded, form-data text, GraphQL); a form-data file row or binary body that is exactly file('x') sends the asset. Editors colour valid shortcodes blue and invalid ones red with the reason. Scripts read assets through pg.assets, fs and require. Duplicating a collection copies its assets. Missing: shortcode colouring on the binary path field."
+tools = ["asset_list", "asset_import", "asset_delete", "asset_rename"]
+evidence = ["crates/engine/tests/assets.rs::import_list_read_rename_delete", "crates/engine/tests/assets.rs::hostile_paths_are_refused", "crates/engine/tests/assets.rs::symlinks_cannot_escape_the_assets_directory", "crates/engine/tests/assets.rs::duplicating_a_collection_copies_its_assets", "crates/engine/tests/scripts.rs::shortcodes_expand_in_raw_formdata_and_binary_bodies", "crates/engine/tests/scripts.rs::inline_send_with_shortcode_is_actionable_error", "crates/automation/tests/engine_tools.rs::asset_tools_import_list_rename_delete_and_feed_body_shortcodes", "crates/automation/tests/engine_tools.rs::asset_import_paths_are_confined_to_the_root", "crates/ui-egui/tests/collection.rs::assets_tab_lists_rows_and_emits_its_intents", "crates/ui-egui/tests/widgets.rs::shortcode_marks_check_syntax_and_asset_existence", "crates/ui-egui/tests/builder.rs::a_raw_body_with_an_unknown_asset_shows_the_shortcode_problem"]
+
+[[feature]]
+id = "f.run-reports"
+title = "Run reports: CSV, Excel (XLSX) and PDF"
+area = "F"
+tier = "P1"
+status = "shipped"
+notes = "One report table feeds every writer: summary (counts, pass rate, assertions, tests, local start/finish times), one row per request (status, result, timing, size, assertion and test counts, failure details, failed-response excerpt, pg.report custom columns) and one row per test. CSV has a BOM and a formula-injection guard; XLSX has Summary/Requests/Tests sheets with a frozen header, filters and coloured results; PDF is landscape A4 in Courier with a repeated header and page numbers. Runs no longer write history. Available from the Runner's Download report row, run_export and `postguy-cli run --reporters`."
+tools = ["run_export"]
+evidence = ["crates/runner/tests/reports.rs::table_has_the_documented_columns_and_summary", "crates/runner/tests/reports.rs::csv_has_bom_crlf_quoting_and_formula_guard", "crates/runner/tests/reports.rs::xlsx_is_a_valid_package_with_three_sheets", "crates/runner/tests/reports.rs::pdf_structure_is_valid", "crates/engine/tests/run.rs::run_rows_have_started_ms_report_fields_and_failure_excerpt", "crates/engine/tests/run.rs::run_does_not_write_history", "crates/automation/tests/engine_tools.rs::collection_run_runs_lists_gets_and_exports", "crates/ui-egui/tests/runner.rs::selecting_a_row_shows_its_details_with_assertion_badges_and_report_fields"]
 
 [[feature]]
 id = "f.script-ui"
@@ -765,13 +795,23 @@ notes = "The native collection JSON is exported through the same tool/export pat
 evidence = ["crates/automation/tests/tools.rs::imports_go_through_the_report_and_the_workspace"]
 [[feature]]
 id = "g.run-results-export"
-title = "Run results export: JSON, JUnit, HTML"
+title = "Run results export: JSON, JUnit, HTML, CSV, XLSX, PDF"
 area = "G"
 tier = "P1"
 status = "shipped"
-notes = "run_export renders a stored run as JSON, JUnit XML or one self-contained HTML file (no script, every string escaped), confined to --root."
+notes = "run_export renders a stored run as JSON, JUnit XML, one self-contained HTML file (no script, every string escaped; pg.report fields listed per request), CSV, XLSX or PDF, confined to --root."
 tools = ["run_export"]
-evidence = ["crates/automation/tests/engine_tools.rs::collection_run_runs_lists_gets_and_exports", "crates/runner/tests/runner.rs::html_has_no_script_and_escapes_user_text", "crates/runner/tests/runner.rs::junit_escapes_and_counts_failures"]
+evidence = ["crates/automation/tests/engine_tools.rs::collection_run_runs_lists_gets_and_exports", "crates/runner/tests/runner.rs::html_has_no_script_and_escapes_user_text", "crates/runner/tests/runner.rs::junit_escapes_and_counts_failures", "crates/runner/tests/reports.rs::html_lists_report_fields"]
+
+[[feature]]
+id = "g.bruno-import"
+title = "Bruno collection folder import"
+area = "G"
+tier = "P1"
+status = "shipped"
+notes = "A folder with bruno.json imports as one collection (folder tree ordered by seq, request/folder/collection vars, scripts, tests, assertions, auth, headers copied from folder.bru onto descendants), its environments (vars:secret and .env values go to the secrets store; {{process.env.X}} becomes {{X}}), and every other file as collection assets with relative paths kept, so require('./lib/x') and fs reads keep working. Picked or dropped folders route here in the app. Reported: npm requires, unsupported auth modes, unknown blocks. Clean room: built from the public Bru lang docs. Missing: Bruno OAuth2/AWS auth modes, gRPC/WebSocket .bru files."
+tools = ["import_bruno"]
+evidence = ["crates/interop/tests/bruno.rs::tree_is_ordered_by_seq_then_name_and_counts_match", "crates/interop/tests/bruno.rs::assertions_map_operators_and_flag_unknown_ones", "crates/interop/tests/bruno.rs::process_env_is_rewritten_and_becomes_secrets_in_every_environment", "crates/interop/tests/bruno.rs::parser_edge_cases", "crates/engine/tests/bruno.rs::imports_collection_environments_and_assets", "crates/automation/tests/engine_tools.rs::import_bruno_runs_asset_backed_scripts_end_to_end", "crates/automation/tests/engine_tools.rs::import_bruno_is_confined_to_the_root"]
 
 [[feature]]
 id = "g.all-data-zip"

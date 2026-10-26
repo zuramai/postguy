@@ -34,6 +34,63 @@ pub fn compact_duration(millis: i64) -> String {
     }
 }
 
+/// How [`format_datetime`] renders an instant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DateStyle {
+    /// `2026-10-26 14:03:12 +07:00`: reports and tooltips.
+    Full,
+    /// `2026-10-26T14:03:12+07:00`: RFC 3339.
+    Iso,
+    /// `14:03` today, `24 Oct 14:03` this year, `2025-12-01` before: list rows.
+    Compact,
+}
+
+/// The system time zone's UTC offset at `unix_ms`, in seconds. Any error (no zone database,
+/// out-of-range instant) gives 0, which the formatted text shows as `+00:00`.
+pub fn local_offset_seconds(unix_ms: i64) -> i32 {
+    let Ok(timestamp) = jiff::Timestamp::from_millisecond(unix_ms) else {
+        return 0;
+    };
+    match jiff::tz::TimeZone::try_system() {
+        Ok(zone) => zone.to_offset(timestamp).seconds(),
+        Err(_) => 0,
+    }
+}
+
+/// Format `unix_ms` at the fixed `offset_seconds` (see [`local_offset_seconds`]). `now_ms`
+/// only matters for [`DateStyle::Compact`]. Total: an out-of-range input gives `invalid time`.
+pub fn format_datetime(unix_ms: i64, offset_seconds: i32, style: DateStyle, now_ms: i64) -> String {
+    let Some(local) = civil(unix_ms, offset_seconds) else {
+        return "invalid time".to_string();
+    };
+    let offset = offset_text(offset_seconds);
+    match style {
+        DateStyle::Full => format!("{} {}", local.strftime("%Y-%m-%d %H:%M:%S"), offset),
+        DateStyle::Iso => format!("{}{}", local.strftime("%Y-%m-%dT%H:%M:%S"), offset),
+        DateStyle::Compact => {
+            let now = civil(now_ms, offset_seconds);
+            match now {
+                Some(now) if now.date() == local.date() => local.strftime("%H:%M").to_string(),
+                Some(now) if now.year() == local.year() => local.strftime("%-d %b %H:%M").to_string(),
+                _ => local.strftime("%Y-%m-%d").to_string(),
+            }
+        }
+    }
+}
+
+fn civil(unix_ms: i64, offset_seconds: i32) -> Option<jiff::civil::DateTime> {
+    let timestamp = jiff::Timestamp::from_millisecond(unix_ms).ok()?;
+    let offset = jiff::tz::Offset::from_seconds(offset_seconds).ok()?;
+    Some(offset.to_datetime(timestamp))
+}
+
+/// `+07:00`, `-03:30`, `+00:00`; seconds are dropped.
+fn offset_text(offset_seconds: i32) -> String {
+    let sign = if offset_seconds < 0 { '-' } else { '+' };
+    let total = offset_seconds.unsigned_abs();
+    format!("{sign}{:02}:{:02}", total / 3600, (total % 3600) / 60)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -53,5 +110,37 @@ mod tests {
         assert_eq!(compact_duration(1_000), "1 s");
         assert_eq!(compact_duration(1_234), "1.2 s");
         assert_eq!(compact_duration(62_000), "1:02");
+    }
+
+    #[test]
+    fn datetimes_render_in_each_style_and_offset() {
+        // 2026-10-26 07:03:12 UTC.
+        let at = 1_792_998_192_000;
+        assert_eq!(format_datetime(at, 0, DateStyle::Full, at), "2026-10-26 07:03:12 +00:00");
+        assert_eq!(format_datetime(at, 25_200, DateStyle::Full, at), "2026-10-26 14:03:12 +07:00");
+        assert_eq!(format_datetime(at, 0, DateStyle::Iso, at), "2026-10-26T07:03:12+00:00");
+        assert_eq!(format_datetime(at, 25_200, DateStyle::Iso, at), "2026-10-26T14:03:12+07:00");
+        assert_eq!(format_datetime(at, -12_600, DateStyle::Full, at), "2026-10-26 03:33:12 -03:30");
+        assert_eq!(format_datetime(at, 0, DateStyle::Compact, at + 60_000), "07:03");
+        assert_eq!(format_datetime(at, 25_200, DateStyle::Compact, at + 60_000), "14:03");
+        let two_days = 2 * 86_400_000;
+        assert_eq!(format_datetime(at - two_days, 0, DateStyle::Compact, at), "24 Oct 07:03");
+        assert_eq!(format_datetime(at - two_days, 25_200, DateStyle::Compact, at), "24 Oct 14:03");
+        let last_year = at - 329 * 86_400_000;
+        assert_eq!(format_datetime(last_year, 0, DateStyle::Compact, at), "2025-12-01");
+        assert_eq!(format_datetime(last_year, 25_200, DateStyle::Compact, at), "2025-12-01");
+        // Today is decided in the given offset: 23:30 UTC is tomorrow at +07:00.
+        let late = 1_792_971_000_000; // 2026-10-25 23:30:00 UTC
+        assert_eq!(format_datetime(late, 25_200, DateStyle::Compact, at), "06:30");
+    }
+
+    #[test]
+    fn out_of_range_datetimes_are_reported_not_panicked() {
+        assert_eq!(format_datetime(i64::MAX, 0, DateStyle::Full, 0), "invalid time");
+        assert_eq!(format_datetime(i64::MIN, 0, DateStyle::Compact, 0), "invalid time");
+        assert_eq!(format_datetime(0, i32::MAX, DateStyle::Iso, 0), "invalid time");
+        assert_eq!(format_datetime(0, 0, DateStyle::Compact, i64::MAX), "1970-01-01");
+        let _ = local_offset_seconds(i64::MAX);
+        assert_eq!(local_offset_seconds(i64::MIN), 0);
     }
 }

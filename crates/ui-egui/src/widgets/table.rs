@@ -4,9 +4,10 @@
 //! `ScrollArea::show_rows`; a 10 000-row table paints only its window.
 
 use egui::{Response, Ui};
-use postguy_model::{KeyValue, KeyValueKind, Variable};
+use postguy_model::{AssertOperator, Assertion, KeyValue, KeyValueKind, Variable};
 
 use crate::widgets::compact_checkbox;
+use crate::widgets::shortcode::{self, AssetIndex, shortcode_marks};
 
 /// What a table is editing; the value cell changes shape for file rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -50,6 +51,19 @@ fn columns(left: f32, width: f32) -> [(f32, f32); 5] {
 /// One borderless cell edit filling `rect`, vertically centred. `id` keeps focus stable when
 /// the trailing row turns into a real row (same index, same id).
 fn cell_edit(ui: &mut Ui, id: egui::Id, rect: egui::Rect, text: &mut String, hint: &str, password: bool) -> Response {
+    cell_edit_with(ui, id, rect, text, hint, password, None)
+}
+
+/// [`cell_edit`] that colours `{{% … %}}` shortcodes when `assets` is given.
+fn cell_edit_with(
+    ui: &mut Ui,
+    id: egui::Id,
+    rect: egui::Rect,
+    text: &mut String,
+    hint: &str,
+    password: bool,
+    assets: Option<&AssetIndex>,
+) -> Response {
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Center)));
     let mut edit = egui::TextEdit::singleline(text)
         .id(id)
@@ -62,6 +76,23 @@ fn cell_edit(ui: &mut Ui, id: egui::Id, rect: egui::Rect, text: &mut String, hin
     if password {
         edit = edit.password(true);
     }
+    if assets.is_some() && !password {
+        let palette = crate::theme::Theme::current(ui.ctx()).palette;
+        let mut layouter = |ui: &Ui, buffer: &dyn egui::TextBuffer, _wrap: f32| {
+            let text = buffer.as_str();
+            let mut job = egui::text::LayoutJob::default();
+            job.wrap.max_width = f32::INFINITY;
+            job.wrap.max_rows = 1;
+            job.append(
+                text,
+                0.0,
+                egui::TextFormat { font_id: egui::TextStyle::Body.resolve(ui.style()), color: ui.visuals().text_color(), ..Default::default() },
+            );
+            shortcode::overlay(&mut job, &shortcode_marks(text, assets), &palette);
+            ui.fonts_mut(|fonts| fonts.layout_job(job))
+        };
+        return child.add(edit.layouter(&mut layouter));
+    }
     child.add(edit)
 }
 
@@ -69,7 +100,7 @@ fn cell_edit(ui: &mut Ui, id: egui::Id, rect: egui::Rect, text: &mut String, hin
 /// row per entry, followed by an always-present empty row. Typing into the empty row turns it
 /// into a real row and a fresh empty row appears below it. `variant` picks the value cell;
 /// many rows scroll virtualised.
-pub fn key_value_table(ui: &mut Ui, rows: &mut Vec<KeyValue>, variant: TableVariant) -> TableResponse {
+pub fn key_value_table(ui: &mut Ui, rows: &mut Vec<KeyValue>, variant: TableVariant, assets: Option<&AssetIndex>) -> TableResponse {
     let mut result = TableResponse::default();
     let theme = crate::theme::Theme::current(ui.ctx());
     let palette = theme.palette;
@@ -127,7 +158,7 @@ pub fn key_value_table(ui: &mut Ui, rows: &mut Vec<KeyValue>, variant: TableVari
                 TableVariant::Secret => ("Secret value", true),
                 TableVariant::Normal => ("Value", false),
             };
-            changed |= cell_edit(ui, id(3), value_rect, &mut row.value, hint, secret).changed();
+            changed |= cell_edit_with(ui, id(3), value_rect, &mut row.value, hint, secret, assets).changed();
             changed |= cell_edit(ui, id(4), cell(3), &mut row.description, "Description", false).changed();
 
             if is_ghost {
@@ -178,6 +209,177 @@ pub fn key_value_table(ui: &mut Ui, rows: &mut Vec<KeyValue>, variant: TableVari
                 palette.surface_alt,
             );
             for (column, label) in [(1usize, "Key"), (2, "Value"), (3, "Description")] {
+                ui.painter().text(
+                    egui::pos2(cols[column].0 + 8.0, header.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    label,
+                    theme.semibold_font(12.0),
+                    palette.text_muted,
+                );
+            }
+            ui.painter().hline(header.x_range(), header.bottom() - 0.5, line);
+            for column in [1usize, 2, 3] {
+                ui.painter().vline(cols[column].0, header.y_range(), line);
+            }
+            if content_height > max_height {
+                egui::ScrollArea::vertical().max_height(max_height).id_salt((base_id, "scroll")).show_rows(ui, ROW_HEIGHT, total, |ui, range| {
+                    render_rows(ui, range);
+                });
+            } else {
+                render_rows(ui, 0..total);
+            }
+        });
+    if let Some(index) = remove_index
+        && index < rows.len()
+    {
+        rows.remove(index);
+        result.removed = true;
+        result.changed = true;
+    }
+    if let Some(row) = materialized {
+        rows.push(row);
+        result.changed = true;
+    }
+    result
+}
+
+const OPERATOR_WIDTH: f32 = 160.0;
+
+/// Column x-ranges of the assertion grid: check, expr (40%), operator, value, delete.
+fn assertion_columns(left: f32, width: f32) -> [(f32, f32); 5] {
+    let rest = (width - CHECK_WIDTH - DELETE_WIDTH).max(OPERATOR_WIDTH + 120.0);
+    let expr = rest * 0.4;
+    let value = (rest - expr - OPERATOR_WIDTH).max(60.0);
+    let mut x = left;
+    let mut out = [(0.0, 0.0); 5];
+    for (slot, w) in out.iter_mut().zip([CHECK_WIDTH, expr, OPERATOR_WIDTH, value, DELETE_WIDTH]) {
+        *slot = (x, x + w);
+        x += w;
+    }
+    out
+}
+
+/// A grid bound to a request's assertions: check, Expr, Operator, Value and a trash button.
+/// An always-present empty row at the end turns into a real row once something is typed (the
+/// typed text goes where it was typed: typing a value first keeps `expr` empty). Unary
+/// operators grey the value cell out and keep the stored value. Many rows scroll virtualised.
+pub fn assertion_table(ui: &mut Ui, rows: &mut Vec<Assertion>) -> TableResponse {
+    let mut result = TableResponse::default();
+    let theme = crate::theme::Theme::current(ui.ctx());
+    let palette = theme.palette;
+    let base_id = ui.next_auto_id();
+    ui.skip_ahead_auto_ids(1);
+    let total = rows.len().saturating_add(1);
+    let max_height = 360.0;
+    let content_height = (total as f32) * ROW_HEIGHT;
+    let mut remove_index: Option<usize> = None;
+    let mut materialized: Option<Assertion> = None;
+    let line = egui::Stroke::new(1.0, palette.border);
+    let operator_groups = [crate::widgets::SelectGroup {
+        label: None,
+        items: AssertOperator::ALL.iter().map(|operator| crate::widgets::SelectItem::new(operator.token(), operator.label())).collect(),
+    }];
+
+    let mut render_rows = |ui: &mut Ui, range: std::ops::Range<usize>| {
+        for index in range {
+            let (row_rect, row_response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW_HEIGHT), egui::Sense::hover());
+            let cols = assertion_columns(row_rect.left(), row_rect.width());
+            let cell =
+                |column: usize| egui::Rect::from_min_max(egui::pos2(cols[column].0, row_rect.top()), egui::pos2(cols[column].1, row_rect.bottom()));
+            let is_ghost = index >= rows.len();
+            let mut ghost = Assertion { enabled: true, ..Assertion::default() };
+            let row = match rows.get_mut(index) {
+                Some(row) if !is_ghost => row,
+                _ => &mut ghost,
+            };
+            let id = |column: usize| base_id.with((index, column));
+            let mut changed = false;
+
+            if !is_ghost {
+                let mut check = ui.new_child(egui::UiBuilder::new().max_rect(cell(0)).layout(egui::Layout::left_to_right(egui::Align::Center)));
+                check.add_space(((CHECK_WIDTH - 16.0) / 2.0).max(0.0));
+                changed |= compact_checkbox(&mut check, &mut row.enabled).changed();
+            }
+            changed |= cell_edit(ui, id(1), cell(1), &mut row.expr, "res.status", false).changed();
+
+            if !is_ghost {
+                let mut operator_ui = ui.new_child(
+                    egui::UiBuilder::new().max_rect(cell(2).shrink2(egui::vec2(6.0, 2.0))).layout(egui::Layout::left_to_right(egui::Align::Center)),
+                );
+                let mut selected = Some(row.operator.token().to_string());
+                if crate::widgets::select(&mut operator_ui, ("assertion-operator", base_id, index), &mut selected, &operator_groups, "equals")
+                    && let Some(operator) = selected.as_deref().and_then(AssertOperator::from_token)
+                {
+                    row.set_operator(operator);
+                    changed = true;
+                }
+            }
+
+            if row.operator.is_unary() {
+                ui.painter().text(
+                    egui::pos2(cell(3).left() + 12.0, row_rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    "—",
+                    egui::TextStyle::Body.resolve(ui.style()),
+                    palette.text_muted,
+                );
+            } else {
+                changed |= cell_edit(ui, id(3), cell(3), &mut row.value, "Value", false).changed();
+            }
+
+            if is_ghost {
+                if !row.expr.is_empty() || !row.value.is_empty() {
+                    materialized = Some(std::mem::take(row));
+                }
+            } else {
+                result.changed |= changed;
+                let delete_rect = cell(4);
+                let delete = ui.interact(delete_rect, base_id.with((index, "delete")), egui::Sense::click());
+                let hot = row_response.hovered() || delete.hovered() || ui.rect_contains_pointer(row_rect);
+                if hot {
+                    let pill = egui::Rect::from_center_size(delete_rect.center(), egui::vec2(24.0, 24.0));
+                    if delete.hovered() {
+                        ui.painter().rect_filled(pill, egui::CornerRadius::same(theme.metrics.radius as u8), palette.hover);
+                    }
+                    crate::icons::paint(
+                        ui.painter(),
+                        pill.shrink(5.0),
+                        "trash",
+                        if delete.hovered() { palette.text } else { palette.text_muted },
+                        1.5,
+                    );
+                }
+                if delete.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                delete.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Delete assertion"));
+                let delete = delete.on_hover_text("Delete assertion");
+                if delete.clicked() {
+                    remove_index = Some(index);
+                }
+            }
+            ui.painter().hline(row_rect.x_range(), row_rect.bottom() - 0.5, line);
+            for column in [1usize, 2, 3] {
+                ui.painter().vline(cols[column].0, row_rect.y_range(), line);
+            }
+        }
+    };
+
+    egui::Frame::new()
+        .fill(palette.input_bg)
+        .stroke(line)
+        .corner_radius(egui::CornerRadius::same(theme.metrics.radius as u8))
+        .inner_margin(egui::Margin::ZERO)
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+            let (header, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), HEADER_HEIGHT), egui::Sense::hover());
+            let cols = assertion_columns(header.left(), header.width());
+            ui.painter().rect_filled(
+                header,
+                egui::CornerRadius { nw: theme.metrics.radius as u8, ne: theme.metrics.radius as u8, sw: 0, se: 0 },
+                palette.surface_alt,
+            );
+            for (column, label) in [(1usize, "Expr"), (2, "Operator"), (3, "Value")] {
                 ui.painter().text(
                     egui::pos2(cols[column].0 + 8.0, header.center().y),
                     egui::Align2::LEFT_CENTER,

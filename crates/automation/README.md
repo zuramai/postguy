@@ -17,6 +17,11 @@ An MCP server is not implemented yet.
   `workspace_export_zip` omits `.postguy` and `.trash`. `export_collection`,
   `export_environment`/`export_globals` (secret values opt-in) and `snippet_generate` share the
   UI's engine implementations.
+- Assets and Bruno: `asset_list`, `asset_import` (paths confined by the session root),
+  `asset_delete` (destructive), `asset_rename`, `runtime_variables` (optionally `clear`) and
+  `import_bruno` (a Bruno collection folder).
+- `run_export` and `postguy-cli run --reporters` accept `json`, `junit`, `html`, `csv`, `xlsx`
+  and `pdf`.
 - Bodies echoed to an agent are capped at 1 MiB (plus `truncated` and the true length); the
   full body is written by `response_save`.
 

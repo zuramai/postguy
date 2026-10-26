@@ -4,6 +4,7 @@
 
 use std::panic::AssertUnwindSafe;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use postguy_http::Cancel;
@@ -16,6 +17,9 @@ use crate::Engine;
 use crate::console::{ConsoleKind, ConsoleLevel};
 use crate::error::{EngineError, Result};
 use crate::pipeline::{IterationScope, SendOptions, SendTarget};
+
+/// How much of a failed response body a run row keeps.
+const EXCERPT_CHARS: usize = 1024;
 
 fn run_error(err: RunError) -> EngineError {
     EngineError::Run { message: err.to_string() }
@@ -121,6 +125,8 @@ impl Engine {
         let run_id = format!("{:013}-{short}", started_ms.max(0));
         let requests_per_iteration = planned.len();
         let mut sequencer = Sequencer::new(planned);
+        let (collection_id, collection_name) = (collection.id.clone(), collection.name.clone());
+        let mut snapshot = Arc::new(collection);
         let mut totals = Totals::default();
         let mut finished: Vec<IterationResult> = Vec::new();
         let mut stopped: Option<String> = None;
@@ -138,12 +144,18 @@ impl Engine {
             while let Some(position) = current {
                 if cancel.is_cancelled() {
                     stopped = Some("cancelled".to_string());
-                    iteration.warnings = sequencer.take_warnings();
+                    iteration.warnings.extend(sequencer.take_warnings());
                     finished.push(iteration);
                     break 'iterations;
                 }
                 let Some(step) = sequencer.order().get(position).cloned() else { break };
-                let (run, directive) = self.run_one(&collection, &step, config, &scope, cancel);
+                let (run, directive, variables_changed) = self.run_one(&snapshot, &step, config, &scope, cancel);
+                if variables_changed {
+                    match self.collection(&config.collection) {
+                        Ok(fresh) => snapshot = Arc::new(fresh),
+                        Err(err) => iteration.warnings.push(format!("could not reload the collection after a script changed variables: {err}")),
+                    }
+                }
                 on_event(&RunEvent::Request { iteration: index, run: Box::new(run.clone()) });
                 totals.add(&run);
                 let failed = run.failed();
@@ -151,13 +163,13 @@ impl Engine {
                 iteration.requests.push(run);
                 if cancel.is_cancelled() {
                     stopped = Some("cancelled".to_string());
-                    iteration.warnings = sequencer.take_warnings();
+                    iteration.warnings.extend(sequencer.take_warnings());
                     finished.push(iteration);
                     break 'iterations;
                 }
                 if config.stop_on_error && failed {
                     stopped = Some(format!("stopped after {name} failed (stop on error)"));
-                    iteration.warnings = sequencer.take_warnings();
+                    iteration.warnings.extend(sequencer.take_warnings());
                     finished.push(iteration);
                     break 'iterations;
                 }
@@ -165,20 +177,20 @@ impl Engine {
                 let more = current.is_some() || index.saturating_add(1) < iterations;
                 if more && config.delay_ms > 0 && !pause(config.delay_ms, cancel) {
                     stopped = Some("cancelled".to_string());
-                    iteration.warnings = sequencer.take_warnings();
+                    iteration.warnings.extend(sequencer.take_warnings());
                     finished.push(iteration);
                     break 'iterations;
                 }
             }
-            iteration.warnings = sequencer.take_warnings();
+            iteration.warnings.extend(sequencer.take_warnings());
             finished.push(iteration);
             on_event(&RunEvent::IterationFinished { index });
         }
 
         let mut result = RunResult {
             id: run_id.clone(),
-            collection_id: collection.id.clone(),
-            collection_name: collection.name.clone(),
+            collection_id: collection_id.clone(),
+            collection_name,
             folder: config.folder.clone(),
             environment_name,
             started_ms,
@@ -189,7 +201,7 @@ impl Engine {
         };
         let stored = serde_json::to_vec(&result)
             .map_err(|err| EngineError::Run { message: format!("could not encode the run: {err}") })
-            .and_then(|bytes| self.workspace().save_run(&collection.id.0, &run_id, &bytes).map_err(EngineError::from));
+            .and_then(|bytes| self.workspace().save_run(&collection_id.0, &run_id, &bytes).map_err(EngineError::from));
         if let Err(err) = stored
             && let Some(last) = result.iterations.last_mut()
         {
@@ -210,12 +222,12 @@ impl Engine {
     /// Send one planned request; its row and the script's next-request directive come back.
     fn run_one(
         &self,
-        collection: &Collection,
+        collection: &Arc<Collection>,
         step: &PlannedRequest,
         config: &RunConfig,
         scope: &IterationScope,
         cancel: &Cancel,
-    ) -> (RequestRun, NextRequest) {
+    ) -> (RequestRun, NextRequest, bool) {
         let base = |method: String, url: String| RequestRun {
             request_id: step.id.clone(),
             name: step.name.clone(),
@@ -229,33 +241,49 @@ impl Engine {
             failures: Vec::new(),
             error: None,
             skipped: None,
+            started_ms: 0,
+            report: serde_json::Map::new(),
+            response_excerpt: None,
         };
         if step.protocol != "http" {
             let (method, url) = request_head(collection, &step.id);
             let mut run = base(method, url);
             run.skipped = Some("only HTTP requests run in the collection runner".to_string());
-            return (run, NextRequest::Unchanged);
+            return (run, NextRequest::Unchanged, false);
         }
-        let options =
-            SendOptions { environment: config.environment.clone(), cancel: Some(cancel.clone()), run_scripts: true, iteration: Some(scope.clone()) };
-        match self.send(SendTarget::Stored { collection: collection.id.clone(), request: step.id.clone() }, options) {
+        let options = SendOptions {
+            environment: config.environment.clone(),
+            cancel: Some(cancel.clone()),
+            run_scripts: true,
+            iteration: Some(scope.clone()),
+            skip_history: true,
+        };
+        let started_ms = postguy_util::time::now_unix_ms();
+        match self.send(SendTarget::Snapshot { collection: Arc::clone(collection), request: step.id.clone() }, options) {
             Ok(outcome) => {
                 let mut run = base(outcome.request.method.clone(), outcome.request.url.clone());
+                run.started_ms = started_ms;
                 run.status = Some(outcome.response.status);
                 run.duration_ms = outcome.response.timings.total_ms;
                 run.size_bytes = u64::try_from(outcome.response.size.body_decoded_bytes).unwrap_or(u64::MAX);
                 run.tests = outcome.script.tests;
                 run.failures = outcome.script.failures;
-                (run, outcome.script.next_request)
+                run.report = outcome.script.report;
+                if run.failed() {
+                    let text = String::from_utf8_lossy(&outcome.response.body);
+                    run.response_excerpt = Some(text.chars().take(EXCERPT_CHARS).collect());
+                }
+                (run, outcome.script.next_request, outcome.script.collection_changed)
             }
             Err(err) => {
                 let (method, url) = request_head(collection, &step.id);
                 let mut run = base(method, url);
+                run.started_ms = started_ms;
                 match err {
                     EngineError::Skipped { reason } => run.skipped = Some(reason),
                     other => run.error = Some(other.to_string()),
                 }
-                (run, NextRequest::Unchanged)
+                (run, NextRequest::Unchanged, false)
             }
         }
     }

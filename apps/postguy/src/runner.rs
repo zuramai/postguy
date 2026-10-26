@@ -101,8 +101,23 @@ fn request_view(iteration: u32, run: &postguy_runner::RequestRun) -> RunRequestV
         status: run.status,
         duration_ms: run.duration_ms,
         tests: run.tests.clone(),
-        error: run.error.clone().or_else(|| run.failures.first().map(|failure| format!("{} script: {}", failure.phase.label(), failure.message))),
+        error: run.error.clone(),
         skipped: run.skipped.clone(),
+        script_failures: run
+            .failures
+            .iter()
+            .map(|failure| {
+                let line = failure.line.map(|line| format!(" at line {line}")).unwrap_or_default();
+                format!("{} script in {} failed{line}: {}", failure.phase.label(), failure.origin, failure.message)
+            })
+            .collect(),
+        started_ms: run.started_ms,
+        report: run
+            .report
+            .iter()
+            .map(|(key, value)| (key.clone(), value.as_str().map(str::to_string).unwrap_or_else(|| value.to_string())))
+            .collect(),
+        response_excerpt: run.response_excerpt.clone(),
     }
 }
 
@@ -227,7 +242,7 @@ impl App {
                 if self.runner.export_picker.is_none() && self.runner.export_job.is_none() {
                     let name = self.runner.state.result.as_ref().map(|result| result.collection.clone()).unwrap_or_else(|| "run".to_string());
                     let extension = if format == "junit" { "xml" } else { format };
-                    self.runner.export_picker = Some((postguy_platform::save_export(format!("{name}-run.{extension}"), extension), format));
+                    self.runner.export_picker = Some((postguy_platform::save_export(default_export_name(&name, extension), extension), format));
                 }
             }
         }
@@ -313,8 +328,10 @@ impl App {
                         if let Some(result) = &mut state.result {
                             let view = request_view(iteration, &run);
                             result.passed += view.tests.iter().filter(|test| test.status == postguy_model::TestStatus::Passed).count();
+                            // The same units as the final totals: failed tests, script failures and send errors.
                             result.failed += view.tests.iter().filter(|test| test.status == postguy_model::TestStatus::Failed).count()
-                                + usize::from(view.error.is_some());
+                                + run.failures.len()
+                                + usize::from(run.error.is_some());
                             result.skipped += usize::from(view.skipped.is_some());
                             result.requests.push(view);
                         }
@@ -437,6 +454,14 @@ impl App {
                 let bytes = match format {
                     "junit" => postguy_runner::report::junit(&result).into_bytes(),
                     "html" => postguy_runner::report::html(&result).into_bytes(),
+                    "csv" | "xlsx" | "pdf" => {
+                        let table = postguy_runner::report::table(&result, postguy_util::time::local_offset_seconds(result.started_ms));
+                        match format {
+                            "csv" => postguy_runner::report::csv(&table),
+                            "xlsx" => postguy_runner::report::xlsx(&table).map_err(|err| err.to_string())?,
+                            _ => postguy_runner::report::pdf(&table),
+                        }
+                    }
                     _ => serde_json::to_vec_pretty(&postguy_runner::report::json(&result)).map_err(|err| err.to_string())?,
                 };
                 postguy_util::atomic_write(&path, &bytes).map_err(|err| err.to_string())?;
@@ -449,4 +474,15 @@ impl App {
             self.runner.export_job = None;
         }
     }
+}
+
+/// `postguy-run-{collection sanitised to [A-Za-z0-9_-]}-{YYYYMMDD-HHMM local}.{extension}`.
+fn default_export_name(collection: &str, extension: &str) -> String {
+    let name: String = collection.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect();
+    let now = postguy_util::time::now_unix_ms();
+    let iso = postguy_util::time::format_datetime(now, postguy_util::time::local_offset_seconds(now), postguy_util::time::DateStyle::Iso, now);
+    // `2026-10-26T14:03:12+07:00` -> `20261026-1403`
+    let part = |range: std::ops::Range<usize>| iso.get(range).unwrap_or("");
+    let stamp = format!("{}{}{}-{}{}", part(0..4), part(5..7), part(8..10), part(11..13), part(14..16));
+    format!("postguy-run-{name}-{stamp}.{extension}")
 }

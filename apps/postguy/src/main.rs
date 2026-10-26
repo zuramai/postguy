@@ -40,6 +40,7 @@ use postguy_ui_egui::widgets::field::VariableInfo;
 use postguy_ui_egui::{PostguyShell, ThemeMode, WindowChrome};
 use serde::{Deserialize, Serialize};
 
+mod assets;
 mod control;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -224,6 +225,8 @@ struct App {
     export_save: Option<std::pin::Pin<Box<dyn std::future::Future<Output = Option<PathBuf>>>>>,
     export_job: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
     oauth2_job: Option<(u64, std::sync::mpsc::Receiver<Result<TokenResponse, String>>)>,
+    /// Per-collection asset listings (Assets tab, shortcode colouring).
+    assets: assets::AssetState,
     oauth2_browser: Option<(u64, OAuth2Auth, OAuth2Callback)>,
     graphql_jobs: BTreeMap<u64, std::sync::mpsc::Receiver<Result<Vec<String>, String>>>,
     ws_editors: BTreeMap<u64, WsEditor>,
@@ -281,6 +284,7 @@ impl App {
                     runner: Default::default(),
                     pending_clipboard: None,
                     oauth2_job: None,
+                    assets: assets::AssetState::default(),
                     oauth2_browser: None,
                     graphql_jobs: BTreeMap::new(),
                     ws_editors: BTreeMap::new(),
@@ -333,6 +337,7 @@ impl App {
                     runner: Default::default(),
                     pending_clipboard: None,
                     oauth2_job: None,
+                    assets: assets::AssetState::default(),
                     oauth2_browser: None,
                     graphql_jobs: BTreeMap::new(),
                     ws_editors: BTreeMap::new(),
@@ -588,7 +593,66 @@ impl App {
                 editor.dirty = true;
                 Ok(serde_json::json!({"ok": true, "url": url}))
             }
-            other => Err(format!("unknown key `{other}`; keys are tab, console, right, two-pane, sidebar, theme, url")),
+            "open" => {
+                let id = Id(value.as_str().ok_or("`open` needs a collection or request id")?.to_string());
+                let engine = self.engine.clone().ok_or("the workspace engine is not running")?;
+                let collections = engine.collections().map_err(|err| err.to_string())?;
+                if let Some(collection) = collections.iter().find(|collection| collection.id == id) {
+                    self.shell.tabs.open(TabDoc::Collection { id: collection.id.0.clone() }, collection.name.clone());
+                    return Ok(serde_json::json!({"ok": true, "open": "collection"}));
+                }
+                let Some((collection, Item::Request(request))) = item_with_collection(&collections, &id) else {
+                    return Err(format!("`{}` is not a collection or request in this workspace", id.0));
+                };
+                let (method, protocol) = match &request.kind {
+                    RequestKind::Http(http) => (postguy_model::HttpMethod::short_label(&http.method), "http"),
+                    RequestKind::Grpc(_) => ("gRPC", "grpc"),
+                    _ => ("WS", "websocket"),
+                };
+                self.shell.tabs.open(
+                    TabDoc::Request { collection: collection.0, request: request.id.0.clone(), method: method.into(), protocol: protocol.into() },
+                    request.name.clone(),
+                );
+                Ok(serde_json::json!({"ok": true, "open": "request"}))
+            }
+            "request-tab" => {
+                let name = value.as_str().ok_or("`request-tab` needs a string value")?;
+                let tab = match name.to_ascii_lowercase().as_str() {
+                    "params" => BuilderTab::Params,
+                    "authorization" => BuilderTab::Authorization,
+                    "headers" => BuilderTab::Headers,
+                    "body" => BuilderTab::Body,
+                    "scripts" => BuilderTab::Scripts,
+                    "tests" => BuilderTab::Tests,
+                    "settings" => BuilderTab::Settings,
+                    "docs" => BuilderTab::Docs,
+                    _ => return Err("`request-tab` is params, authorization, headers, body, scripts, tests, settings or docs".into()),
+                };
+                let active = self.shell.tabs.active.ok_or("no active tab")?;
+                let editor = self.editors.get_mut(&active).ok_or("the active tab has no request editor")?;
+                editor.tab = tab;
+                Ok(serde_json::json!({"ok": true, "request-tab": name}))
+            }
+            "detail-tab" => {
+                use postguy_ui_egui::DetailTab;
+                let name = value.as_str().ok_or("`detail-tab` needs a string value")?;
+                let tab = match name.to_ascii_lowercase().as_str() {
+                    "overview" => DetailTab::Overview,
+                    "authorization" => DetailTab::Authorization,
+                    "variables" => DetailTab::Variables,
+                    "scripts" => DetailTab::Scripts,
+                    "runs" => DetailTab::Runs,
+                    "assets" => DetailTab::Assets,
+                    _ => return Err("`detail-tab` is overview, authorization, variables, scripts, runs or assets".into()),
+                };
+                let active = self.shell.tabs.active.ok_or("no active tab")?;
+                let editor = self.detail_editors.get_mut(&active).ok_or("the active tab has no collection or folder detail (yet)")?;
+                editor.state.tab = tab;
+                Ok(serde_json::json!({"ok": true, "detail-tab": name}))
+            }
+            other => {
+                Err(format!("unknown key `{other}`; keys are tab, console, right, two-pane, sidebar, theme, url, open, request-tab, detail-tab"))
+            }
         }
     }
 
@@ -1004,8 +1068,22 @@ impl App {
         std::thread::Builder::new()
             .name("postguy-import".into())
             .spawn(move || {
+                let (bruno_dirs, paths): (Vec<PathBuf>, Vec<PathBuf>) = paths.into_iter().partition(|path| path.join("bruno.json").is_file());
                 let (files, problems) = postguy_engine::walk_import_paths(paths);
                 let mut summary = ImportSummary { items: Vec::new(), problems };
+                for dir in bruno_dirs {
+                    let source = dir.display().to_string();
+                    match engine.import_bruno(&dir, ImportOptions { replace, folders }) {
+                        Ok(outcome) => {
+                            summary.items.push(import_item(&source, outcome.collection));
+                            for environment in outcome.environments {
+                                summary.items.push(import_item(&source, environment));
+                            }
+                            summary.problems.extend(outcome.assets.skipped.into_iter().map(|reason| format!("asset skipped: {reason}")));
+                        }
+                        Err(err) => summary.items.push(ImportItemView { source, error: Some(err.to_string()), ..ImportItemView::default() }),
+                    }
+                }
                 // All .proto files import together, so imports between them resolve.
                 let (protos, files): (Vec<PathBuf>, Vec<PathBuf>) =
                     files.into_iter().partition(|path| path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("proto")));
@@ -1280,7 +1358,16 @@ impl App {
             SidebarAction::OpenHistory { id } => {
                 if let Some(entry) = engine.history(usize::MAX).map_err(|err| err.to_string())?.into_iter().find(|entry| entry.id.0 == id) {
                     let label = entry.request.as_ref().and_then(|request| match request {
-                        RequestKind::Http(http) => Some(history_tab_title(http.method.short_label(), &http.url)),
+                        RequestKind::Http(http) => {
+                            let now = postguy_util::time::now_unix_ms();
+                            let when = postguy_util::time::format_datetime(
+                                entry.time_ms,
+                                postguy_util::time::local_offset_seconds(entry.time_ms),
+                                postguy_util::time::DateStyle::Compact,
+                                now,
+                            );
+                            Some(format!("{} · {when}", history_tab_title(http.method.short_label(), &http.url)))
+                        }
                         _ => None,
                     });
                     if let Some(label) = label {
@@ -2133,6 +2220,21 @@ impl App {
                     }
                 }
             }
+            CollectionAction::ImportAssets { folder } => {
+                if let Some(editor) = self.detail_editors.get(&tab_id) {
+                    self.assets.pick(&editor.collection.id.0, folder);
+                }
+            }
+            CollectionAction::DeleteAsset(path) => {
+                if let Some(editor) = self.detail_editors.get(&tab_id) {
+                    self.assets.delete(&engine, &editor.collection.id.0, path);
+                }
+            }
+            CollectionAction::RenameAsset { from, to } => {
+                if let Some(editor) = self.detail_editors.get(&tab_id) {
+                    self.assets.rename(&engine, &editor.collection.id.0, from, to);
+                }
+            }
             CollectionAction::Close => {
                 self.flush_pending_detail(true);
                 self.detail_editors.remove(&tab_id);
@@ -2980,6 +3082,9 @@ impl eframe::App for App {
         self.poll_import_picker(ui.ctx());
         self.poll_export(ui.ctx());
         self.poll_oauth2(ui.ctx());
+        if let Some(status) = self.assets.poll(ui.ctx(), self.engine.as_ref()) {
+            self.shell.state.status = status;
+        }
         self.poll_graphql();
         self.poll_ws();
         self.poll_grpc();
@@ -2991,6 +3096,7 @@ impl eframe::App for App {
             || self.import.busy
             || self.export.busy
             || self.oauth2_job.is_some()
+            || self.assets.busy()
             || self.oauth2_browser.is_some()
             || !self.graphql_jobs.is_empty()
             || self.ws_editors.values().any(|editor| editor.connected || editor.session.is_some())
@@ -3026,6 +3132,16 @@ impl eframe::App for App {
         let is_request = active.as_ref().is_some_and(|tab| matches!(tab.doc, TabDoc::Request { .. }));
         let panel_tab = if is_request { active_id } else { None };
         let variables = panel_tab.and_then(|id| self.editors.get(&id)).map(|editor| self.variables_for(&editor.collection)).unwrap_or_default();
+        // The collection whose assets this frame's request editor or detail tab shows; the first
+        // sight of it starts the background listing.
+        let asset_collection = match active.as_ref().map(|tab| &tab.doc) {
+            Some(TabDoc::Request { .. }) => panel_tab.and_then(|id| self.editors.get(&id)).map(|editor| editor.collection.clone()),
+            Some(TabDoc::Collection { id }) => Some(id.clone()),
+            _ => None,
+        };
+        if let (Some(collection), Some(engine)) = (&asset_collection, &self.engine) {
+            self.assets.ensure(engine, collection);
+        }
         let collection_name = panel_tab
             .and_then(|id| self.editors.get(&id))
             .and_then(|editor| {
@@ -3053,6 +3169,8 @@ impl eframe::App for App {
             Some(TabDoc::Collection { id }) => self.runs_for(id),
             _ => Vec::new(),
         };
+        let asset_index = asset_collection.as_deref().and_then(|collection| self.assets.index(collection));
+        let asset_rows = asset_collection.as_deref().and_then(|collection| self.assets.rows(collection));
         let panel_result = {
             let cookie_data = std::mem::take(&mut self.shell.cookie_data);
             let mut cookie_state = std::mem::take(&mut self.shell.cookie_state);
@@ -3106,6 +3224,7 @@ impl eframe::App for App {
                             inherited_auth: editor.inherited_auth.as_deref(),
                             oauth2_action: &mut oauth2_action,
                             graphql_schema: editor.graphql_schema.as_deref(),
+                            assets: asset_index,
                         };
                         let error = send_errors.get(&panel_id);
                         let response = responses.get_mut(&panel_id);
@@ -3183,6 +3302,7 @@ impl eframe::App for App {
                             folder: editor.folder.clone(),
                             state: &mut editor.state,
                             runs: &detail_runs,
+                            assets: asset_rows,
                         };
                         detail.show(ui).map(PanelAction::Collection)
                     }
@@ -3412,6 +3532,31 @@ mod tests {
         assert!(view.requests[0].runnable);
         app.apply(SidebarAction::Run { id: collection.id.0.clone() });
         assert_eq!(app.runner.state.folder, None, "a collection Run covers everything");
+    }
+
+    #[test]
+    fn control_keys_open_a_request_and_switch_request_and_detail_tabs() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("Payments").expect("collection");
+        let request = engine.create_request(&collection.id, None, "http", "List").expect("request");
+        app.refresh();
+        assert!(app.set_control("request-tab", serde_json::json!("tests")).is_err(), "no request tab is active yet");
+        app.set_control("open", serde_json::json!(request.id.0)).expect("open request");
+        app.sync_editors();
+        app.set_control("request-tab", serde_json::json!("tests")).expect("tests tab");
+        let active = app.shell.tabs.active.expect("active tab");
+        assert_eq!(app.editors.get(&active).map(|editor| editor.tab), Some(BuilderTab::Tests));
+        assert!(app.set_control("request-tab", serde_json::json!("nope")).is_err());
+
+        app.set_control("open", serde_json::json!(collection.id.0)).expect("open collection");
+        app.sync_detail_editors();
+        app.set_control("detail-tab", serde_json::json!("assets")).expect("assets tab");
+        let active = app.shell.tabs.active.expect("active tab");
+        assert_eq!(app.detail_editors.get(&active).map(|editor| editor.state.tab), Some(postguy_ui_egui::DetailTab::Assets));
+        let missing = app.set_control("open", serde_json::json!("missing-id")).expect_err("unknown id");
+        assert!(missing.contains("missing-id"), "{missing}");
     }
 
     #[test]

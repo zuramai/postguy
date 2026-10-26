@@ -1,0 +1,12 @@
+meta {
+  name: Root
+}
+
+headers {
+  X-App: {{process.env.APP_ID}}
+  ~X-Off: skipped
+}
+
+script:pre-request {
+  const stamp = Date.now();
+}
