@@ -650,9 +650,15 @@ impl App {
                 editor.state.tab = tab;
                 Ok(serde_json::json!({"ok": true, "detail-tab": name}))
             }
-            other => {
-                Err(format!("unknown key `{other}`; keys are tab, console, right, two-pane, sidebar, theme, url, open, request-tab, detail-tab"))
+            "sidebar-sections" => {
+                let open: [bool; 3] = serde_json::from_value(value)
+                    .map_err(|_| "`sidebar-sections` is three booleans: [collections, environments, history]".to_string())?;
+                self.shell.sidebar_state.sections = open;
+                Ok(serde_json::json!({"ok": true, "sidebar-sections": open}))
             }
+            other => Err(format!(
+                "unknown key `{other}`; keys are tab, console, right, two-pane, sidebar, sidebar-sections, theme, url, open, request-tab, detail-tab"
+            )),
         }
     }
 
@@ -3557,6 +3563,9 @@ mod tests {
         assert_eq!(app.detail_editors.get(&active).map(|editor| editor.state.tab), Some(postguy_ui_egui::DetailTab::Assets));
         let missing = app.set_control("open", serde_json::json!("missing-id")).expect_err("unknown id");
         assert!(missing.contains("missing-id"), "{missing}");
+        app.set_control("sidebar-sections", serde_json::json!([true, false, true])).expect("sections");
+        assert_eq!(app.shell.sidebar_state.sections, [true, false, true]);
+        assert!(app.set_control("sidebar-sections", serde_json::json!([true])).is_err(), "needs exactly three booleans");
     }
 
     #[test]
