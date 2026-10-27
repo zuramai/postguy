@@ -15,8 +15,8 @@ use egui::{Color32, FontId, Response, ScrollArea, Sense, TextEdit, TextFormat, U
 
 use crate::theme::{Palette, Theme};
 use crate::widgets;
-use crate::widgets::field::variable_spans;
-use crate::widgets::shortcode::{AssetIndex, overlay, shortcode_marks};
+use crate::widgets::field::{VariableInfo, variable_marks, variable_spans, variable_tooltip};
+use crate::widgets::shortcode::{AssetIndex, overlay, overlay_colors, shortcode_marks};
 use crate::widgets::text_selection::{Motion, Sel, Selections, add_next_occurrence, apply_motion, clamp_to_text, copy_text, line_at, word_at};
 
 /// Which token rules to apply. Unknown languages stay plain (no half-correct colouring).
@@ -74,6 +74,9 @@ pub struct CodeEditor<'a> {
     pub assets: Option<&'a AssetIndex>,
     /// Colour shortcodes even without an asset index (syntax only).
     pub shortcodes: bool,
+    /// When set, every `{{var}}` is coloured blue (resolves) or red (does not) over the language
+    /// highlighting, and hovering one shows its scope and value.
+    pub variables: Option<&'a [VariableInfo]>,
 }
 
 impl<'a> CodeEditor<'a> {
@@ -86,6 +89,7 @@ impl<'a> CodeEditor<'a> {
             id: egui::Id::new("code-editor"),
             assets: None,
             shortcodes: false,
+            variables: None,
         }
     }
 
@@ -93,6 +97,12 @@ impl<'a> CodeEditor<'a> {
     pub fn assets(mut self, assets: Option<&'a AssetIndex>) -> Self {
         self.shortcodes = true;
         self.assets = assets;
+        self
+    }
+
+    /// Colour and explain `{{var}}` references against the variables visible to the request.
+    pub fn variables(mut self, variables: &'a [VariableInfo]) -> Self {
+        self.variables = Some(variables);
         self
     }
 
@@ -138,6 +148,7 @@ impl<'a> CodeEditor<'a> {
                         let layout_font = font.clone();
                         let shortcodes = self.shortcodes;
                         let assets = self.assets;
+                        let variables = self.variables;
                         let mut layouter = move |ui: &Ui, buffer: &dyn egui::TextBuffer, wrap_width: f32| {
                             let text = buffer.as_str();
                             let job = if highlight {
@@ -152,6 +163,9 @@ impl<'a> CodeEditor<'a> {
                             if shortcodes {
                                 overlay(&mut job, &shortcode_marks(text, assets), &palette);
                             }
+                            if highlight && let Some(variables) = variables {
+                                overlay_colors(&mut job, &variable_marks(text, variables, &palette));
+                            }
                             ui.fonts_mut(|fonts| fonts.layout_job(job))
                         };
                         let output = TextEdit::multiline(text)
@@ -165,6 +179,9 @@ impl<'a> CodeEditor<'a> {
                             .interactive(!self.read_only)
                             .layouter(&mut layouter)
                             .show(ui);
+                        if let Some(variables) = variables {
+                            variable_tooltip(ui, &output, text, variables);
+                        }
                         let cursor_row = output.cursor_range.map(|range| text.chars().take(range.primary.index.0).filter(|c| *c == '\n').count());
                         let right = gutter_left + gutter_w - 6.0;
                         let mut logical = 0usize;
