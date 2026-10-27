@@ -14,6 +14,7 @@ use postguy_ui_egui::response::{ResponseData, ResponseViewerState, response_view
 use postguy_ui_egui::shell::PanelAction;
 use postguy_ui_egui::sidebar::SidebarData;
 use postguy_ui_egui::tabs::TabDoc;
+use postguy_ui_egui::widgets::{SplitAxis, split};
 
 struct DemoState {
     shell: PostguyShell,
@@ -408,36 +409,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         graphql_schema: None,
                         assets: state.asset_index.as_ref(),
                     };
-                    if two_pane {
-                        let area = ui.available_rect_before_wrap();
-                        let half = ((area.width() - 9.0) * 0.5).max(260.0);
-                        let left_rect = egui::Rect::from_min_size(area.min, egui::vec2(half, area.height()));
-                        let divider_x = left_rect.right() + 4.0;
-                        let right_rect = egui::Rect::from_min_max(egui::pos2(divider_x + 5.0, area.top()), area.max);
-                        ui.painter().vline(divider_x, area.y_range(), ui.visuals().widgets.noninteractive.bg_stroke);
-                        let mut action = None;
-                        ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
-                            ui.set_clip_rect(left_rect.intersect(ui.clip_rect()));
-                            action = builder.show(ui);
-                        });
-                        ui.scope_builder(egui::UiBuilder::new().max_rect(right_rect), |ui| {
-                            ui.set_clip_rect(right_rect.intersect(ui.clip_rect()));
-                            let _ = response_view(ui, &mut state.response, &mut state.viewer);
-                        });
-                        ui.advance_cursor_after_rect(area);
-                        return action.map(PanelAction::Builder);
+                    if !two_pane && state.builder_share >= 0.99 {
+                        return builder.show(ui).map(PanelAction::Builder);
                     }
-                    let total = ui.available_height();
-                    let request_height = (total * state.builder_share).max(170.0);
-                    let action = ui
-                        .allocate_ui_with_layout(egui::vec2(ui.available_width(), request_height), egui::Layout::top_down(egui::Align::Min), |ui| {
-                            builder.show(ui)
-                        })
-                        .inner;
-                    if state.builder_share < 0.99 {
-                        ui.separator();
+                    // The same draggable divider as the app (see `apps/postguy`).
+                    let (axis, split_id, share, min_request, min_response) = if two_pane {
+                        (SplitAxis::Horizontal, "request-split-two-pane", 0.5, 260.0, 260.0)
+                    } else {
+                        (SplitAxis::Vertical, "request-split-stacked", state.builder_share, 170.0, 120.0)
+                    };
+                    let area = ui.available_rect_before_wrap();
+                    let (request_rect, response_rect) = split(ui, egui::Id::new(split_id), axis, share, min_request, min_response);
+                    let mut action = None;
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(request_rect), |ui| {
+                        ui.set_clip_rect(request_rect.intersect(ui.clip_rect()));
+                        action = builder.show(ui);
+                    });
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(response_rect), |ui| {
+                        ui.set_clip_rect(response_rect.intersect(ui.clip_rect()));
                         let _ = response_view(ui, &mut state.response, &mut state.viewer);
-                    }
+                    });
+                    ui.advance_cursor_after_rect(area);
                     action.map(PanelAction::Builder)
                 }
                 TabDoc::Environment { .. } | TabDoc::Globals => {

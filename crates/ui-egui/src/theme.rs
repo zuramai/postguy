@@ -380,6 +380,8 @@ impl Theme {
         style.spacing.menu_margin = egui::Margin::same(6);
         style.spacing.interact_size = egui::vec2(40.0, metrics.control_height);
         style.spacing.scroll.bar_width = 8.0;
+        // egui's 3 pt grab strip makes the sidebar and panel edges hard to catch.
+        style.interaction.resize_grab_radius_side = 6.0;
         style.text_styles = [
             (TextStyle::Heading, FontId::new(metrics.heading_font, FontFamily::Proportional)),
             (TextStyle::Body, FontId::new(metrics.ui_font, FontFamily::Proportional)),

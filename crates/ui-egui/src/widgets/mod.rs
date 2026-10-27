@@ -7,6 +7,7 @@
 pub mod editor;
 pub mod field;
 pub mod shortcode;
+pub mod split;
 pub mod table;
 mod text_selection;
 pub mod timeline;
@@ -14,6 +15,7 @@ pub mod timeline;
 pub use editor::{CodeEditor, CodeLanguage, LargeTextView};
 pub use field::{variable_field, variable_field_frameless, variable_field_with, variable_spans};
 pub use shortcode::{AssetIndex, ShortcodeMark, first_problem, shortcode_marks};
+pub use split::{SPLIT_GAP, SplitAxis, split};
 pub use table::{TableResponse, TableVariant, VariableGrid, assertion_table, automatic_rows, key_value_table, variable_table};
 pub use timeline::{MessageDirection, Timeline, TimelineEntry};
 
