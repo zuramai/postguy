@@ -1,0 +1,19 @@
+{
+  "name": "postguy-docs",
+  "description": "Documentation for Postguy, the offline native API client for HTTP, gRPC and WebSocket.",
+  "private": true,
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview"
+  },
+  "dependencies": {
+    "docus": "^5.15.0",
+    "better-sqlite3": "^12.11.1",
+    "nuxt": "^4.4.8"
+  }
+}

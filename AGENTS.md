@@ -1,6 +1,6 @@
 # AGENTS.md: rules for every agent and contributor
 
-These rules bind every AI agent and every human contributor working in this repository. They come before any task, instruction or deadline. This is the only rules file; there is no separate `CLAUDE.md`. Architecture and workflow notes live in `docs/` and the README of each crate.
+These rules bind every AI agent and every human contributor working in this repository. They come before any task, instruction or deadline. This is the only rules file; there is no separate `CLAUDE.md`. Architecture and workflow notes live in `docs/content/4.contributing/` (published by the documentation site in `docs/`) and the README of each crate.
 
 Postguy is a clean-room, offline, Rust-native API client (HTTP, gRPC, WebSocket) built with egui, targeting the essential offline features of Postman. It runs natively on macOS, Windows, Linux and FreeBSD. There is no web (WASM) build.
 
@@ -123,7 +123,7 @@ Postguy opens files from strangers (imported collections, OpenAPI documents, `.p
 
 ### 5.1 Start every session here
 
-1. Read the README of the crate you're touching and `docs/architecture.md`. Read `docs/gaps.md` before choosing work, and prefer the ranked gaps over new P2/P3 features. Keep these documents true when things change.
+1. Read the README of the crate you're touching and `docs/content/4.contributing/3.architecture.md`. Read `docs/content/4.contributing/4.gaps.md` before choosing work, and prefer the ranked gaps over new P2/P3 features. Keep these documents true when things change.
 
 The machine-readable parity checklist lives in `parity/` (committed).
 
@@ -132,7 +132,8 @@ The machine-readable parity checklist lives in `parity/` (committed).
 - **Assets and clean-room:** sections 1 and 2.
 - **Privacy and network.** The app makes no network request the user did not initiate: no telemetry, no crash upload, no update check, no cloud sync. Never log secret variable values, client-certificate passphrases or the control-channel token. Real tokens, API keys and responses never enter the repository, tests or screenshots.
 - **Rust only** in the product and the build (`xtask`). No handwritten JS/TS. User scripts run in an embedded engine, and the `pm` API is implemented in Rust. If a JS prelude seems unavoidable, stop and ask the owner.
-- **Layering.** Nothing below L7 depends on egui/winit/eframe/rfd. The layer table is in `docs/architecture.md` and is enforced by `cargo xtask layers`. Frontends reach the engine only through `crates/engine`.
+- **Documentation site.** `docs/` is a Docus (Nuxt) site and is outside the product and the build. It may contain only `package.json`, `package-lock.json`, `nuxt.config.ts`, `app/app.config.ts`, `app/app.css`, the section `.navigation.yml` files and Markdown under `content/`: no Vue components, pages, plugins, server code or other handwritten JS/TS. Its npm dependencies are `docus`, `nuxt` and `better-sqlite3`; adding another needs the owner's approval. It serves `assets/logo/postguy.svg` and the Poppins files from `assets/` without copying them, downloads no other font, commits no image, and Markdown content uses only `i-lucide-*` icons. User-facing changes update the matching page under `docs/content/` in the same PR.
+- **Layering.** Nothing below L7 depends on egui/winit/eframe/rfd. The layer table is in `docs/content/4.contributing/3.architecture.md` and is enforced by `cargo xtask layers`. Frontends reach the engine only through `crates/engine`.
 - **Fidelity.** Unknown fields in imported collections, environments and settings are preserved in `extras` and written back on export. Never silently drop or repair data without recording it in the import report. Saves are atomic. A failed save leaves the previous file intact and the in-memory state dirty.
 - **Offline untrusted-file handling.** Cap file sizes, nesting and expansion for every importer (Postman, OpenAPI/YAML, HAR, cURL, `.proto`, data files). File paths in requests resolve against the working directory; escaping it needs the explicit setting.
 - **Review every update as you make it, at four zooms.** Not an end-of-task pass; a per-update habit, so a defect never gets built on.

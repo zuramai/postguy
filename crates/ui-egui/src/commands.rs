@@ -100,7 +100,7 @@ pub enum WindowCommand {
     Close,
 }
 
-pub const DOCS_URL: &str = "https://github.com/zuramai/postguy/tree/main/docs";
+pub const DOCS_URL: &str = "https://zuramai.github.io/postguy/";
 pub const GITHUB_URL: &str = "https://github.com/zuramai/postguy";
 
 /// The registry: static commands in a stable order.

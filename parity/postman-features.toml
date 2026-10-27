@@ -1000,7 +1000,7 @@ title = "Workspace folder handling, lock file, config dir layout"
 area = "I"
 tier = "P0"
 status = "shipped"
-notes = "`postguy.json` plus collections/, environments/, history/, trash/, responses and the hidden `.postguy/` state (secrets, cookies, cache, lock, .bak) laid out as described in docs/architecture.md; `--root` confines every path."
+notes = "`postguy.json` plus collections/, environments/, history/, trash/, responses and the hidden `.postguy/` state (secrets, cookies, cache, lock, .bak) laid out as described in docs/content/4.contributing/3.architecture.md; `--root` confines every path."
 evidence = ["crates/engine/tests/edits.rs::collections_folders_and_requests_round_trip_and_rename", "apps/postguy/src/main.rs::the_session_round_trips_across_an_app_restart"]
 
 [[feature]]
@@ -1049,8 +1049,8 @@ id = "i.docs-and-releases"
 title = "Release workflow, user docs from our own UI, licence list"
 area = "I"
 tier = "P0"
-status = "planned"
-notes = "Security review and final gaps list close v1.0."
+status = "partial"
+notes = "Docus documentation site in docs/ published to GitHub Pages by .github/workflows/docs.yml; release workflow in .github/workflows/release.yml; licence list in ATTRIBUTION.md. Missing: security review and final gaps list for v1.0."
 
 # ==================================================================================================
 # na: Postman cloud-only capabilities — no local equivalent planned
