@@ -197,8 +197,8 @@ title = "{{var}} chips, autocomplete on `{{`, hover popover"
 area = "B"
 tier = "P1"
 status = "partial"
-notes = "`{{var}}` spans are tinted chips: resolved names carry the accent tint, dynamic `$names` the patch tint, and unresolved names the danger tint in the field itself. Typing `{{` opens a scope-variable list; hovering a chip shows its name, scope and value in sans-serif (secrets masked until Cmd/Ctrl) or a red unresolved note. Missing: the hover popover's edit/add-to-scope actions, scope badges inside the list, dynamic variables in autocomplete and Set as variable."
-evidence = ["crates/ui-egui/tests/builder.rs::autocomplete_inserts_a_variable", "crates/ui-egui/src/widgets/field.rs::spans_are_exact_and_ignore_unterminated_braces"]
+notes = "`{{var}}` spans are tinted chips: resolved names and known dynamic `$names` are blue (accent) and unresolved names or unknown `$names` red (danger), in the URL bar, the key and value cells of the params, path-variable, header, form-data and urlencoded tables, and the raw and GraphQL body editors (the Authorization fields have no variable list yet and tint everything red). Typing `{{` opens a scope-variable list; hovering a chip shows its name, scope and value in sans-serif (secrets masked until Cmd/Ctrl) or a red unresolved note. Missing: the hover popover's edit/add-to-scope actions, scope badges inside the list, dynamic variables in autocomplete and Set as variable."
+evidence = ["crates/ui-egui/tests/builder.rs::autocomplete_inserts_a_variable", "crates/ui-egui/src/widgets/field.rs::spans_are_exact_and_ignore_unterminated_braces", "crates/ui-egui/src/widgets/field.rs::header_and_query_values_colour_each_chip_by_resolution", "crates/ui-egui/src/widgets/field.rs::body_overlay_recolours_variables_inside_json_strings"]
 [[feature]]
 id = "b.set-as-variable"
 title = "Right-click: Set as variable (name, value, scope)"

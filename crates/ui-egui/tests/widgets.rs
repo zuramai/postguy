@@ -295,7 +295,7 @@ struct TableState {
 fn key_value_table_grows_a_row_when_the_empty_row_is_filled() {
     let mut harness = Harness::new_ui_state(
         |ui, state: &mut TableState| {
-            let _ = widgets::key_value_table(ui, &mut state.rows, TableVariant::Normal, None);
+            let _ = widgets::key_value_table(ui, &mut state.rows, TableVariant::Normal, &[], None);
         },
         TableState { rows: vec![postguy_model::KeyValue { key: "Accept".into(), value: "application/json".into(), ..Default::default() }] },
     );

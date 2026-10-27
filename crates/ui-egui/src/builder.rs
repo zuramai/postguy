@@ -356,7 +356,7 @@ impl RequestBuilder<'_> {
     fn params(&mut self, ui: &mut Ui, theme: &Theme) {
         ui.label(RichText::new("Query Params").small().color(theme.palette.text_muted));
         let before = self.draft.url.clone();
-        let response = widgets::key_value_table(ui, &mut self.draft.params, TableVariant::Normal, None);
+        let response = widgets::key_value_table(ui, &mut self.draft.params, TableVariant::Normal, self.variables, None);
         let bulk = bulk_edit(ui, ("params-bulk", self.name.as_str()), &mut self.draft.params, theme);
         if response.changed || bulk {
             *self.dirty = true;
@@ -368,7 +368,7 @@ impl RequestBuilder<'_> {
             ui.label(RichText::new("Add `:name` segments to the URL to edit their values here.").small().color(theme.palette.text_muted));
         } else {
             let before = self.draft.url.clone();
-            let response = widgets::key_value_table(ui, &mut self.draft.path_vars, TableVariant::Normal, None);
+            let response = widgets::key_value_table(ui, &mut self.draft.path_vars, TableVariant::Normal, self.variables, None);
             if response.changed {
                 *self.dirty = true;
                 sync_to_url(self.draft, &before);
@@ -409,7 +409,7 @@ impl RequestBuilder<'_> {
             });
             ui.label(RichText::new("Built-in sets; custom presets are not available yet.").small().color(theme.palette.text_muted));
         });
-        let table = widgets::key_value_table(ui, &mut self.draft.headers, TableVariant::Normal, None);
+        let table = widgets::key_value_table(ui, &mut self.draft.headers, TableVariant::Normal, self.variables, None);
         let bulk = bulk_edit(ui, ("headers-bulk", self.name.as_str()), &mut self.draft.headers, theme);
         if table.changed || bulk {
             *self.dirty = true;
@@ -463,6 +463,7 @@ impl RequestBuilder<'_> {
         ui.add_space(8.0);
         let mut changed = false;
         let assets = self.assets;
+        let known = self.variables;
         let mut shortcode_problem: Option<String> = None;
         let problem_of = |text: &str| widgets::first_problem(&widgets::shortcode_marks(text, assets)).map(str::to_string);
         match &mut self.draft.body {
@@ -470,11 +471,11 @@ impl RequestBuilder<'_> {
                 ui.label(RichText::new("This request has no body.").color(theme.palette.text_muted));
             }
             Body::FormData(rows) => {
-                changed = widgets::key_value_table(ui, rows, TableVariant::FileText, Some(shortcode_scope(assets))).changed;
+                changed = widgets::key_value_table(ui, rows, TableVariant::FileText, known, Some(shortcode_scope(assets))).changed;
                 shortcode_problem = rows.iter().filter(|row| row.enabled).find_map(|row| problem_of(&row.value));
             }
             Body::UrlEncoded(rows) => {
-                changed = widgets::key_value_table(ui, rows, TableVariant::Normal, Some(shortcode_scope(assets))).changed;
+                changed = widgets::key_value_table(ui, rows, TableVariant::Normal, known, Some(shortcode_scope(assets))).changed;
                 shortcode_problem = rows.iter().filter(|row| row.enabled).find_map(|row| problem_of(&row.value));
             }
             Body::Raw { language, text, .. } => {
@@ -517,7 +518,8 @@ impl RequestBuilder<'_> {
                 })
                 .rows(14)
                 .id(egui::Id::new("body-raw"))
-                .assets(assets);
+                .assets(assets)
+                .variables(known);
                 // Above the editor: it fills the pane height, so a line below it would be off screen.
                 problem_line(ui, theme, problem_of(text));
                 if editor.show(ui, text).changed() {
@@ -543,11 +545,25 @@ impl RequestBuilder<'_> {
                 });
                 problem_line(ui, theme, problem_of(query).or_else(|| problem_of(variables)));
                 ui.label(RichText::new("Query").small().color(theme.palette.text_muted));
-                if CodeEditor::new(CodeLanguage::GraphQl).rows(8).id(egui::Id::new("gql-query")).assets(assets).show(ui, query).changed() {
+                if CodeEditor::new(CodeLanguage::GraphQl)
+                    .rows(8)
+                    .id(egui::Id::new("gql-query"))
+                    .assets(assets)
+                    .variables(known)
+                    .show(ui, query)
+                    .changed()
+                {
                     changed = true;
                 }
                 ui.label(RichText::new("Variables (JSON)").small().color(theme.palette.text_muted));
-                if CodeEditor::new(CodeLanguage::Json).rows(4).id(egui::Id::new("gql-vars")).assets(assets).show(ui, variables).changed() {
+                if CodeEditor::new(CodeLanguage::Json)
+                    .rows(4)
+                    .id(egui::Id::new("gql-vars"))
+                    .assets(assets)
+                    .variables(known)
+                    .show(ui, variables)
+                    .changed()
+                {
                     changed = true;
                 }
                 let mut name = operation_name.clone().unwrap_or_default();

@@ -59,20 +59,27 @@ pub fn first_problem(marks: &[ShortcodeMark]) -> Option<&str> {
 /// Recolour the parts of `job` covered by `marks`, splitting sections at the mark bounds. Only
 /// `color` and `background` change, so the language highlighter's other formatting survives.
 pub fn overlay(job: &mut LayoutJob, marks: &[ShortcodeMark], palette: &Palette) {
-    if marks.is_empty() {
+    let ranges: Vec<(Range<usize>, (Color32, Color32))> =
+        marks.iter().map(|(range, valid, _)| (range.clone(), mark_colors(*valid, palette))).collect();
+    overlay_colors(job, &ranges);
+}
+
+/// [`overlay`] for arbitrary `(byte range, (text, background))` colours. `ranges` must be sorted
+/// by start and must not overlap.
+pub fn overlay_colors(job: &mut LayoutJob, ranges: &[(Range<usize>, (Color32, Color32))]) {
+    if ranges.is_empty() {
         return;
     }
     let sections = std::mem::take(&mut job.sections);
     for section in sections {
         let range = section.byte_range.start.0..section.byte_range.end.0;
         let mut cursor = range.start;
-        let push = |job: &mut LayoutJob, start: usize, end: usize, mark: Option<bool>| {
+        let push = |job: &mut LayoutJob, start: usize, end: usize, colors: Option<(Color32, Color32)>| {
             if end <= start {
                 return;
             }
             let mut format = section.format.clone();
-            if let Some(valid) = mark {
-                let (color, background) = mark_colors(valid, palette);
+            if let Some((color, background)) = colors {
                 format.color = color;
                 format.background = background;
             }
@@ -82,14 +89,14 @@ pub fn overlay(job: &mut LayoutJob, marks: &[ShortcodeMark], palette: &Palette) 
                 format,
             });
         };
-        for (mark, valid, _) in marks {
+        for (mark, colors) in ranges {
             let start = mark.start.max(cursor);
             let end = mark.end.min(range.end);
             if end <= start {
                 continue;
             }
             push(job, cursor, start, None);
-            push(job, start, end, Some(*valid));
+            push(job, start, end, Some(*colors));
             cursor = end;
         }
         push(job, cursor, range.end, None);

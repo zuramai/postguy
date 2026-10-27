@@ -7,7 +7,8 @@ use egui::{Response, Ui};
 use postguy_model::{AssertOperator, Assertion, KeyValue, KeyValueKind, Variable};
 
 use crate::widgets::compact_checkbox;
-use crate::widgets::shortcode::{self, AssetIndex, shortcode_marks};
+use crate::widgets::field::{VariableInfo, variable_job, variable_tooltip};
+use crate::widgets::shortcode::{AssetIndex, shortcode_marks};
 
 /// What a table is editing; the value cell changes shape for file rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -54,16 +55,17 @@ fn cell_edit(ui: &mut Ui, id: egui::Id, rect: egui::Rect, text: &mut String, hin
     cell_edit_with(ui, id, rect, text, hint, password, None)
 }
 
-/// [`cell_edit`] that colours `{{% … %}}` shortcodes when `assets` is given.
-fn cell_edit_with(
-    ui: &mut Ui,
-    id: egui::Id,
-    rect: egui::Rect,
-    text: &mut String,
-    hint: &str,
-    password: bool,
-    assets: Option<&AssetIndex>,
-) -> Response {
+/// What a cell colours: the variables visible to the request (`{{var}}` is blue when it resolves,
+/// red when it does not, and hovering it shows the value), and, when `assets` is `Some`, the
+/// `{{% … %}}` shortcodes checked against that index.
+#[derive(Clone, Copy)]
+struct Chips<'a> {
+    variables: &'a [VariableInfo],
+    assets: Option<&'a AssetIndex>,
+}
+
+/// [`cell_edit`] that colours `{{var}}` references (and shortcodes) when `chips` is given.
+fn cell_edit_with(ui: &mut Ui, id: egui::Id, rect: egui::Rect, text: &mut String, hint: &str, password: bool, chips: Option<Chips<'_>>) -> Response {
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Center)));
     let mut edit = egui::TextEdit::singleline(text)
         .id(id)
@@ -76,31 +78,33 @@ fn cell_edit_with(
     if password {
         edit = edit.password(true);
     }
-    if assets.is_some() && !password {
-        let palette = crate::theme::Theme::current(ui.ctx()).palette;
-        let mut layouter = |ui: &Ui, buffer: &dyn egui::TextBuffer, _wrap: f32| {
-            let text = buffer.as_str();
-            let mut job = egui::text::LayoutJob::default();
-            job.wrap.max_width = f32::INFINITY;
-            job.wrap.max_rows = 1;
-            job.append(
-                text,
-                0.0,
-                egui::TextFormat { font_id: egui::TextStyle::Body.resolve(ui.style()), color: ui.visuals().text_color(), ..Default::default() },
-            );
-            shortcode::overlay(&mut job, &shortcode_marks(text, assets), &palette);
-            ui.fonts_mut(|fonts| fonts.layout_job(job))
-        };
-        return child.add(edit.layouter(&mut layouter));
-    }
-    child.add(edit)
+    let Some(chips) = chips.filter(|_| !password) else {
+        return child.add(edit);
+    };
+    let palette = crate::theme::Theme::current(ui.ctx()).palette;
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let mut layouter = |ui: &Ui, buffer: &dyn egui::TextBuffer, _wrap: f32| {
+        let text = buffer.as_str();
+        let marks = if chips.assets.is_some() { shortcode_marks(text, chips.assets) } else { Vec::new() };
+        ui.fonts_mut(|fonts| fonts.layout_job(variable_job(text, &font, &palette, chips.variables, &marks)))
+    };
+    let output = edit.layouter(&mut layouter).show(&mut child);
+    variable_tooltip(&child, &output, text, chips.variables);
+    output.response.response
 }
 
 /// A Postman-style grid bound to `rows`: a header (Key / Value / Description) and one editable
 /// row per entry, followed by an always-present empty row. Typing into the empty row turns it
 /// into a real row and a fresh empty row appears below it. `variant` picks the value cell;
-/// many rows scroll virtualised.
-pub fn key_value_table(ui: &mut Ui, rows: &mut Vec<KeyValue>, variant: TableVariant, assets: Option<&AssetIndex>) -> TableResponse {
+/// many rows scroll virtualised. Key and value cells colour `{{var}}` against `variables`;
+/// `assets` (when `Some`) also colours the value's `{{% … %}}` shortcodes.
+pub fn key_value_table(
+    ui: &mut Ui,
+    rows: &mut Vec<KeyValue>,
+    variant: TableVariant,
+    variables: &[VariableInfo],
+    assets: Option<&AssetIndex>,
+) -> TableResponse {
     let mut result = TableResponse::default();
     let theme = crate::theme::Theme::current(ui.ctx());
     let palette = theme.palette;
@@ -130,7 +134,7 @@ pub fn key_value_table(ui: &mut Ui, rows: &mut Vec<KeyValue>, variant: TableVari
                 check.add_space(((CHECK_WIDTH - 16.0) / 2.0).max(0.0));
                 changed |= compact_checkbox(&mut check, &mut row.enabled).changed();
             }
-            changed |= cell_edit(ui, id(1), cell(1), &mut row.key, "Key", false).changed();
+            changed |= cell_edit_with(ui, id(1), cell(1), &mut row.key, "Key", false, Some(Chips { variables, assets: None })).changed();
             let value_rect = cell(2);
             let (value_rect, kind_changed) = if variant == TableVariant::FileText {
                 let combo_rect = egui::Rect::from_min_size(value_rect.min + egui::vec2(4.0, 0.0), egui::vec2(64.0, ROW_HEIGHT));
@@ -158,7 +162,7 @@ pub fn key_value_table(ui: &mut Ui, rows: &mut Vec<KeyValue>, variant: TableVari
                 TableVariant::Secret => ("Secret value", true),
                 TableVariant::Normal => ("Value", false),
             };
-            changed |= cell_edit_with(ui, id(3), value_rect, &mut row.value, hint, secret, assets).changed();
+            changed |= cell_edit_with(ui, id(3), value_rect, &mut row.value, hint, secret, Some(Chips { variables, assets })).changed();
             changed |= cell_edit(ui, id(4), cell(3), &mut row.description, "Description", false).changed();
 
             if is_ghost {
