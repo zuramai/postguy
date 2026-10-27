@@ -353,7 +353,7 @@ source = "contributor-original; drawn for this project in this repository (xtask
 licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "logo"
-usage = "the app icon and logo; rendered to the PNG sizes by `cargo xtask logo`"
+usage = "the app icon and logo; rendered to the PNG sizes by `cargo xtask logo`; also served unmodified by the documentation site (docs/, nitro publicAssets)"
 sha256 = "e39eedc4619751cc8fc46c9f4f961cd22ab444e02c943873b5d837bd2b0d4d66"
 
 [[asset]]
@@ -430,7 +430,7 @@ source = "github.com/google/fonts at commit 8b0a1d0f5983c89bc2b93f1b5fb55f9e2527
 licence = "OFL-1.1"
 licence_file = "assets/fonts/LICENSE-poppins.txt"
 kind = "font"
-usage = "primary proportional UI font installed into egui by Theme::apply"
+usage = "primary proportional UI font installed into egui by Theme::apply; also served unmodified by the documentation site (docs/, nitro publicAssets)"
 sha256 = "7e65201e9b79159e2300267cc885e16c8dcef2424cdfa09a29bfb0980a94a7ba"
 
 [[asset]]
@@ -441,7 +441,7 @@ source = "github.com/google/fonts at commit 8b0a1d0f5983c89bc2b93f1b5fb55f9e2527
 licence = "OFL-1.1"
 licence_file = "assets/fonts/LICENSE-poppins.txt"
 kind = "font"
-usage = "medium proportional UI font installed into egui by Theme::apply"
+usage = "medium proportional UI font installed into egui by Theme::apply; also served unmodified by the documentation site (docs/, nitro publicAssets)"
 sha256 = "90373e7d838d32468438fc3e152dca0bdb12edcab99ea639f158790b1ba1fd05"
 
 [[asset]]
@@ -452,7 +452,7 @@ source = "github.com/google/fonts at commit 8b0a1d0f5983c89bc2b93f1b5fb55f9e2527
 licence = "OFL-1.1"
 licence_file = "assets/fonts/LICENSE-poppins.txt"
 kind = "font"
-usage = "semibold proportional UI font installed into egui by Theme::apply"
+usage = "semibold proportional UI font installed into egui by Theme::apply; also served unmodified by the documentation site (docs/, nitro publicAssets)"
 sha256 = "d3bf1bdaf0550e83da9ac0b1d1d9fe6db086835a83aa28578e609a394b9a0286"
 
 # ==========================================================================================

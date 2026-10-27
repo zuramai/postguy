@@ -6,7 +6,9 @@ import/export — and nothing online: no account, no sync, no telemetry. It runs
 Windows, Linux and FreeBSD.
 
 See [AGENTS.md](AGENTS.md) for the rules that bind every contributor and
-[docs/architecture.md](docs/architecture.md) for the crate layout.
+[docs/content/4.contributing/3.architecture.md](docs/content/4.contributing/3.architecture.md) for the crate layout.
+
+User and contributor documentation: https://zuramai.github.io/postguy/
 
 ## Status
 
@@ -17,7 +19,7 @@ code snippets, export dialogs and the common auth types. Pre-request and post-re
 Runs tab and a `postguy-cli run --collection` command with JUnit/HTML/JSON reports are included.
 WebSocket and gRPC clients exist at a basic level (scripts and the runner cover HTTP requests
 only). Feature-by-feature state is in `parity/postman-features.toml`; known gaps are in
-[docs/gaps.md](docs/gaps.md).
+[docs/content/4.contributing/4.gaps.md](docs/content/4.contributing/4.gaps.md).
 
 ## Install
 

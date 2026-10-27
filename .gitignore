@@ -19,3 +19,10 @@
 /postguy-workspace/files/
 /postguy-workspace/postguy.json.bak
 /postguy-workspace/history.jsonl
+
+# Documentation site (Docus/Nuxt) build output
+/docs/node_modules/
+/docs/.nuxt/
+/docs/.output/
+/docs/.data/
+/docs/dist

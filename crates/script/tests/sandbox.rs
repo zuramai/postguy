@@ -420,7 +420,7 @@ fn timers_btoa_and_promises_settle_before_the_run_ends() {
     assert_eq!(l.get("micro").map(String::as_str), Some("m"));
 }
 
-// ---- hostile scripts: these close docs/gaps.md item 8 ----------------------------------------
+// ---- hostile scripts: these close docs/content/4.contributing/4.gaps.md item 8 --------------
 
 #[test]
 fn an_infinite_loop_stops_at_the_wall_clock() {

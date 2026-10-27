@@ -3,7 +3,7 @@
 //! without limit). Parsing uses the `cookie` crate; the matching, path defaults, expiry and
 //! persistence rules are here.
 //!
-//! Documented v1 limits (recorded in docs/gaps.md): no public-suffix list (a domain attribute
+//! Documented v1 limits (recorded in docs/content/4.contributing/4.gaps.md): no public-suffix list (a domain attribute
 //! is refused when it is the host itself or has no dot and differs from the host; a full PSL is
 //! a later data dependency), SameSite is stored and shown but not enforced beyond the RFC
 //! 6265bis defaults, and `__Host-`/`__Secure-` prefixes are
