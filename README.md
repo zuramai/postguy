@@ -1,101 +1,105 @@
+<div align="center">
+
+<img src="assets/logo/postguy.svg" alt="Postguy logo" width="96" height="96">
+
 # Postguy
 
-Postguy is a clean-room, offline, native API client for HTTP, gRPC and WebSocket, written in Rust
-with egui. It does what the essential parts of Postman do — collections, environments, requests,
-import/export — and nothing online: no account, no sync, no telemetry. It runs natively on macOS,
-Windows, Linux and FreeBSD.
+**A fast, offline API client. HTTP, gRPC and WebSocket in one native app.**
 
-See [AGENTS.md](AGENTS.md) for the rules that bind every contributor and
-[docs/content/4.contributing/3.architecture.md](docs/content/4.contributing/3.architecture.md) for the crate layout.
+No account. No cloud. No telemetry. Just your requests.
 
-User and contributor documentation: https://zuramai.github.io/postguy/
+[Download](#install) · [Docs](https://zuramai.github.io/postguy/) · [Releases](https://github.com/zuramai/postguy/releases)
 
-## Status
+</div>
 
-Desktop HTTP client with collections, environments, variables, request builder, response viewer,
-imports (Postman, OpenAPI 3 / Swagger 2 in JSON or YAML, HAR, `.proto` files, cURL, zip documents),
-code snippets, export dialogs and the common auth types. Pre-request and post-response scripts
-(`pm.test`, `pm.expect`, a sandboxed QuickJS engine) and a collection runner with data files, a
-Runs tab and a `postguy-cli run --collection` command with JUnit/HTML/JSON reports are included.
-WebSocket and gRPC clients exist at a basic level (scripts and the runner cover HTTP requests
-only). Feature-by-feature state is in `parity/postman-features.toml`; known gaps are in
-[docs/content/4.contributing/4.gaps.md](docs/content/4.contributing/4.gaps.md).
+## Why Postguy
+
+- **Native and light.** Written in Rust. Starts fast, uses little memory.
+- **Offline by design.** Your collections stay on your disk. Nothing is sent anywhere you didn't ask for.
+- **Bring your work.** Import Postman collections, OpenAPI / Swagger, HAR, cURL and `.proto` files.
+- **Scripts and tests.** `pm.test`, `pm.expect` and pre-request scripts, run in a sandbox.
+- **Collection runner.** Run whole collections with data files, from the app or the CLI.
+- **Scriptable.** Everything works headless through `postguy-cli`.
+
+<br>
+
+<div align="center">
+  <img src="assets/screenshots/home-dark.png" alt="Postguy main window in dark mode" width="900">
+</div>
+
+<br>
 
 ## Install
 
-Download from the [latest release](https://github.com/zuramai/postguy/releases/latest). Builds are
-not code-signed or notarized, so macOS and Windows show a warning for files opened by hand; the steps
-below avoid or get past it. Each file has a checksum in `SHA256SUMS.txt`.
+**Latest version: [v0.1.1](https://github.com/zuramai/postguy/releases/latest)**
 
-Postguy keeps its data in a workspace folder: `~/postguy-workspace` (`%USERPROFILE%\postguy-workspace` on
-Windows), or `./postguy-workspace` if that exists in the folder you start it from. Pass `--workspace DIR` to
-choose another.
+| Platform | Download |
+| --- | --- |
+| macOS (Apple Silicon + Intel) | [**postguy-0.1.1-macos-universal.dmg**](https://github.com/zuramai/postguy/releases/download/v0.1.1/postguy-0.1.1-macos-universal.dmg) |
+| Windows (64-bit) | [**postguy-0.1.1-windows-x64.msi**](https://github.com/zuramai/postguy/releases/download/v0.1.1/postguy-0.1.1-windows-x64.msi) |
+| Windows (ARM) | [postguy-0.1.1-windows-arm64.msi](https://github.com/zuramai/postguy/releases/download/v0.1.1/postguy-0.1.1-windows-arm64.msi) |
+| Linux (any distro) | [postguy-0.1.1-linux-x86_64.AppImage](https://github.com/zuramai/postguy/releases/download/v0.1.1/postguy-0.1.1-linux-x86_64.AppImage) |
+| Debian / Ubuntu | [postguy-0.1.1-linux-x86_64.deb](https://github.com/zuramai/postguy/releases/download/v0.1.1/postguy-0.1.1-linux-x86_64.deb) |
+| Fedora / openSUSE | [postguy-0.1.1-linux-x86_64.rpm](https://github.com/zuramai/postguy/releases/download/v0.1.1/postguy-0.1.1-linux-x86_64.rpm) |
 
-### macOS (Apple Silicon and Intel)
+Other builds (ARM Linux, Flatpak, portable `.zip`, CLI only) and checksums are on the [releases page](https://github.com/zuramai/postguy/releases/latest).
 
-Download with `curl`, which does not mark the file as quarantined, so Gatekeeper does not block it:
+### macOS
+
+1. Download the [`.dmg`](https://github.com/zuramai/postguy/releases/download/v0.1.1/postguy-0.1.1-macos-universal.dmg) and open it.
+2. Drag **Postguy** into **Applications**.
+3. Open Postguy. macOS will say it "could not verify" the app, because it isn't signed yet. Click **Done**.
+4. Open **System Settings → Privacy & Security**.
+5. Scroll down to **Security**. Next to *"Postguy" was blocked*, click **Open Anyway**.
+6. Confirm with your password, then click **Open Anyway** again.
+
+You only do this once.
+
+<details>
+<summary>Prefer the terminal?</summary>
 
 ```sh
-VERSION=$(curl -fsSL https://api.github.com/repos/zuramai/postguy/releases/latest | grep -m1 '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
-curl -fL -o /tmp/postguy.zip "https://github.com/zuramai/postguy/releases/download/v$VERSION/postguy-$VERSION-macos-universal.zip"
-ditto -x -k /tmp/postguy.zip /Applications
+xattr -dr com.apple.quarantine /Applications/Postguy.app
 open /Applications/Postguy.app
 ```
 
-If you downloaded the `.dmg` or `.zip` in a browser and macOS says it "could not verify" the app, run
-`xattr -dr com.apple.quarantine /Applications/Postguy.app` (or the downloaded file), or open System
-Settings, Privacy & Security and choose **Open Anyway**.
-
-The headless CLI: `curl -fL "https://github.com/zuramai/postguy/releases/download/v$VERSION/postguy-cli-$VERSION-macos-universal.tar.gz" | tar -xz`.
+</details>
 
 ### Windows
 
-Download `postguy-<version>-windows-x64.msi` (`x86` or `arm64` for those machines) and run it. If
-SmartScreen says "Windows protected your PC", choose **More info**, then **Run anyway**. The installer
-adds Postguy to the Start menu and `postguy-cli` to the `PATH` (clear that in the feature tree to
-skip it). Silent install: `msiexec /i postguy-<version>-windows-x64.msi /qn`. A portable `.zip` is
-also published.
+1. Download the [`.msi` installer](https://github.com/zuramai/postguy/releases/download/v0.1.1/postguy-0.1.1-windows-x64.msi) and run it.
+2. If you see **"Windows protected your PC"**, click **More info**, then **Run anyway**.
+3. Finish the installer. Postguy is now in the Start menu.
 
-### Linux (x86_64 and aarch64)
-
-Pick one:
+### Linux
 
 ```sh
-# AppImage (any distribution)
-chmod +x postguy-<version>-linux-x86_64.AppImage && ./postguy-<version>-linux-x86_64.AppImage
+# AppImage
+chmod +x postguy-0.1.1-linux-x86_64.AppImage && ./postguy-0.1.1-linux-x86_64.AppImage
 
-# Debian, Ubuntu
-sudo apt install ./postguy-<version>-linux-x86_64.deb
+# Debian / Ubuntu
+sudo apt install ./postguy-0.1.1-linux-x86_64.deb
 
-# Fedora, openSUSE
-sudo dnf install ./postguy-<version>-linux-x86_64.rpm
-
-# Flatpak (keeps its workspace in ~/.var/app/io.github.zuramai.postguy)
-flatpak install --user ./postguy-<version>-linux-x86_64.flatpak
-
-# Tarball
-tar -xzf postguy-<version>-linux-x86_64.tar.gz
+# Fedora / openSUSE
+sudo dnf install ./postguy-0.1.1-linux-x86_64.rpm
 ```
 
-Use `aarch64` in the file name on ARM machines. `postguy-cli-<version>-linux-<arch>.tar.gz` is the
-headless CLI alone.
+## Your data
 
-### From source
+Postguy saves everything in a plain folder: `~/postguy-workspace` (`%USERPROFILE%\postguy-workspace` on Windows). Use `--workspace DIR` to pick another one.
 
-See Building below.
+## Build from source
 
-## Building
-
-```
-cargo build -p postguy            # desktop app
-cargo build -p postguy-cli        # headless CLI (run --script, tools/call, ui); import/export via call
-cargo xtask ci                    # fmt, clippy -D warnings, tests, layers, assets, parity
+```sh
+cargo run -p postguy          # desktop app
+cargo run -p postguy-cli      # headless CLI
+cargo xtask ci                # all checks
 ```
 
-Every user-facing feature is reachable headlessly through `postguy-cli` (`cargo run -p
-postguy-cli -- run --script steps.json --root DIR`); the desktop UI is layered on the same engine.
+## Contributing
+
+Read [AGENTS.md](AGENTS.md) first, then the [architecture notes](docs/content/4.contributing/3.architecture.md) and the [known gaps](docs/content/4.contributing/4.gaps.md).
 
 ## Licence
 
-MIT OR Apache-2.0. Bundled third-party material is listed in [ATTRIBUTION.md](ATTRIBUTION.md)
-and [NOTICE](NOTICE).
+MIT OR Apache-2.0. Third-party material is listed in [ATTRIBUTION.md](ATTRIBUTION.md) and [NOTICE](NOTICE).
