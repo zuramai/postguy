@@ -423,6 +423,17 @@ usage = "large icon size for installers and stores"
 sha256 = "3a64fc74a564bbea724d86891024edf6b6c4492d524c12d4bcc95407b47a4b79"
 
 [[asset]]
+path = "assets/screenshots/home-dark.png"
+title = "Postguy main window, dark theme (screenshot)"
+author = "The Postguy authors"
+source = "contributor-original; rendered by `cargo run -p postguy-ui-egui --example shot -- assets/screenshots/home-dark.png dark` with POSTGUY_SYSTEM_FONTS=0 and the example's synthetic demo data, then flattened onto the dark shell colour (`magick … -background 'srgb(33,33,33)' -alpha remove -alpha off`)"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "screenshot"
+usage = "hero image in README.md"
+sha256 = "8642441a8642f3470ca0f164d47ee8b18738de32d2842d5a7bbf60dfb276a2e8"
+
+[[asset]]
 path = "assets/fonts/Poppins-Regular.ttf"
 title = "Poppins Regular (proportional UI font)"
 author = "The Poppins Project Authors (Indian Type Foundry: Ninad Kale, Jonny Pinhorn)"
