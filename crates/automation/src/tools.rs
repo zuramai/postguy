@@ -364,7 +364,7 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
         ToolDef {
             name: "grpc_describe",
             title: "Describe a gRPC service definition",
-            description: "Compiles the request's proto set/inline files and lists services, methods, input/output types and streaming flags.",
+            description: "Loads the request's service definition (proto set, inline files, or server reflection listing every service) and returns services, methods with streaming flags, and every reachable message's fields and types.",
             input_schema: schema! { "collection": req("collection id"), "request": req("request id") },
             read_only: true,
             destructive: false,
@@ -380,11 +380,47 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
         ToolDef {
             name: "grpc_invoke",
             title: "Invoke a unary gRPC method",
-            description: "Calls one unary method with JSON input (defaults to the request's stored message); returns the response JSON and metadata. Streaming arrives later.",
+            description: "Calls one unary method with JSON input (defaults to the request's stored message); returns the response JSON and metadata. Streaming methods use grpc_stream; grpc_send runs scripts and tests.",
             input_schema: schema! {
                 "collection": req("collection id"),
                 "request": req("request id"),
                 "message": (json!({"type": "object", "description": "request message JSON (defaults to the stored message)"}), false)
+            },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "grpc_send",
+            title: "Invoke a saved gRPC request",
+            description: "Invokes a saved gRPC request through the full pipeline: pre-invoke script, variables, inherited auth as metadata, the call (unary or streaming, chosen from the method), on-message and post-response scripts and the Test tab. A non-OK gRPC status is a result, not an error.",
+            input_schema: schema! {
+                "collection": req("collection id"),
+                "request": req("request id"),
+                "environment": opt("environment id (default: the active environment)")
+            },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "grpc_check_message",
+            title: "Check a gRPC message against its schema",
+            description: "Lists the JSON keys of a request message that the method's input type does not define, with their byte ranges. Defaults to the stored message.",
+            input_schema: schema! {
+                "collection": req("collection id"),
+                "request": req("request id"),
+                "message": opt("request message JSON text (default: the stored message)")
+            },
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "grpc_set_proto",
+            title: "Choose a .proto file for a gRPC request",
+            description: "Copies the .proto files (and the imports they pull in) into a workspace proto set, compiles it, and stores it as the request's service definition. Creates no collection. Paths resolve inside --root.",
+            input_schema: schema! {
+                "collection": req("collection id"),
+                "request": req("request id"),
+                "paths": opt_string_array("the .proto files, together in one folder tree")
             },
             read_only: false,
             destructive: false,
@@ -1059,19 +1095,9 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
             }
         }
         "grpc_describe" => {
-            let collection = session.load_collection(&string_arg(args, tool, "collection")?)?;
-            let request_id = string_arg(args, tool, "request")?;
-            let item =
-                find_item(&collection, &request_id).ok_or_else(|| AutomationError::NotFound { kind: "request".into(), id: request_id.clone() })?;
-            let postguy_model::Item::Request(request) = item else {
-                return Err(AutomationError::Failed { message: format!("`{request_id}` is a folder, not a request") });
-            };
-            let postguy_model::RequestKind::Grpc(grpc) = &request.kind else {
-                return Err(AutomationError::Failed { message: "grpc_describe expects a gRPC request".into() });
-            };
-            let prepared =
-                session.engine()?.prepare_grpc(&postguy_model::Id(collection.id.0.clone()), &postguy_model::Id(request_id.clone()), grpc)?;
-            Ok(json!({"services": session.engine()?.grpc_describe(&prepared)?}))
+            let (collection, request_id, grpc) = stored_grpc(session, args, tool)?;
+            let schema = session.engine()?.grpc_schema(&collection, &request_id, &grpc)?;
+            serde_json::to_value(schema).map_err(json_error)
         }
         "grpc_example_message" => {
             let collection = session.load_collection(&string_arg(args, tool, "collection")?)?;
@@ -1135,6 +1161,45 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
             };
             let result = session.engine()?.grpc_stream(grpc, messages)?;
             Ok(json!({"messages": result.messages, "metadata": result.metadata, "status": result.status}))
+        }
+        "grpc_send" => {
+            let (collection, request_id, grpc) = stored_grpc(session, args, tool)?;
+            let environment = optional_string(args, tool, "environment")?.map(Id);
+            let options = postguy_engine::GrpcSendOptions { environment, cancel: None, run_scripts: true };
+            let outcome = session.engine()?.grpc_send(&collection, &request_id, &grpc, options)?;
+            serde_json::to_value(outcome).map_err(json_error)
+        }
+        "grpc_check_message" => {
+            let (collection, request_id, grpc) = stored_grpc(session, args, tool)?;
+            let text = optional_string(args, tool, "message")?.unwrap_or_else(|| grpc.message.clone());
+            let schema = session.engine()?.grpc_schema(&collection, &request_id, &grpc)?;
+            let Some((_, method)) = schema.method(&grpc.method_path) else {
+                return Err(AutomationError::Failed {
+                    message: format!("method `{}` is not in the service definition; call grpc_describe to list methods", grpc.method_path),
+                });
+            };
+            Ok(json!({"input": method.input, "unknownFields": schema.unknown_fields(&method.input, &text)}))
+        }
+        "grpc_set_proto" => {
+            let (collection, request_id, _) = stored_grpc(session, args, tool)?;
+            let paths = optional_string_array(args, tool, "paths", "an array of .proto file paths")?
+                .filter(|paths| !paths.is_empty())
+                .ok_or_else(|| AutomationError::MissingArgument { tool: tool.to_string(), argument: "paths".to_string() })?;
+            let mut resolved = Vec::with_capacity(paths.len());
+            for path in &paths {
+                resolved.push(session.resolve_existing(path)?);
+            }
+            let engine = session.engine()?;
+            let outcome = engine.import_proto_definition(&resolved)?;
+            let mut stored = session.load_collection(&collection.0)?;
+            let Some(Item::Request(request)) = find_item_mut(&mut stored, &request_id.0) else {
+                return Err(AutomationError::NotFound { kind: "request".into(), id: request_id.0 });
+            };
+            if let postguy_model::RequestKind::Grpc(grpc) = &mut request.kind {
+                grpc.service_definition = Some(outcome.definition.clone());
+            }
+            engine.save_request(&collection, request)?;
+            Ok(json!({"set": outcome.set, "files": outcome.files}))
         }
         "ws_connect" => {
             let collection_id = string_arg(args, tool, "collection")?;
@@ -1933,6 +1998,20 @@ fn import_text(session: &mut Session, text: &str, format: &str, options: ImportO
     }
     let outcome = session.engine()?.import_text(text, options)?;
     serde_json::to_value(outcome).map_err(json_error)
+}
+
+/// The collection id, request id and stored gRPC request a gRPC tool acts on.
+fn stored_grpc(session: &Session, args: &serde_json::Map<String, Value>, tool: &str) -> Result<(Id, Id, postguy_model::GrpcRequest)> {
+    let collection = session.load_collection(&string_arg(args, tool, "collection")?)?;
+    let request_id = string_arg(args, tool, "request")?;
+    let item = find_item(&collection, &request_id).ok_or_else(|| AutomationError::NotFound { kind: "request".into(), id: request_id.clone() })?;
+    let Item::Request(request) = item else {
+        return Err(AutomationError::Failed { message: format!("`{request_id}` is a folder, not a request") });
+    };
+    let postguy_model::RequestKind::Grpc(grpc) = &request.kind else {
+        return Err(AutomationError::Failed { message: format!("{tool} expects a gRPC request") });
+    };
+    Ok((Id(collection.id.0.clone()), Id(request_id), grpc.clone()))
 }
 
 fn json_error(err: serde_json::Error) -> AutomationError {

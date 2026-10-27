@@ -178,3 +178,76 @@ service RichService { rpc Get (Rich) returns (Rich); rpc Walk (Node) returns (No
     let node = postguy_grpc::example_message(&pool, "ex.RichService/Walk").expect("node example");
     assert_eq!(node, serde_json::json!({"next": {}, "name": ""}));
 }
+
+#[test]
+fn schema_lists_fields_maps_lists_and_nested_messages() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let proto = dir.path().join("rich.proto");
+    std::fs::write(
+        &proto,
+        r#"syntax = "proto3";
+package ex;
+import "google/protobuf/timestamp.proto";
+message Label { string text = 1; }
+message Child { string name = 1; }
+message Rich {
+  int32 n = 1;
+  repeated string tags = 2;
+  map<string, Label> labels = 3;
+  repeated Child children = 4;
+  Child child = 5;
+  google.protobuf.Timestamp when = 6;
+  Color color = 7;
+  oneof pick { string a = 8; int32 b = 9; }
+  optional string maybe = 10;
+}
+enum Color { COLOR_UNSPECIFIED = 0; RED = 1; }
+service RichService { rpc Get (Rich) returns (Child); }
+"#,
+    )
+    .expect("proto");
+    let pool = postguy_grpc::compile(&[&proto], &[dir.path()]).expect("compile");
+    let schema = postguy_grpc::schema(&pool);
+    assert_eq!(schema.services.len(), 1);
+    let method = &schema.services[0].methods[0];
+    assert_eq!((method.path.as_str(), method.input.as_str(), method.output.as_str()), ("ex.RichService/Get", "ex.Rich", "ex.Child"));
+    assert_eq!(schema.files, vec!["rich.proto".to_string()]);
+    assert!(schema.messages.keys().all(|name| !name.starts_with("google.protobuf.")));
+    let rich = schema.messages.get("ex.Rich").expect("Rich");
+    let field = |name: &str| rich.fields.iter().find(|field| field.name == name).expect("field");
+    assert_eq!(field("n").type_label, "int32");
+    assert_eq!(field("tags").type_label, "repeated string");
+    assert!(field("tags").repeated && field("tags").message.is_none());
+    assert_eq!(field("labels").type_label, "map<string, Label>");
+    assert!(field("labels").map);
+    assert_eq!(field("labels").message.as_deref(), Some("ex.Label"));
+    assert_eq!(field("children").type_label, "repeated Child");
+    assert_eq!(field("children").message.as_deref(), Some("ex.Child"));
+    assert_eq!(field("child").type_label, "Child");
+    assert_eq!(field("child").type_full, "ex.Child");
+    assert_eq!(field("when").type_label, "Timestamp");
+    assert_eq!(field("when").message, None);
+    assert_eq!(field("color").type_label, "Color");
+    assert_eq!(field("color").message, None);
+    assert_eq!(field("a").oneof.as_deref(), Some("pick"));
+    assert_eq!(field("maybe").oneof, None, "a proto3 optional is a synthetic oneof");
+    assert!(schema.messages.contains_key("ex.Label"), "map value messages are reachable");
+}
+
+#[test]
+fn reflection_pool_all_lists_echo_service() {
+    let server = postguy_testkit::GrpcEchoServer::start().expect("server");
+    let pool = runtime().block_on(postguy_grpc::reflection_pool_all(server.url(), &GrpcTls::default())).expect("reflection");
+    let schema = postguy_grpc::schema(&pool);
+    assert_eq!(schema.services[0].name, "echo.Echo");
+    assert_eq!(schema.services[0].methods.len(), 4);
+    assert_eq!(schema.services.len(), 1, "the reflection service itself is left out");
+}
+
+#[test]
+fn status_names_cover_every_code() {
+    assert_eq!(postguy_grpc::status_name(0), "OK");
+    assert_eq!(postguy_grpc::status_name(5), "NOT_FOUND");
+    assert_eq!(postguy_grpc::status_name(16), "UNAUTHENTICATED");
+    assert_eq!(postguy_grpc::status_name(99), "UNKNOWN");
+}

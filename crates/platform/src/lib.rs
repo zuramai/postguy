@@ -57,6 +57,19 @@ pub fn pick_data_file() -> Pin<Box<dyn Future<Output = Option<PathBuf>>>> {
     })
 }
 
+/// Pick one or more `.proto` files for a gRPC service definition.
+pub fn pick_proto_files() -> Pin<Box<dyn Future<Output = Vec<PathBuf>>>> {
+    Box::pin(async move {
+        AsyncFileDialog::new()
+            .set_title("Choose .proto files")
+            .add_filter("Protocol Buffers", &["proto"])
+            .pick_files()
+            .await
+            .map(|handles| handles.iter().map(|handle| handle.path().to_path_buf()).collect())
+            .unwrap_or_default()
+    })
+}
+
 pub fn pick_import_paths(folder: bool) -> Pin<Box<dyn Future<Output = Vec<PathBuf>>>> {
     Box::pin(async move {
         let dialog = AsyncFileDialog::new().set_title(if folder { "Import folder" } else { "Import files" });

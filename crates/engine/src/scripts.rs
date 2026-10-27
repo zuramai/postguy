@@ -36,12 +36,54 @@ pub struct ScriptReport {
     pub report: serde_json::Map<String, serde_json::Value>,
 }
 
-/// The scripts that run in `phase`, outermost first, with the label failures report.
-pub(crate) fn sources(located: &Located, phase: ScriptPhase) -> Vec<js::ScriptSource> {
-    let pick = |scripts: &Scripts| match phase {
-        ScriptPhase::PreRequest => scripts.prerequest.clone(),
-        ScriptPhase::PostResponse => scripts.test.clone(),
-    };
+/// Which script of a `Scripts` block runs. HTTP uses `PreRequest`/`PostResponse`; gRPC uses the
+/// invoke slots. The sandbox's read-only rules follow [`ScriptSlot::phase`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScriptSlot {
+    PreRequest,
+    PostResponse,
+    BeforeInvoke,
+    OnMessage,
+    AfterResponse,
+}
+
+impl ScriptSlot {
+    pub(crate) fn phase(self) -> ScriptPhase {
+        match self {
+            ScriptSlot::PreRequest | ScriptSlot::BeforeInvoke => ScriptPhase::PreRequest,
+            ScriptSlot::PostResponse | ScriptSlot::OnMessage | ScriptSlot::AfterResponse => ScriptPhase::PostResponse,
+        }
+    }
+
+    pub(crate) fn event_name(self) -> &'static str {
+        match self {
+            ScriptSlot::PreRequest => "prerequest",
+            ScriptSlot::PostResponse => "test",
+            ScriptSlot::BeforeInvoke => "beforeInvoke",
+            ScriptSlot::OnMessage => "onMessage",
+            ScriptSlot::AfterResponse => "afterResponse",
+        }
+    }
+
+    fn pick(self, scripts: &Scripts) -> Option<postguy_model::Script> {
+        match self {
+            ScriptSlot::PreRequest => scripts.prerequest.clone(),
+            ScriptSlot::PostResponse => scripts.test.clone(),
+            ScriptSlot::BeforeInvoke => scripts.before_invoke.clone(),
+            ScriptSlot::OnMessage => scripts.on_message.clone(),
+            ScriptSlot::AfterResponse => scripts.after_response.clone(),
+        }
+    }
+
+    /// Whether the request's Test block runs in this slot.
+    fn runs_tests(self) -> bool {
+        matches!(self, ScriptSlot::PostResponse | ScriptSlot::AfterResponse)
+    }
+}
+
+/// The scripts that run in `slot`, outermost first, with the label failures report.
+pub(crate) fn sources(located: &Located, slot: ScriptSlot) -> Vec<js::ScriptSource> {
+    let pick = |scripts: &Scripts| slot.pick(scripts);
     let mut out = Vec::new();
     let mut push = |origin: String, scripts: &Scripts| {
         if let Some(script) = pick(scripts).filter(|s| !s.is_empty()) {
@@ -349,7 +391,7 @@ pub(crate) struct PhaseOutput {
 
 /// Everything a phase needs besides the located request.
 pub(crate) struct PhaseInput<'a> {
-    pub phase: ScriptPhase,
+    pub slot: ScriptSlot,
     pub scopes: &'a ScopeSet,
     pub options: &'a SendOptions,
     pub locals: &'a BTreeMap<String, String>,
@@ -364,8 +406,8 @@ pub(crate) async fn run_phase(
     input: PhaseInput<'_>,
     warnings: &mut Vec<String>,
 ) -> Result<Option<PhaseOutput>> {
-    let scripts = sources(located, input.phase);
-    let tests = if input.phase == ScriptPhase::PostResponse && located.http.tests.has_work() {
+    let scripts = sources(located, input.slot);
+    let tests = if input.slot.runs_tests() && located.http.tests.has_work() {
         let block = &located.http.tests;
         Some(js::TestBlock {
             origin: format!("request {} tests", located.request_name),
@@ -382,9 +424,9 @@ pub(crate) async fn run_phase(
     let iteration = input.options.iteration.clone().unwrap_or_default();
     let cancel = input.options.cancel.clone().unwrap_or_default();
     let context = js::Context {
-        phase: input.phase,
+        phase: input.slot.phase(),
         info: js::Info {
-            event_name: if input.phase == ScriptPhase::PreRequest { "prerequest" } else { "test" },
+            event_name: input.slot.event_name(),
             iteration: iteration.index,
             iteration_count: iteration.count.max(1),
             request_name: located.request_name.clone(),
@@ -407,7 +449,7 @@ pub(crate) async fn run_phase(
     let cancelled: js::CancelCheck = Arc::new(move || check_cancel.is_cancelled());
     let limits = js::Limits::default();
     let origin = scripts.first().map(|s| s.origin.clone()).unwrap_or_default();
-    let phase = input.phase;
+    let phase = input.slot.phase();
     let outcome = tokio::task::spawn_blocking(move || js::run(&scripts, context, &limits, cancelled)).await.map_err(|err| EngineError::Script {
         phase: phase.label().to_string(),
         origin,
@@ -428,7 +470,7 @@ pub(crate) async fn run_phase(
             js::LogLevel::Error => ConsoleLevel::Error,
             _ => ConsoleLevel::Info,
         };
-        let message = format!("[{}] {}", input.phase.label(), line.message);
+        let message = format!("[{}] {}", input.slot.phase().label(), line.message);
         engine.console().push(level, ConsoleKind::Log, postguy_vars::mask_secrets(&message, secret_scopes));
     }
     Ok(Some(PhaseOutput { outcome, persisted, collection_changed, scopes_changed: persisted || runtime_changed }))

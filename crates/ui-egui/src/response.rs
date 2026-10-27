@@ -287,13 +287,20 @@ pub fn response_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseV
         ResponseTab::Body => body_view(ui, data, state, &theme),
         ResponseTab::Headers => headers_view(ui, data, &theme),
         ResponseTab::Cookies => cookies_view(ui, data, &theme),
-        ResponseTab::Tests => tests_view(ui, data, state, &theme),
+        ResponseTab::Tests => tests_view(
+            ui,
+            &data.tests,
+            &data.script_failures,
+            &mut state.test_filter,
+            "No tests ran. Add pm.test(...) to the Post-response script.",
+            &theme,
+        ),
     }
     action
 }
 
 /// "Test Results" with `passed/total` once any test ran.
-fn test_tab_label(tests: &[TestResult]) -> String {
+pub(crate) fn test_tab_label(tests: &[TestResult]) -> String {
     if tests.is_empty() {
         return "Test Results".to_string();
     }
@@ -321,8 +328,9 @@ pub(crate) fn test_row(ui: &mut Ui, test: &TestResult, theme: &Theme) {
     });
 }
 
-fn tests_view(ui: &mut Ui, data: &ResponseData, state: &mut ResponseViewerState, theme: &Theme) {
-    for failure in &data.script_failures {
+/// Script failures, the filter strip and the test rows. `empty_hint` shows when no test ran.
+pub(crate) fn tests_view(ui: &mut Ui, tests: &[TestResult], failures: &[ScriptFailure], filter: &mut TestFilter, empty_hint: &str, theme: &Theme) {
+    for failure in failures {
         let line = failure.line.map(|line| format!(" at line {line}")).unwrap_or_default();
         let text = format!("{} script in {} failed{line}: {}", failure.phase.label(), failure.origin, failure.message);
         egui::Frame::new().stroke(egui::Stroke::new(1.0, theme.palette.danger)).inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
@@ -330,25 +338,25 @@ fn tests_view(ui: &mut Ui, data: &ResponseData, state: &mut ResponseViewerState,
         });
         ui.add_space(4.0);
     }
-    if data.tests.is_empty() {
-        ui.label(RichText::new("No tests ran. Add pm.test(...) to the Post-response script.").color(theme.palette.text_muted));
+    if tests.is_empty() {
+        ui.label(RichText::new(empty_hint).color(theme.palette.text_muted));
         return;
     }
     ui.horizontal(|ui| {
-        let count = |status: Option<TestStatus>| data.tests.iter().filter(|test| status.is_none_or(|status| test.status == status)).count();
-        for (filter, label, status) in [
+        let count = |status: Option<TestStatus>| tests.iter().filter(|test| status.is_none_or(|status| test.status == status)).count();
+        for (filter_option, label, status) in [
             (TestFilter::All, "All", None),
             (TestFilter::Passed, "Passed", Some(TestStatus::Passed)),
             (TestFilter::Skipped, "Skipped", Some(TestStatus::Skipped)),
             (TestFilter::Failed, "Failed", Some(TestStatus::Failed)),
         ] {
-            if widgets::sub_tab(ui, label, state.test_filter == filter, Some(count(status)), false).clicked() {
-                state.test_filter = filter;
+            if widgets::sub_tab(ui, label, *filter == filter_option, Some(count(status)), false).clicked() {
+                *filter = filter_option;
             }
         }
     });
     ScrollArea::vertical().id_salt("response-tests").auto_shrink([false, false]).show(ui, |ui| {
-        for test in data.tests.iter().filter(|test| state.test_filter.keeps(test.status)) {
+        for test in tests.iter().filter(|test| filter.keeps(test.status)) {
             test_row(ui, test, theme);
         }
     });

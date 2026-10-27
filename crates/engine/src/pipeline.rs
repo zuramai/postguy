@@ -19,7 +19,7 @@ use serde::Serialize;
 use crate::Engine;
 use crate::console::{ConsoleKind, ConsoleLevel, truncate_for_log};
 use crate::error::{EngineError, Result};
-use crate::scripts::{self, PhaseInput, ScriptReport};
+use crate::scripts::{self, PhaseInput, ScriptReport, ScriptSlot};
 
 /// Where a send starts.
 #[derive(Debug, Clone)]
@@ -112,6 +112,30 @@ pub struct SendOutcome {
     pub script: ScriptReport,
 }
 
+/// Refresh an expired OAuth 2.0 access token (when a refresh token exists) so the send uses a live one.
+pub(crate) async fn refresh_expired_oauth2(engine: &Engine, auth: &mut Option<AuthConfig>, warnings: &mut Vec<String>) -> Result<()> {
+    if let Some(AuthConfig::OAuth2(oauth2)) = auth.as_ref() {
+        let now = postguy_util::time::now_unix_ms();
+        if oauth2.access_token_expires_at_ms > 0 && oauth2.access_token_expires_at_ms <= now && !oauth2.refresh_token.is_empty() {
+            let request = postguy_auth::oauth2::refresh_request(oauth2, &oauth2.refresh_token)
+                .map_err(|err| EngineError::BadRequest { reason: err.to_string() })?;
+            let token = engine.oauth2_request(request).await?;
+            let mut refreshed = oauth2.clone();
+            refreshed.access_token = token.access_token.clone();
+            refreshed.access_token_expires_at_ms = postguy_engine_oauth_expiry(token.expires_in);
+            if !token.refresh_token.is_empty() {
+                refreshed.refresh_token = token.refresh_token.clone();
+            }
+            if !token.scope.is_empty() {
+                refreshed.scope = token.scope.clone();
+            }
+            *auth = Some(AuthConfig::OAuth2(refreshed));
+            warnings.push("OAuth 2.0 access token refreshed".into());
+        }
+    }
+    Ok(())
+}
+
 /// The request plus everything that supplies scopes, auth and scripts around it.
 pub(crate) struct Located {
     pub(crate) collection: Collection,
@@ -147,14 +171,8 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
     }
     if scripts_on {
         let before = scripts::script_request(&located);
-        let input = PhaseInput {
-            phase: ScriptPhase::PreRequest,
-            scopes: &scopes,
-            options: &options,
-            locals: &locals,
-            request: before.clone(),
-            response: None,
-        };
+        let input =
+            PhaseInput { slot: ScriptSlot::PreRequest, scopes: &scopes, options: &options, locals: &locals, request: before.clone(), response: None };
         if let Some(phase) = scripts::run_phase(engine, &mut located, input, &mut warnings).await? {
             let outcome = phase.outcome;
             if let Some(failure) = outcome.failures.first() {
@@ -185,25 +203,7 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
 
     // 3. Auth inheritance and variable resolution.
     let mut auth = resolve_auth(&resolved_auth_chain(&located), &resolver)?;
-    if let Some(AuthConfig::OAuth2(oauth2)) = &auth {
-        let now = postguy_util::time::now_unix_ms();
-        if oauth2.access_token_expires_at_ms > 0 && oauth2.access_token_expires_at_ms <= now && !oauth2.refresh_token.is_empty() {
-            let request = postguy_auth::oauth2::refresh_request(oauth2, &oauth2.refresh_token)
-                .map_err(|err| EngineError::BadRequest { reason: err.to_string() })?;
-            let token = engine.oauth2_request(request).await?;
-            let mut refreshed = oauth2.clone();
-            refreshed.access_token = token.access_token.clone();
-            refreshed.access_token_expires_at_ms = postguy_engine_oauth_expiry(token.expires_in);
-            if !token.refresh_token.is_empty() {
-                refreshed.refresh_token = token.refresh_token.clone();
-            }
-            if !token.scope.is_empty() {
-                refreshed.scope = token.scope.clone();
-            }
-            auth = Some(AuthConfig::OAuth2(refreshed));
-            warnings.push("OAuth 2.0 access token refreshed".into());
-        }
-    }
+    refresh_expired_oauth2(engine, &mut auth, &mut warnings).await?;
 
     // 4. URL: resolve, path vars, enabled query params, encoding.
     let mut request = located.http.clone();
@@ -346,7 +346,7 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
             size: size_bytes,
         };
         let input = PhaseInput {
-            phase: ScriptPhase::PostResponse,
+            slot: ScriptSlot::PostResponse,
             scopes: &scopes,
             options: &options,
             locals: &locals,

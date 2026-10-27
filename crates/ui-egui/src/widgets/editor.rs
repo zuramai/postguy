@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use egui::text::LayoutJob;
 use egui::{Color32, FontId, Response, ScrollArea, Sense, TextEdit, TextFormat, Ui};
+use postguy_model::{GrpcSchema, UnknownField};
 
 use crate::theme::{Palette, Theme};
 use crate::widgets;
@@ -77,6 +78,9 @@ pub struct CodeEditor<'a> {
     /// When set, every `{{var}}` is coloured blue (resolves) or red (does not) over the language
     /// highlighting, and hovering one shows its scope and value.
     pub variables: Option<&'a [VariableInfo]>,
+    /// When set, JSON keys the gRPC message type does not define are red with an "Unknown field"
+    /// tooltip. The pair is the schema and the full name of the message the text encodes.
+    pub json_schema: Option<(&'a GrpcSchema, &'a str)>,
 }
 
 impl<'a> CodeEditor<'a> {
@@ -90,7 +94,14 @@ impl<'a> CodeEditor<'a> {
             assets: None,
             shortcodes: false,
             variables: None,
+            json_schema: None,
         }
+    }
+
+    /// Flag JSON keys that `message` (a full name in `schema`) does not define.
+    pub fn json_schema(mut self, schema: &'a GrpcSchema, message: &'a str) -> Self {
+        self.json_schema = Some((schema, message));
+        self
     }
 
     /// Colour body shortcodes; `assets` (when known) lets missing files read as invalid.
@@ -149,6 +160,8 @@ impl<'a> CodeEditor<'a> {
                         let shortcodes = self.shortcodes;
                         let assets = self.assets;
                         let variables = self.variables;
+                        let json_schema = self.json_schema.filter(|_| highlight);
+                        let editor_id = self.id;
                         let mut layouter = move |ui: &Ui, buffer: &dyn egui::TextBuffer, wrap_width: f32| {
                             let text = buffer.as_str();
                             let job = if highlight {
@@ -166,6 +179,18 @@ impl<'a> CodeEditor<'a> {
                             if highlight && let Some(variables) = variables {
                                 overlay_colors(&mut job, &variable_marks(text, variables, &palette));
                             }
+                            if let Some((schema, message)) = json_schema {
+                                // Computed from the buffer being laid out (this frame's edit
+                                // included), cached by its hash.
+                                let unknown = unknown_fields_cached(ui.ctx(), editor_id, text, schema, message);
+                                let colors = (palette.danger, palette.danger.gamma_multiply(0.12));
+                                let ranges: Vec<_> = unknown
+                                    .iter()
+                                    .filter(|field| field.start < field.end && text.get(field.start..field.end).is_some())
+                                    .map(|field| (field.start..field.end, colors))
+                                    .collect();
+                                overlay_colors(&mut job, &ranges);
+                            }
                             ui.fonts_mut(|fonts| fonts.layout_job(job))
                         };
                         let output = TextEdit::multiline(text)
@@ -181,6 +206,10 @@ impl<'a> CodeEditor<'a> {
                             .show(ui);
                         if let Some(variables) = variables {
                             variable_tooltip(ui, &output, text, variables);
+                        }
+                        if let Some((schema, message)) = json_schema {
+                            let unknown = unknown_fields_cached(ui.ctx(), editor_id, text, schema, message);
+                            unknown_field_tooltip(ui, &output, text, &unknown);
                         }
                         let cursor_row = output.cursor_range.map(|range| text.chars().take(range.primary.index.0).filter(|c| *c == '\n').count());
                         let right = gutter_left + gutter_w - 6.0;
@@ -201,6 +230,48 @@ impl<'a> CodeEditor<'a> {
             });
         response
     }
+}
+
+/// The unknown-key list for `text`, recomputed only when the text, the message or the schema
+/// changed. The scan is lexical (the same class of work as [`highlight_job`]).
+pub(crate) fn unknown_fields_cached(ctx: &egui::Context, id: egui::Id, text: &str, schema: &GrpcSchema, message: &str) -> Arc<Vec<UnknownField>> {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::hash::DefaultHasher::new();
+    text.hash(&mut hasher);
+    message.hash(&mut hasher);
+    schema.files.hash(&mut hasher);
+    schema.messages.len().hash(&mut hasher);
+    let digest = hasher.finish();
+    let key = id.with("unknown-fields");
+    if let Some((cached, list)) = ctx.data(|data| data.get_temp::<(u64, Arc<Vec<UnknownField>>)>(key))
+        && cached == digest
+    {
+        return list;
+    }
+    let list = Arc::new(schema.unknown_fields(message, text));
+    ctx.data_mut(|data| data.insert_temp(key, (digest, list.clone())));
+    list
+}
+
+/// While the pointer rests on an unknown key of a just-shown text edit, say so.
+fn unknown_field_tooltip(ui: &Ui, output: &egui::text_edit::TextEditOutput, text: &str, unknown: &[UnknownField]) {
+    let response = &output.response.response;
+    if unknown.is_empty() || !response.hovered() {
+        return;
+    }
+    let Some(pointer) = ui.input(|input| input.pointer.hover_pos()) else { return };
+    if !output.text_clip_rect.contains(pointer) {
+        return;
+    }
+    let cursor = output.galley.cursor_from_pos(pointer - output.galley_pos);
+    let byte = text.char_indices().nth(cursor.index.0).map(|(index, _)| index).unwrap_or(text.len());
+    let Some(field) = unknown.iter().find(|field| field.start <= byte && byte < field.end) else { return };
+    let theme = Theme::current(ui.ctx());
+    egui::Tooltip::always_open(ui.ctx().clone(), response.layer_id, response.id.with("unknown-field"), egui::PopupAnchor::Pointer).show(|ui| {
+        ui.set_max_width(320.0);
+        ui.label(egui::RichText::new("Unknown field").strong().color(theme.palette.danger));
+        ui.label(egui::RichText::new(format!("`{}` is not a field of `{}`", field.key, field.message)).small().color(theme.palette.text_muted));
+    });
 }
 
 impl Default for CodeEditor<'_> {

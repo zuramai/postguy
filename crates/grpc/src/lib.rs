@@ -86,9 +86,10 @@ pub async fn reflection_pool(endpoint: &str, tls: &GrpcTls, method_path: &str) -
         return Err(GrpcError::Descriptor("reflection needs a method path so it can resolve the service".into()));
     }
     let channel = connect(endpoint, tls).await?;
-    let set = match reflection_v1(&channel, service).await {
+    let symbols = [service.to_string()];
+    let set = match files_for_symbols_v1(&channel, &symbols).await {
         Ok(set) => set,
-        Err(GrpcError::Status { code, .. }) if code == tonic::Code::Unimplemented as i32 => reflection_v1alpha(&channel, service).await?,
+        Err(GrpcError::Status { code, .. }) if code == tonic::Code::Unimplemented as i32 => files_for_symbols_v1alpha(&channel, &symbols).await?,
         Err(error) => return Err(error),
     };
     if set.file.is_empty() {
@@ -97,14 +98,82 @@ pub async fn reflection_pool(endpoint: &str, tls: &GrpcTls, method_path: &str) -
     DescriptorPool::from_file_descriptor_set(set).map_err(|err| GrpcError::Descriptor(err.to_string()))
 }
 
-async fn reflection_v1(channel: &Channel, symbol: &str) -> Result<prost_types::FileDescriptorSet, GrpcError> {
+/// Cap on services listed by reflection, so a hostile server cannot make us request unbounded files.
+const MAX_REFLECTED_SERVICES: usize = 256;
+
+/// Ask the server's reflection service for every service it exposes (v1, then v1alpha) and fetch
+/// their files in one stream. The reflection service itself is left out.
+pub async fn reflection_pool_all(endpoint: &str, tls: &GrpcTls) -> Result<DescriptorPool, GrpcError> {
+    let channel = connect(endpoint, tls).await?;
+    let (mut services, alpha) = match list_services_v1(&channel).await {
+        Ok(services) => (services, false),
+        Err(GrpcError::Status { code, .. }) if code == tonic::Code::Unimplemented as i32 => (list_services_v1alpha(&channel).await?, true),
+        Err(error) => return Err(error),
+    };
+    services.retain(|name| !name.starts_with("grpc.reflection."));
+    services.truncate(MAX_REFLECTED_SERVICES);
+    if services.is_empty() {
+        return Err(GrpcError::Descriptor("the server's reflection service lists no services".into()));
+    }
+    let set = if alpha { files_for_symbols_v1alpha(&channel, &services).await? } else { files_for_symbols_v1(&channel, &services).await? };
+    let mut seen = std::collections::HashSet::new();
+    let mut deduped = prost_types::FileDescriptorSet::default();
+    for file in set.file {
+        if seen.insert(file.name().to_string()) {
+            deduped.file.push(file);
+        }
+    }
+    if deduped.file.is_empty() {
+        return Err(GrpcError::Descriptor("reflection returned no files".into()));
+    }
+    DescriptorPool::from_file_descriptor_set(deduped).map_err(|err| GrpcError::Descriptor(err.to_string()))
+}
+
+async fn list_services_v1(channel: &Channel) -> Result<Vec<String>, GrpcError> {
     use tonic_reflection::pb::v1 as pb;
     let mut client = pb::server_reflection_client::ServerReflectionClient::new(channel.clone());
     let request = pb::ServerReflectionRequest {
         host: String::new(),
-        message_request: Some(pb::server_reflection_request::MessageRequest::FileContainingSymbol(symbol.to_string())),
+        message_request: Some(pb::server_reflection_request::MessageRequest::ListServices(String::new())),
     };
     let mut stream = client.server_reflection_info(Request::new(tokio_stream::iter(vec![request]))).await.map_err(status_error)?.into_inner();
+    let mut names = Vec::new();
+    while let Some(response) = stream.message().await.map_err(status_error)? {
+        if let Some(pb::server_reflection_response::MessageResponse::ListServicesResponse(list)) = response.message_response {
+            names.extend(list.service.into_iter().map(|service| service.name));
+        }
+    }
+    Ok(names)
+}
+
+async fn list_services_v1alpha(channel: &Channel) -> Result<Vec<String>, GrpcError> {
+    use tonic_reflection::pb::v1alpha as pb;
+    let mut client = pb::server_reflection_client::ServerReflectionClient::new(channel.clone());
+    let request = pb::ServerReflectionRequest {
+        host: String::new(),
+        message_request: Some(pb::server_reflection_request::MessageRequest::ListServices(String::new())),
+    };
+    let mut stream = client.server_reflection_info(Request::new(tokio_stream::iter(vec![request]))).await.map_err(status_error)?.into_inner();
+    let mut names = Vec::new();
+    while let Some(response) = stream.message().await.map_err(status_error)? {
+        if let Some(pb::server_reflection_response::MessageResponse::ListServicesResponse(list)) = response.message_response {
+            names.extend(list.service.into_iter().map(|service| service.name));
+        }
+    }
+    Ok(names)
+}
+
+async fn files_for_symbols_v1(channel: &Channel, symbols: &[String]) -> Result<prost_types::FileDescriptorSet, GrpcError> {
+    use tonic_reflection::pb::v1 as pb;
+    let mut client = pb::server_reflection_client::ServerReflectionClient::new(channel.clone());
+    let requests: Vec<_> = symbols
+        .iter()
+        .map(|symbol| pb::ServerReflectionRequest {
+            host: String::new(),
+            message_request: Some(pb::server_reflection_request::MessageRequest::FileContainingSymbol(symbol.clone())),
+        })
+        .collect();
+    let mut stream = client.server_reflection_info(Request::new(tokio_stream::iter(requests))).await.map_err(status_error)?.into_inner();
     collect_reflected(&mut stream, |response| match response.message_response {
         Some(pb::server_reflection_response::MessageResponse::FileDescriptorResponse(files)) => Some(files.file_descriptor_proto),
         _ => None,
@@ -112,14 +181,17 @@ async fn reflection_v1(channel: &Channel, symbol: &str) -> Result<prost_types::F
     .await
 }
 
-async fn reflection_v1alpha(channel: &Channel, symbol: &str) -> Result<prost_types::FileDescriptorSet, GrpcError> {
+async fn files_for_symbols_v1alpha(channel: &Channel, symbols: &[String]) -> Result<prost_types::FileDescriptorSet, GrpcError> {
     use tonic_reflection::pb::v1alpha as pb;
     let mut client = pb::server_reflection_client::ServerReflectionClient::new(channel.clone());
-    let request = pb::ServerReflectionRequest {
-        host: String::new(),
-        message_request: Some(pb::server_reflection_request::MessageRequest::FileContainingSymbol(symbol.to_string())),
-    };
-    let mut stream = client.server_reflection_info(Request::new(tokio_stream::iter(vec![request]))).await.map_err(status_error)?.into_inner();
+    let requests: Vec<_> = symbols
+        .iter()
+        .map(|symbol| pb::ServerReflectionRequest {
+            host: String::new(),
+            message_request: Some(pb::server_reflection_request::MessageRequest::FileContainingSymbol(symbol.clone())),
+        })
+        .collect();
+    let mut stream = client.server_reflection_info(Request::new(tokio_stream::iter(requests))).await.map_err(status_error)?.into_inner();
     collect_reflected(&mut stream, |response| match response.message_response {
         Some(pb::server_reflection_response::MessageResponse::FileDescriptorResponse(files)) => Some(files.file_descriptor_proto),
         _ => None,
@@ -392,26 +464,153 @@ impl Decoder for DynamicDecoder {
     }
 }
 
-/// Service/method inventory for the sidebar/describe tool.
-pub fn describe(pool: &DescriptorPool) -> Vec<serde_json::Value> {
+/// GRPC status code number to its canonical name (`OK`, `NOT_FOUND`, ...). Unknown codes map to `UNKNOWN`.
+pub fn status_name(code: i32) -> &'static str {
+    match code {
+        0 => "OK",
+        1 => "CANCELLED",
+        3 => "INVALID_ARGUMENT",
+        4 => "DEADLINE_EXCEEDED",
+        5 => "NOT_FOUND",
+        6 => "ALREADY_EXISTS",
+        7 => "PERMISSION_DENIED",
+        8 => "RESOURCE_EXHAUSTED",
+        9 => "FAILED_PRECONDITION",
+        10 => "ABORTED",
+        11 => "OUT_OF_RANGE",
+        12 => "UNIMPLEMENTED",
+        13 => "INTERNAL",
+        14 => "UNAVAILABLE",
+        15 => "DATA_LOSS",
+        16 => "UNAUTHENTICATED",
+        _ => "UNKNOWN",
+    }
+}
+
+/// Cap on messages described, so a pathological definition cannot grow the schema unbounded.
+const MAX_SCHEMA_MESSAGES: usize = 4096;
+
+/// Services, methods and the fields of every message reachable from a method, for the UI and
+/// automation (which never touch descriptors).
+pub fn schema(pool: &DescriptorPool) -> postguy_model::GrpcSchema {
+    use postguy_model::{GrpcMessageInfo, GrpcMethodInfo, GrpcServiceInfo};
     let mut services: Vec<_> = pool.services().collect();
     services.sort_by_key(|service| service.full_name().to_string());
-    services
-        .into_iter()
-        .map(|service| {
-            serde_json::json!({
-                "name": service.full_name(),
-                "methods": service.methods().map(|method| serde_json::json!({
-                    "name": method.name(),
-                    "path": format!("{}/{}", service.full_name(), method.name()),
-                    "input": method.input().full_name(),
-                    "output": method.output().full_name(),
-                    "server_streaming": method.is_server_streaming(),
-                    "client_streaming": method.is_client_streaming(),
-                })).collect::<Vec<_>>(),
+    let mut out = postguy_model::GrpcSchema::default();
+    let mut queue: std::collections::VecDeque<MessageDescriptor> = std::collections::VecDeque::new();
+    for service in services {
+        let methods = service
+            .methods()
+            .map(|method| {
+                queue.push_back(method.input());
+                queue.push_back(method.output());
+                GrpcMethodInfo {
+                    name: method.name().to_string(),
+                    path: format!("{}/{}", service.full_name(), method.name()),
+                    input: method.input().full_name().to_string(),
+                    output: method.output().full_name().to_string(),
+                    client_streaming: method.is_client_streaming(),
+                    server_streaming: method.is_server_streaming(),
+                }
             })
-        })
-        .collect()
+            .collect();
+        out.services.push(GrpcServiceInfo { name: service.full_name().to_string(), methods });
+    }
+    let mut visited = std::collections::HashSet::new();
+    while let Some(message) = queue.pop_front() {
+        if out.messages.len() >= MAX_SCHEMA_MESSAGES {
+            break;
+        }
+        let name = message.full_name().to_string();
+        if name.starts_with("google.protobuf.") || !visited.insert(name.clone()) {
+            continue;
+        }
+        let fields = message.fields().map(|field| field_info(&field, &mut queue)).collect();
+        out.messages.insert(name.clone(), GrpcMessageInfo { name, fields });
+    }
+    let mut files: Vec<String> = pool.files().map(|file| file.name().to_string()).filter(|name| !name.starts_with("google/")).collect();
+    files.sort();
+    files.dedup();
+    out.files = files;
+    out
+}
+
+fn kind_label(kind: &prost_reflect::Kind) -> String {
+    use prost_reflect::Kind;
+    match kind {
+        Kind::Double => "double".into(),
+        Kind::Float => "float".into(),
+        Kind::Int32 => "int32".into(),
+        Kind::Int64 => "int64".into(),
+        Kind::Uint32 => "uint32".into(),
+        Kind::Uint64 => "uint64".into(),
+        Kind::Sint32 => "sint32".into(),
+        Kind::Sint64 => "sint64".into(),
+        Kind::Fixed32 => "fixed32".into(),
+        Kind::Fixed64 => "fixed64".into(),
+        Kind::Sfixed32 => "sfixed32".into(),
+        Kind::Sfixed64 => "sfixed64".into(),
+        Kind::Bool => "bool".into(),
+        Kind::String => "string".into(),
+        Kind::Bytes => "bytes".into(),
+        Kind::Message(message) => message.name().to_string(),
+        Kind::Enum(en) => en.name().to_string(),
+    }
+}
+
+fn kind_full(kind: &prost_reflect::Kind) -> String {
+    match kind {
+        prost_reflect::Kind::Message(message) => message.full_name().to_string(),
+        prost_reflect::Kind::Enum(en) => en.full_name().to_string(),
+        other => kind_label(other),
+    }
+}
+
+fn field_info(field: &prost_reflect::FieldDescriptor, queue: &mut std::collections::VecDeque<MessageDescriptor>) -> postguy_model::GrpcFieldInfo {
+    let kind = field.kind();
+    let map = field.is_map();
+    let repeated = field.is_list();
+    let (type_label, type_full, message) = match (&kind, map) {
+        (prost_reflect::Kind::Message(entry), true) => {
+            let key = entry.map_entry_key_field().kind();
+            let value = entry.map_entry_value_field().kind();
+            let value_message = match &value {
+                prost_reflect::Kind::Message(message) if !message.full_name().starts_with("google.protobuf.") => Some(message.clone()),
+                _ => None,
+            };
+            if let Some(message) = &value_message {
+                queue.push_back(message.clone());
+            }
+            (
+                format!("map<{}, {}>", kind_label(&key), kind_label(&value)),
+                format!("map<{}, {}>", kind_full(&key), kind_full(&value)),
+                value_message.map(|message| message.full_name().to_string()),
+            )
+        }
+        (prost_reflect::Kind::Message(message), false) => {
+            let wkt = message.full_name().starts_with("google.protobuf.");
+            if !wkt {
+                queue.push_back(message.clone());
+            }
+            let label = kind_label(&kind);
+            (if repeated { format!("repeated {label}") } else { label }, kind_full(&kind), (!wkt).then(|| message.full_name().to_string()))
+        }
+        _ => {
+            let label = kind_label(&kind);
+            (if repeated { format!("repeated {label}") } else { label }, kind_full(&kind), None)
+        }
+    };
+    postguy_model::GrpcFieldInfo {
+        name: field.name().to_string(),
+        json_name: field.json_name().to_string(),
+        number: field.number(),
+        type_label,
+        type_full,
+        message,
+        repeated: repeated || map,
+        map,
+        oneof: field.containing_oneof().filter(|oneof| !oneof.is_synthetic()).map(|oneof| oneof.name().to_string()),
+    }
 }
 
 /// A JSON example for the method's input message: descriptor-guided values (zero primitives,

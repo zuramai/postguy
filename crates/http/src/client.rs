@@ -53,7 +53,8 @@ impl Cancel {
         *self.sender.borrow()
     }
 
-    async fn cancelled(&self) {
+    /// Resolves once [`Cancel::cancel`] has been called; never resolves if the handle is dropped uncancelled.
+    pub async fn cancelled(&self) {
         let mut receiver = self.sender.subscribe();
         if *receiver.borrow() {
             return;

@@ -616,6 +616,8 @@ pub struct GrpcRequest {
     pub auth: AuthConfig,
     #[serde(default)]
     pub scripts: Scripts,
+    #[serde(default, skip_serializing_if = "RequestTests::is_empty")]
+    pub tests: RequestTests,
     #[serde(default)]
     pub settings: GrpcSettings,
     #[serde(default, flatten)]
@@ -795,13 +797,16 @@ mod tests {
             url: "localhost:5051".into(),
             method_path: "pkg.Echo/Say".into(),
             service_definition: Some(ServiceDefinition::ProtoSet { name: "echo".into(), extras: Default::default() }),
+            tests: serde_json::from_value(json!({"assertions": [{"expr": "res.status", "operator": "eq", "value": "0"}]})).unwrap(),
             ..Default::default()
         };
         let value = serde_json::to_value(&grpc).unwrap();
         assert_eq!(value["tls"], json!(false), "TLS toggle off by default");
         assert_eq!(value["serviceDefinition"]["source"], json!("protoSet"));
+        assert_eq!(value["tests"]["assertions"][0]["expr"], json!("res.status"));
         let back: GrpcRequest = serde_json::from_value(value).unwrap();
         assert_eq!(back, grpc);
+        assert!(serde_json::to_value(GrpcRequest::default()).unwrap().get("tests").is_none(), "empty tests are not written");
     }
 
     #[test]

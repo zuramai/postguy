@@ -42,6 +42,7 @@ use serde::{Deserialize, Serialize};
 
 mod assets;
 mod control;
+mod grpc;
 #[cfg(target_os = "macos")]
 mod macos;
 mod runner;
@@ -112,21 +113,6 @@ struct WsEditor {
     last_seq: u64,
     message: String,
     error: Option<String>,
-}
-
-struct GrpcEditor {
-    collection: String,
-    request: Request,
-    draft: postguy_model::GrpcRequest,
-    dirty: bool,
-    response: Option<postguy_engine::UnaryResult>,
-    error: Option<String>,
-}
-
-enum GrpcUiAction {
-    Invoke,
-    Stream,
-    Save,
 }
 
 /// Marker the send thread uses for `EngineError::Skipped` (a status message, not an error view).
@@ -230,8 +216,9 @@ struct App {
     oauth2_browser: Option<(u64, OAuth2Auth, OAuth2Callback)>,
     graphql_jobs: BTreeMap<u64, std::sync::mpsc::Receiver<Result<Vec<String>, String>>>,
     ws_editors: BTreeMap<u64, WsEditor>,
-    grpc_editors: BTreeMap<u64, GrpcEditor>,
-    grpc_jobs: BTreeMap<u64, std::sync::mpsc::Receiver<Result<postguy_engine::UnaryResult, String>>>,
+    grpc_editors: BTreeMap<u64, grpc::GrpcEditor>,
+    grpc_jobs: Vec<(u64, std::sync::mpsc::Receiver<grpc::GrpcJob>)>,
+    grpc_proto_picker: Option<grpc::ProtoPicker>,
     runner: runner::RunnerUi,
     pending_clipboard: Option<String>,
     /// Edit-menu commands waiting to be injected as egui events (`raw_input_hook`).
@@ -289,7 +276,8 @@ impl App {
                     graphql_jobs: BTreeMap::new(),
                     ws_editors: BTreeMap::new(),
                     grpc_editors: BTreeMap::new(),
-                    grpc_jobs: BTreeMap::new(),
+                    grpc_jobs: Vec::new(),
+                    grpc_proto_picker: None,
                     pending_edit: Vec::new(),
                     pending_window: Vec::new(),
                     previous_outer: None,
@@ -342,7 +330,8 @@ impl App {
                     graphql_jobs: BTreeMap::new(),
                     ws_editors: BTreeMap::new(),
                     grpc_editors: BTreeMap::new(),
-                    grpc_jobs: BTreeMap::new(),
+                    grpc_jobs: Vec::new(),
+                    grpc_proto_picker: None,
                     pending_edit: Vec::new(),
                     pending_window: Vec::new(),
                     previous_outer: None,
@@ -617,6 +606,10 @@ impl App {
             }
             "request-tab" => {
                 let name = value.as_str().ok_or("`request-tab` needs a string value")?;
+                if let Some(result) = self.set_grpc_request_tab(name) {
+                    result?;
+                    return Ok(serde_json::json!({"ok": true, "request-tab": name}));
+                }
                 let tab = match name.to_ascii_lowercase().as_str() {
                     "params" => BuilderTab::Params,
                     "authorization" => BuilderTab::Authorization,
@@ -690,13 +683,28 @@ impl App {
         })
     }
 
+    /// The editable auth of a request tab (HTTP or gRPC), its dirty flag and the request id
+    /// that owns stored tokens.
+    fn tab_auth(&mut self, tab: u64) -> Option<(&mut postguy_model::AuthConfig, &mut bool, String)> {
+        if let Some(editor) = self.editors.get_mut(&tab) {
+            let owner = editor.request.id.0.clone();
+            return Some((&mut editor.draft.auth, &mut editor.dirty, owner));
+        }
+        let editor = self.grpc_editors.get_mut(&tab)?;
+        let owner = editor.request.id.0.clone();
+        Some((&mut editor.draft.auth, &mut editor.dirty, owner))
+    }
+
     fn start_oauth2(&mut self, tab_id: u64, action: OAuth2Action) {
-        let Some(editor) = self.editors.get(&tab_id) else { return };
-        let postguy_model::AuthConfig::OAuth2(auth) = &editor.draft.auth else {
+        let auth = match self.tab_auth(tab_id) {
+            Some((postguy_model::AuthConfig::OAuth2(auth), _, _)) => Some((**auth).clone()),
+            Some(_) => None,
+            None => return,
+        };
+        let Some(auth) = auth else {
             self.shell.state.status = "OAuth 2.0: the request auth is not OAuth 2.0".into();
             return;
         };
-        let auth = (**auth).clone();
         if self.oauth2_job.is_some() || self.oauth2_browser.is_some() {
             self.shell.state.status = "OAuth 2.0: a token flow is already running".into();
             return;
@@ -799,8 +807,8 @@ impl App {
         let now = postguy_util::time::now_unix_ms();
         let expires_at_ms =
             token.expires_in.map(|seconds| now.saturating_add(i64::try_from(seconds.saturating_mul(1000)).unwrap_or(i64::MAX))).unwrap_or(0);
-        let Some(editor) = self.editors.get_mut(&tab) else { return };
-        let postguy_model::AuthConfig::OAuth2(auth) = &mut editor.draft.auth else { return };
+        let Some((auth, dirty, owner)) = self.tab_auth(tab) else { return };
+        let postguy_model::AuthConfig::OAuth2(auth) = auth else { return };
         auth.access_token = token.access_token.clone();
         if !token.refresh_token.is_empty() {
             auth.refresh_token = token.refresh_token.clone();
@@ -809,9 +817,7 @@ impl App {
         if !token.scope.is_empty() {
             auth.scope = token.scope.clone();
         }
-        editor.dirty = true;
-        self.shell.tabs.set_dirty(tab, true);
-        let owner = editor.request.id.0.clone();
+        *dirty = true;
         let stored = StoredToken {
             access_token: token.access_token,
             refresh_token: auth.refresh_token.clone(),
@@ -819,6 +825,7 @@ impl App {
             scope: auth.scope.clone(),
             expires_at_ms,
         };
+        self.shell.tabs.set_dirty(tab, true);
         let store_error = self.engine.as_ref().and_then(|engine| engine.oauth2_store_token(&owner, &stored).err().map(|err| err.to_string()));
         self.shell.state.status = match store_error {
             Some(err) => format!("OAuth 2.0 token received, but storing it failed: {err}"),
@@ -1306,6 +1313,7 @@ impl App {
 
     /// Persist tabs/layout when they changed (called at most once a second, plus on exit).
     fn save_session(&mut self, clean_exit: bool, force: bool) {
+        self.store_grpc_drafts();
         let Some(engine) = &self.engine else { return };
         let theme = match self.shell.state.theme_mode {
             ThemeMode::Light => "light",
@@ -1831,125 +1839,6 @@ impl App {
                         self.shell.state.status = "Saved".into();
                     }
                     Err(err) => editor.error = Some(err.to_string()),
-                }
-            }
-        }
-    }
-
-    fn sync_grpc_editors(&mut self) {
-        let Some(engine) = self.engine.clone() else { return };
-        let grpc_tabs: Vec<(u64, String, String)> = self
-            .shell
-            .tabs
-            .tabs
-            .iter()
-            .filter_map(|tab| match &tab.doc {
-                TabDoc::Request { collection, request, protocol, .. } if protocol == "grpc" => Some((tab.id, collection.clone(), request.clone())),
-                _ => None,
-            })
-            .collect();
-        self.grpc_editors.retain(|id, _| grpc_tabs.iter().any(|(tab, _, _)| tab == id));
-        for (tab_id, collection, request_id) in grpc_tabs {
-            if self.grpc_editors.contains_key(&tab_id) {
-                continue;
-            }
-            let Some(request) = engine.request(&Id(collection.clone()), &Id(request_id.clone())).ok() else { continue };
-            let postguy_model::RequestKind::Grpc(grpc) = &request.kind else { continue };
-            let draft = grpc.clone();
-            self.grpc_editors.insert(tab_id, GrpcEditor { collection, request, draft, dirty: false, response: None, error: None });
-        }
-    }
-
-    fn apply_grpc_action(&mut self, tab_id: u64, action: GrpcUiAction) {
-        let Some(engine) = self.engine.clone() else { return };
-        match action {
-            GrpcUiAction::Save => {
-                let Some(editor) = self.grpc_editors.get_mut(&tab_id) else { return };
-                let mut request = editor.request.clone();
-                request.kind = RequestKind::Grpc(editor.draft.clone());
-                match engine.save_request(&Id(editor.collection.clone()), &request) {
-                    Ok(()) => {
-                        editor.request = request;
-                        editor.dirty = false;
-                        self.shell.tabs.set_dirty(tab_id, false);
-                        self.shell.state.status = "Saved".into();
-                    }
-                    Err(err) => editor.error = Some(err.to_string()),
-                }
-            }
-            GrpcUiAction::Invoke | GrpcUiAction::Stream => {
-                let stream = matches!(action, GrpcUiAction::Stream);
-                let Some(editor) = self.grpc_editors.get_mut(&tab_id) else { return };
-                editor.error = None;
-                let messages: Vec<serde_json::Value> = match serde_json::from_str::<serde_json::Value>(&editor.draft.message) {
-                    Ok(serde_json::Value::Array(messages)) => messages,
-                    Ok(message) if stream => vec![message],
-                    Ok(message) => vec![message],
-                    Err(err) => {
-                        editor.error = Some(format!("request message is not JSON: {err}"));
-                        return;
-                    }
-                };
-                let mut request = editor.request.clone();
-                request.kind = RequestKind::Grpc(editor.draft.clone());
-                if let Err(err) = engine.save_request(&Id(editor.collection.clone()), &request) {
-                    editor.error = Some(err.to_string());
-                    return;
-                }
-                editor.request = request;
-                editor.dirty = false;
-                self.shell.tabs.set_dirty(tab_id, false);
-                let draft = match engine.prepare_grpc(&Id(editor.collection.clone()), &Id(editor.request.id.0.clone()), &editor.draft) {
-                    Ok(draft) => draft,
-                    Err(err) => {
-                        editor.error = Some(err.to_string());
-                        return;
-                    }
-                };
-                let (sender, receiver) = std::sync::mpsc::channel();
-                self.grpc_jobs.insert(tab_id, receiver);
-                self.shell.state.status = "gRPC: invoking…".into();
-                std::thread::Builder::new()
-                    .name("postguy-grpc".into())
-                    .spawn(move || {
-                        let result = if stream {
-                            engine.grpc_stream(&draft, messages).map(|stream| postguy_engine::UnaryResult {
-                                json: serde_json::Value::Array(stream.messages),
-                                status: stream.status,
-                                metadata: stream.metadata,
-                            })
-                        } else {
-                            let message = messages.into_iter().next().unwrap_or(serde_json::Value::Null);
-                            engine.grpc_invoke_unary(&draft, message)
-                        };
-                        let _ = sender.send(result.map_err(|err| err.to_string()));
-                    })
-                    .ok();
-            }
-        }
-    }
-
-    fn poll_grpc(&mut self) {
-        let tabs: Vec<u64> = self.grpc_jobs.keys().copied().collect();
-        for tab in tabs {
-            let Some(receiver) = self.grpc_jobs.get(&tab) else { continue };
-            match receiver.try_recv() {
-                Ok(Ok(result)) => {
-                    self.grpc_jobs.remove(&tab);
-                    if let Some(editor) = self.grpc_editors.get_mut(&tab) {
-                        self.shell.state.status = "gRPC: response received".into();
-                        editor.response = Some(result);
-                    }
-                }
-                Ok(Err(err)) => {
-                    self.grpc_jobs.remove(&tab);
-                    if let Some(editor) = self.grpc_editors.get_mut(&tab) {
-                        editor.error = Some(err);
-                    }
-                }
-                Err(std::sync::mpsc::TryRecvError::Empty) => {}
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.grpc_jobs.remove(&tab);
                 }
             }
         }
@@ -2583,12 +2472,20 @@ impl App {
             ExportWorkspace => self.open_export(ExportTarget::Workspace),
             SendRequest => {
                 if let Some(tab) = self.shell.tabs.active {
-                    self.apply_builder(tab, BuilderAction::Send { download: false });
+                    if self.grpc_editors.contains_key(&tab) {
+                        self.apply_grpc_action(tab, postguy_ui_egui::grpc_builder::GrpcAction::Invoke);
+                    } else {
+                        self.apply_builder(tab, BuilderAction::Send { download: false });
+                    }
                 }
             }
             CancelRequest => {
                 if let Some(tab) = self.shell.tabs.active {
-                    self.apply_builder(tab, BuilderAction::Cancel);
+                    if self.grpc_editors.contains_key(&tab) {
+                        self.apply_grpc_action(tab, postguy_ui_egui::grpc_builder::GrpcAction::Cancel);
+                    } else {
+                        self.apply_builder(tab, BuilderAction::Cancel);
+                    }
                 }
             }
             OpenSettings => {
@@ -2745,18 +2642,21 @@ impl App {
                 self.shell.state.sidebar_open = true;
                 self.shell.state.status = "Revealed in the sidebar".into();
             }
-            TabAction::SaveAndClose(tab_id) => match self.save_editor(tab_id) {
-                Ok(()) => {
-                    self.shell.tabs.force_close(tab_id);
-                    self.editors.remove(&tab_id);
-                    self.shell.state.status = "Saved and closed".into();
-                    self.refresh();
+            TabAction::SaveAndClose(tab_id) => {
+                match if self.grpc_editors.contains_key(&tab_id) { self.save_grpc_editor(tab_id) } else { self.save_editor(tab_id) } {
+                    Ok(()) => {
+                        self.shell.tabs.force_close(tab_id);
+                        self.editors.remove(&tab_id);
+                        self.grpc_editors.remove(&tab_id);
+                        self.shell.state.status = "Saved and closed".into();
+                        self.refresh();
+                    }
+                    Err(err) => {
+                        self.shell.tabs.pending_close = None;
+                        self.shell.state.status = format!("Save failed: {err}; the tab stays open");
+                    }
                 }
-                Err(err) => {
-                    self.shell.tabs.pending_close = None;
-                    self.shell.state.status = format!("Save failed: {err}; the tab stays open");
-                }
-            },
+            }
             TabAction::Restored(doc) => {
                 self.shell.state.status = format!("Reopened {doc:?}");
             }
@@ -2811,89 +2711,6 @@ fn graphql_schema_types(body: &[u8]) -> Result<Vec<String>, String> {
         }
     }
     Ok(out)
-}
-
-fn grpc_panel(ui: &mut egui::Ui, editor: &mut GrpcEditor) -> Option<GrpcUiAction> {
-    let theme = postguy_ui_egui::Theme::current(ui.ctx());
-    let mut action = None;
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(&editor.request.name).strong());
-        ui.label(egui::RichText::new("gRPC").small().color(theme.palette.text_muted));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.add(egui::Button::new("Invoke")).clicked() {
-                action = Some(GrpcUiAction::Invoke);
-            }
-            if ui.add(egui::Button::new("Invoke stream")).clicked() {
-                action = Some(GrpcUiAction::Stream);
-            }
-            if editor.dirty && ui.add(egui::Button::new("Save")).clicked() {
-                action = Some(GrpcUiAction::Save);
-            }
-        });
-    });
-    ui.add_space(4.0);
-    if ui.add(egui::TextEdit::singleline(&mut editor.draft.url).hint_text("localhost:50051").desired_width(f32::INFINITY)).changed() {
-        editor.dirty = true;
-    }
-    ui.horizontal(|ui| {
-        if postguy_ui_egui::widgets::checkbox(ui, &mut editor.draft.tls, "TLS").changed() {
-            editor.dirty = true;
-        }
-        if ui
-            .add(egui::TextEdit::singleline(&mut editor.draft.method_path).hint_text("package.Service/Method").desired_width(f32::INFINITY))
-            .changed()
-        {
-            editor.dirty = true;
-        }
-    });
-    let definition = match editor.draft.service_definition.as_ref().unwrap_or(&postguy_model::ServiceDefinition::Reflection) {
-        postguy_model::ServiceDefinition::Reflection => "Server reflection".to_string(),
-        postguy_model::ServiceDefinition::ProtoSet { name, .. } => format!("proto set `{name}`"),
-        postguy_model::ServiceDefinition::Inline { protos, .. } => format!("{} inline proto file(s)", protos.len()),
-        _ => "unknown definition".into(),
-    };
-    ui.label(egui::RichText::new(definition).small().color(theme.palette.text_muted));
-    if let Some(error) = &editor.error {
-        ui.label(egui::RichText::new(error).color(theme.palette.danger));
-    }
-    ui.separator();
-    ui.label(egui::RichText::new("Request message (JSON)").small().color(theme.palette.text_muted));
-    let mut message = std::mem::take(&mut editor.draft.message);
-    let changed = postguy_ui_egui::CodeEditor::new(postguy_ui_egui::CodeLanguage::Json)
-        .rows(8)
-        .id(egui::Id::new(("grpc-msg", &editor.request.id.0)))
-        .show(ui, &mut message)
-        .changed();
-    editor.draft.message = message;
-    if changed {
-        editor.dirty = true;
-    }
-    if let Some(response) = &editor.response {
-        ui.separator();
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Response").small().color(theme.palette.text_muted));
-            if let Some(status) = &response.status {
-                ui.label(egui::RichText::new(status).small().color(theme.palette.danger));
-            }
-        });
-        for (key, value) in &response.metadata {
-            ui.label(egui::RichText::new(format!("{key}: {value}")).small().color(theme.palette.text_muted));
-        }
-        let pretty = serde_json::to_string_pretty(&response.json).unwrap_or_default();
-        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-            postguy_ui_egui::LargeTextView::new(std::sync::Arc::from(pretty))
-                .id(egui::Id::new(("grpc-resp", &editor.request.id.0)))
-                .language(postguy_ui_egui::CodeLanguage::Json)
-                .wrap(true)
-                .show(ui);
-        });
-    }
-    ui.label(
-        egui::RichText::new("Descriptors come from server reflection, a workspace proto set or inline files.")
-            .small()
-            .color(theme.palette.text_muted),
-    );
-    action
 }
 
 fn ws_panel(ui: &mut egui::Ui, editor: &mut WsEditor) -> Option<WsUiAction> {
@@ -3093,7 +2910,7 @@ impl eframe::App for App {
         }
         self.poll_graphql();
         self.poll_ws();
-        self.poll_grpc();
+        self.poll_grpc_jobs(ui.ctx());
         // Sends and background imports/exports finish on other threads; without a repaint the
         // UI would poll only on the next mouse/key event and appear not to have reacted at all.
         if self.sending.is_some()
@@ -3106,7 +2923,7 @@ impl eframe::App for App {
             || self.oauth2_browser.is_some()
             || !self.graphql_jobs.is_empty()
             || self.ws_editors.values().any(|editor| editor.connected || editor.session.is_some())
-            || !self.grpc_jobs.is_empty()
+            || self.grpc_busy()
         {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
         }
@@ -3137,7 +2954,13 @@ impl eframe::App for App {
         let two_pane = self.shell.state.two_pane;
         let is_request = active.as_ref().is_some_and(|tab| matches!(tab.doc, TabDoc::Request { .. }));
         let panel_tab = if is_request { active_id } else { None };
-        let variables = panel_tab.and_then(|id| self.editors.get(&id)).map(|editor| self.variables_for(&editor.collection)).unwrap_or_default();
+        let panel_collection = panel_tab.and_then(|id| {
+            self.editors
+                .get(&id)
+                .map(|editor| editor.collection.clone())
+                .or_else(|| self.grpc_editors.get(&id).map(|editor| editor.collection.clone()))
+        });
+        let variables = panel_collection.as_deref().map(|collection| self.variables_for(collection)).unwrap_or_default();
         // The collection whose assets this frame's request editor or detail tab shows; the first
         // sight of it starts the background listing.
         let asset_collection = match active.as_ref().map(|tab| &tab.doc) {
@@ -3148,16 +2971,9 @@ impl eframe::App for App {
         if let (Some(collection), Some(engine)) = (&asset_collection, &self.engine) {
             self.assets.ensure(engine, collection);
         }
-        let collection_name = panel_tab
-            .and_then(|id| self.editors.get(&id))
-            .and_then(|editor| {
-                self.shell
-                    .sidebar_data
-                    .collections
-                    .iter()
-                    .find(|collection| collection.id.0 == editor.collection)
-                    .map(|collection| collection.name.clone())
-            })
+        let collection_name = panel_collection
+            .as_deref()
+            .and_then(|collection| self.shell.sidebar_data.collections.iter().find(|value| value.id.0 == collection).map(|value| value.name.clone()))
             .unwrap_or_default();
         let progress = self.sending.as_ref().and_then(|sending| {
             if Some(sending.tab) == panel_tab {
@@ -3191,7 +3007,7 @@ impl eframe::App for App {
             let ws_editors = &mut self.ws_editors;
             let mut ws_action: Option<(u64, WsUiAction)> = None;
             let grpc_editors = &mut self.grpc_editors;
-            let mut grpc_action: Option<(u64, GrpcUiAction)> = None;
+            let mut grpc_action: Option<(u64, postguy_ui_egui::grpc_builder::GrpcAction)> = None;
             let send_errors = &self.send_errors;
             let viewer_states = &mut self.viewer_states;
             let runner_state = &mut self.runner.state;
@@ -3201,7 +3017,8 @@ impl eframe::App for App {
                 match doc {
                     TabDoc::Request { protocol, .. } if protocol == "grpc" => {
                         let editor = grpc_editors.get_mut(&panel_id)?;
-                        if let Some(action) = grpc_panel(ui, editor) {
+                        let context = grpc::GrpcPanelContext { variables: &variables, collection_name: &collection_name, two_pane };
+                        if let Some(action) = grpc::grpc_panel(ui, editor, &context) {
                             grpc_action = Some((panel_id, action));
                         }
                         None
@@ -3327,10 +3144,12 @@ impl eframe::App for App {
         if let Some((tab, action)) = grpc_action {
             self.apply_grpc_action(tab, action);
         }
-        if let Some(panel_id) = panel_tab
-            && let Some(editor) = self.editors.get(&panel_id)
-        {
-            self.shell.tabs.set_dirty(panel_id, editor.dirty);
+        if let Some(panel_id) = panel_tab {
+            if let Some(editor) = self.editors.get(&panel_id) {
+                self.shell.tabs.set_dirty(panel_id, editor.dirty);
+            } else if let Some(editor) = self.grpc_editors.get(&panel_id) {
+                self.shell.tabs.set_dirty(panel_id, editor.dirty);
+            }
         }
         if let Some(action) = self.shell.action.take() {
             self.apply(action);
@@ -3835,6 +3654,38 @@ mod tests {
         assert!(!app.responses.contains_key(&tab), "Clear drops it");
     }
 
+    fn echo_grpc_tab(app: &mut App, url: &str, definition: Option<postguy_model::ServiceDefinition>, method_path: &str) -> u64 {
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.create_collection("gRPC").expect("collection");
+        let request = engine.create_request(&collection.id, None, "grpc", "Say").expect("request");
+        let mut stored = engine.request(&collection.id, &request.id).expect("stored");
+        stored.kind = postguy_model::RequestKind::Grpc(postguy_model::GrpcRequest {
+            url: url.to_string(),
+            method_path: method_path.into(),
+            service_definition: definition,
+            message: "{\"text\":\"ui\",\"number\":7}".into(),
+            ..Default::default()
+        });
+        engine.save_request(&collection.id, &stored).expect("save");
+        let tab = app.shell.tabs.open(
+            TabDoc::Request { collection: collection.id.0.clone(), request: request.id.0.clone(), method: "GRPC".into(), protocol: "grpc".into() },
+            "Say",
+        );
+        app.sync_grpc_editors();
+        tab
+    }
+
+    fn poll_grpc_until(app: &mut App, tab: u64, done: impl Fn(&grpc::GrpcEditor) -> bool) {
+        let ctx = egui::Context::default();
+        for _ in 0..500 {
+            app.poll_grpc_jobs(&ctx);
+            if app.grpc_editors.get(&tab).is_some_and(&done) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
     #[test]
     fn grpc_editor_invokes_a_unary_method() {
         let server = postguy_testkit::GrpcEchoServer::start().expect("grpc server");
@@ -3854,51 +3705,82 @@ message EchoMessage { string text = 1; int32 number = 2; }
         )
         .expect("proto");
         let mut app = app_in(dir.path());
-        let engine = app.engine.clone().expect("engine");
-        let collection = engine.create_collection("gRPC").expect("collection");
-        let request = engine.create_request(&collection.id, None, "grpc", "Say").expect("request");
-        let mut stored = engine.request(&collection.id, &request.id).expect("stored");
-        stored.kind = postguy_model::RequestKind::Grpc(postguy_model::GrpcRequest {
-            url: server.url().to_string(),
-            method_path: "echo.Echo/Say".into(),
-            service_definition: Some(postguy_model::ServiceDefinition::ProtoSet { name: "echo".into(), extras: Default::default() }),
-            message: "{\"text\":\"ui\",\"number\":7}".into(),
-            ..Default::default()
-        });
-        engine.save_request(&collection.id, &stored).expect("save");
-        let tab = app.shell.tabs.open(
-            TabDoc::Request { collection: collection.id.0.clone(), request: request.id.0.clone(), method: "GRPC".into(), protocol: "grpc".into() },
-            "Say",
-        );
-        app.sync_grpc_editors();
-        app.apply_grpc_action(tab, GrpcUiAction::Invoke);
-        for _ in 0..300 {
-            app.poll_grpc();
-            if app.grpc_editors.get(&tab).is_some_and(|editor| editor.response.is_some() || editor.error.is_some()) {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
+        let definition = Some(postguy_model::ServiceDefinition::ProtoSet { name: "echo".into(), extras: Default::default() });
+        let tab = echo_grpc_tab(&mut app, server.url(), definition, "echo.Echo/Say");
+        let editor = app.grpc_editors.get_mut(&tab).expect("gRPC editor");
+        editor.draft.tests = serde_json::from_value(serde_json::json!({
+            "assertions": [{"expr": "res.status", "operator": "eq", "value": "0"}],
+            "script": {"text": "pm.test('text echoed', () => pm.expect(pm.response.json().text).to.equal('ui'));"}
+        }))
+        .expect("tests");
+        app.apply_grpc_action(tab, postguy_ui_egui::grpc_builder::GrpcAction::Invoke);
+        poll_grpc_until(&mut app, tab, |editor| editor.response.is_some() || editor.error.is_some());
         let editor = app.grpc_editors.get(&tab).expect("gRPC editor");
-        let response = editor.response.as_ref().unwrap_or_else(|| panic!("gRPC response: {:?}", editor.error));
-        assert_eq!(response.json["text"], "ui");
-        assert_eq!(response.json["number"], 7);
+        let response = editor.response.as_ref().unwrap_or_else(|| panic!("gRPC response: {:?}", editor.error.as_ref().map(|e| &e.message)));
+        assert_eq!(response.status_code, 0);
+        assert!(response.body.contains("\"ui\""), "body: {}", response.body);
+        assert_eq!(response.tests.len(), 2, "assertion row and test script: {:?}", response.tests);
+        assert!(response.tests.iter().all(|test| test.status == postguy_model::TestStatus::Passed), "{:?}", response.tests);
+
         let editor = app.grpc_editors.get_mut(&tab).expect("gRPC editor");
         editor.draft.method_path = "echo.Echo/ServerStream".into();
-        editor.draft.message = "[{\"text\":\"s\"}]".into();
+        editor.draft.message = "{\"text\":\"s\"}".into();
+        editor.draft.tests = Default::default();
         editor.response = None;
-        editor.error = None;
-        app.apply_grpc_action(tab, GrpcUiAction::Stream);
-        for _ in 0..300 {
-            app.poll_grpc();
-            if app.grpc_editors.get(&tab).is_some_and(|editor| editor.response.is_some() || editor.error.is_some()) {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
+        app.apply_grpc_action(tab, postguy_ui_egui::grpc_builder::GrpcAction::Invoke);
+        poll_grpc_until(&mut app, tab, |editor| editor.response.is_some() || editor.error.is_some());
         let editor = app.grpc_editors.get(&tab).expect("gRPC editor");
-        let response = editor.response.as_ref().unwrap_or_else(|| panic!("gRPC stream response: {:?}", editor.error));
-        assert_eq!(response.json.as_array().map(Vec::len), Some(3));
+        let response = editor.response.as_ref().unwrap_or_else(|| panic!("gRPC stream response: {:?}", editor.error.as_ref().map(|e| &e.message)));
+        assert!(response.streaming);
+        assert_eq!(response.message_count, 3);
+    }
+
+    #[test]
+    fn grpc_editor_loads_services_by_reflection() {
+        let server = postguy_testkit::GrpcEchoServer::start().expect("grpc server");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let tab = echo_grpc_tab(&mut app, server.url(), None, "");
+        let editor = app.grpc_editors.get(&tab).expect("gRPC editor");
+        assert_eq!(editor.schema, postguy_ui_egui::grpc_builder::GrpcSchemaState::NotLoaded, "reflection never loads without a click");
+        assert_eq!(editor.tab, postguy_ui_egui::grpc_builder::GrpcTab::ServiceDefinition, "no method yet: start on the definition");
+        app.apply_grpc_action(tab, postguy_ui_egui::grpc_builder::GrpcAction::LoadSchema);
+        poll_grpc_until(&mut app, tab, |editor| !matches!(editor.schema, postguy_ui_egui::grpc_builder::GrpcSchemaState::Loading));
+        let editor = app.grpc_editors.get(&tab).expect("gRPC editor");
+        let postguy_ui_egui::grpc_builder::GrpcSchemaState::Loaded(schema) = &editor.schema else { panic!("schema: {:?}", editor.schema) };
+        assert_eq!(schema.services.first().map(|service| service.name.as_str()), Some("echo.Echo"));
+
+        // A dead port reports the failure instead of loading forever.
+        app.grpc_editors.get_mut(&tab).expect("gRPC editor").draft.url = "http://127.0.0.1:1".into();
+        app.apply_grpc_action(tab, postguy_ui_egui::grpc_builder::GrpcAction::LoadSchema);
+        poll_grpc_until(&mut app, tab, |editor| !matches!(editor.schema, postguy_ui_egui::grpc_builder::GrpcSchemaState::Loading));
+        let editor = app.grpc_editors.get(&tab).expect("gRPC editor");
+        assert!(matches!(editor.schema, postguy_ui_egui::grpc_builder::GrpcSchemaState::Failed(_)), "schema: {:?}", editor.schema);
+    }
+
+    #[test]
+    fn grpc_draft_survives_the_session_and_saves_on_close() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let tab = echo_grpc_tab(&mut app, "localhost:1", None, "echo.Echo/Say");
+        let editor = app.grpc_editors.get_mut(&tab).expect("gRPC editor");
+        editor.draft.message = "{\"text\":\"draft\"}".into();
+        editor.dirty = true;
+        editor.tab = postguy_ui_egui::grpc_builder::GrpcTab::Metadata;
+        app.store_grpc_drafts();
+        // A fresh editor (as after a restart) comes from the session draft, not the file.
+        app.grpc_editors.clear();
+        app.sync_grpc_editors();
+        let editor = app.grpc_editors.get(&tab).expect("restored editor");
+        assert_eq!(editor.draft.message, "{\"text\":\"draft\"}");
+        assert_eq!(editor.tab, postguy_ui_egui::grpc_builder::GrpcTab::Metadata);
+        app.apply_tab(TabAction::SaveAndClose(tab));
+        assert!(!app.grpc_editors.contains_key(&tab));
+        let engine = app.engine.clone().expect("engine");
+        let collection = engine.collections().expect("collections").into_iter().find(|c| c.name == "gRPC").expect("collection");
+        let Some(Item::Request(request)) = collection.items.first() else { panic!("request") };
+        let RequestKind::Grpc(grpc) = &request.kind else { panic!("grpc") };
+        assert_eq!(grpc.message, "{\"text\":\"draft\"}");
     }
 
     #[test]
