@@ -25,9 +25,17 @@ pub struct AuthEditorResult {
     pub oauth2: Option<OAuth2Action>,
 }
 
+/// Which protocol's auth kinds the editor offers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthScope {
+    Http,
+    /// gRPC sends auth as request metadata: Inherit, No Auth, API Key (header), Basic, Bearer and OAuth 2.0.
+    Grpc,
+}
+
 /// Draw the auth editor. `allow_inherit` is false for collection-level auth. `inherited` names
 /// the parent's resolved auth kind for the Inherit hint.
-pub fn auth_editor(ui: &mut Ui, auth: &mut AuthConfig, allow_inherit: bool, inherited: Option<&str>) -> AuthEditorResult {
+pub fn auth_editor(ui: &mut Ui, auth: &mut AuthConfig, allow_inherit: bool, inherited: Option<&str>, scope: AuthScope) -> AuthEditorResult {
     let theme = Theme::current(ui.ctx());
     let mut changed = false;
     let mut oauth2_action = None;
@@ -37,21 +45,29 @@ pub fn auth_editor(ui: &mut Ui, auth: &mut AuthConfig, allow_inherit: bool, inhe
         basic_items.push(widgets::SelectItem::new("inherit", "Inherit"));
     }
     basic_items.push(widgets::SelectItem::new("noauth", "No Auth"));
-    basic_items.push(widgets::SelectItem { separator_before: true, ..widgets::SelectItem::new("apikey", "API Key") });
-    basic_items.push(widgets::SelectItem::new("basic", "Basic Auth"));
-    basic_items.push(widgets::SelectItem::new("bearer", "Bearer Token"));
-    let advanced_items = vec![
-        widgets::SelectItem::new("digest", "Digest Auth"),
-        widgets::SelectItem::new("jwt", "JWT Bearer"),
-        widgets::SelectItem::new("oauth1", "OAuth 1.0"),
-        widgets::SelectItem::new("awsv4", "AWS Signature v4"),
-        widgets::SelectItem::new("hawk", "Hawk"),
-        widgets::SelectItem::new("oauth2", "OAuth 2.0"),
-    ];
-    let groups = [
-        widgets::SelectGroup { label: Some("P0".into()), items: basic_items },
-        widgets::SelectGroup { label: Some("P1".into()), items: advanced_items },
-    ];
+    let groups = if scope == AuthScope::Grpc {
+        basic_items.push(widgets::SelectItem::new("apikey", "API Key"));
+        basic_items.push(widgets::SelectItem::new("basic", "Basic Auth"));
+        basic_items.push(widgets::SelectItem::new("bearer", "Bearer Token"));
+        basic_items.push(widgets::SelectItem::new("oauth2", "OAuth 2.0"));
+        vec![widgets::SelectGroup { label: None, items: basic_items }]
+    } else {
+        basic_items.push(widgets::SelectItem { separator_before: true, ..widgets::SelectItem::new("apikey", "API Key") });
+        basic_items.push(widgets::SelectItem::new("basic", "Basic Auth"));
+        basic_items.push(widgets::SelectItem::new("bearer", "Bearer Token"));
+        let advanced_items = vec![
+            widgets::SelectItem::new("digest", "Digest Auth"),
+            widgets::SelectItem::new("jwt", "JWT Bearer"),
+            widgets::SelectItem::new("oauth1", "OAuth 1.0"),
+            widgets::SelectItem::new("awsv4", "AWS Signature v4"),
+            widgets::SelectItem::new("hawk", "Hawk"),
+            widgets::SelectItem::new("oauth2", "OAuth 2.0"),
+        ];
+        vec![
+            widgets::SelectGroup { label: Some("P0".into()), items: basic_items },
+            widgets::SelectGroup { label: Some("P1".into()), items: advanced_items },
+        ]
+    };
     let mut selected = Some(current.clone());
     if widgets::select(ui, "auth-type", &mut selected, &groups, "Auth type") {
         *auth = match selected.as_deref() {
@@ -71,6 +87,15 @@ pub fn auth_editor(ui: &mut Ui, auth: &mut AuthConfig, allow_inherit: bool, inhe
         changed = true;
     }
     ui.add_space(8.0);
+    let grpc_unsupported = scope == AuthScope::Grpc
+        && !matches!(
+            auth,
+            AuthConfig::Inherit | AuthConfig::NoAuth | AuthConfig::ApiKey(_) | AuthConfig::Basic(_) | AuthConfig::Bearer(_) | AuthConfig::OAuth2(_)
+        );
+    if grpc_unsupported {
+        ui.label(RichText::new(format!("`{}` auth is not supported for gRPC; choose another type.", auth.kind())).color(theme.palette.warning));
+        return AuthEditorResult { changed, oauth2: None };
+    }
     match auth {
         AuthConfig::Inherit => {
             let label = inherited
@@ -83,7 +108,7 @@ pub fn auth_editor(ui: &mut Ui, auth: &mut AuthConfig, allow_inherit: bool, inhe
         }
         AuthConfig::Basic(basic) => changed |= basic_fields(ui, basic),
         AuthConfig::Bearer(bearer) => changed |= bearer_fields(ui, bearer),
-        AuthConfig::ApiKey(api_key) => changed |= api_key_fields(ui, api_key),
+        AuthConfig::ApiKey(api_key) => changed |= api_key_fields(ui, api_key, scope == AuthScope::Http),
         AuthConfig::Digest(digest) => changed |= digest_fields(ui, digest),
         AuthConfig::Jwt(jwt) => changed |= jwt_fields(ui, jwt),
         AuthConfig::OAuth1(oauth) => changed |= oauth1_fields(ui, oauth),
@@ -501,7 +526,7 @@ fn oauth2_grant_label(grant: OAuth2Grant) -> &'static str {
     }
 }
 
-fn api_key_fields(ui: &mut Ui, auth: &mut ApiKeyAuth) -> bool {
+fn api_key_fields(ui: &mut Ui, auth: &mut ApiKeyAuth, allow_query: bool) -> bool {
     let mut changed = false;
     ui.label("Key");
     if widgets::variable_field(ui, egui::Id::new("auth-apikey-key"), &mut auth.key, "X-API-Key").changed() {
@@ -510,6 +535,15 @@ fn api_key_fields(ui: &mut Ui, auth: &mut ApiKeyAuth) -> bool {
     ui.label("Value");
     if widgets::variable_field(ui, egui::Id::new("auth-apikey-value"), &mut auth.value, "value").changed() {
         changed = true;
+    }
+    if !allow_query {
+        if auth.location == AuthLocation::Query {
+            auth.location = AuthLocation::Header;
+            changed = true;
+        }
+        let theme = Theme::current(ui.ctx());
+        ui.label(RichText::new("Sent as request metadata.").small().color(theme.palette.text_muted));
+        return changed;
     }
     let mut choice = match auth.location {
         AuthLocation::Header => "header".to_string(),

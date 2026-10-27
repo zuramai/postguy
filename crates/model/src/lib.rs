@@ -10,6 +10,7 @@ pub mod body;
 pub mod collection;
 pub mod environment;
 pub mod extras;
+pub mod grpc_schema;
 pub mod history;
 pub mod ids;
 pub mod requests;
@@ -21,6 +22,7 @@ pub use body::{Body, RawLanguage};
 pub use collection::{Collection, Folder, Item, Request};
 pub use environment::{Environment, Variable};
 pub use extras::Extras;
+pub use grpc_schema::{GrpcFieldInfo, GrpcMessageInfo, GrpcMethodInfo, GrpcSchema, GrpcServiceInfo, UnknownField};
 pub use history::HistoryEntry;
 pub use ids::{Id, new_id};
 pub use requests::{

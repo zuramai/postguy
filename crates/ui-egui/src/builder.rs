@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use egui::{Align, Layout, RichText, ScrollArea, Ui, vec2};
-use postguy_model::{Body, HttpMethod, HttpRequest, KeyValue, RawLanguage};
+use postguy_model::{Body, HttpMethod, HttpRequest, KeyValue, RawLanguage, RequestTests};
 use postguy_urlkit::{Param, Url, encode_query, params_of_query, path_vars_of, query_of_params};
 
 use crate::theme::Theme;
@@ -199,18 +199,9 @@ impl RequestBuilder<'_> {
             let methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
             let url_id = egui::Id::new(("builder-url", self.name.as_str()));
             let bar_width = ui.available_width().max(220.0);
-            let (bar, _) = ui.allocate_exact_size(vec2(bar_width, bar_height), egui::Sense::hover());
+            let bar = paint_url_bar(ui, theme, url_id, bar_height, bar_width);
             bar_rect = Some(bar);
-            let focused = ui.memory(|memory| memory.has_focus(url_id));
-            let border = if focused {
-                palette.accent
-            } else if ui.rect_contains_pointer(bar) {
-                palette.input_border_hover
-            } else {
-                palette.input_border
-            };
             let rounding = egui::CornerRadius::same(theme.metrics.radius as u8);
-            ui.painter().rect(bar, rounding, palette.input_bg, egui::Stroke::new(1.0, border), egui::StrokeKind::Inside);
 
             let method_rect = egui::Rect::from_min_size(bar.min, vec2(96.0, bar_height));
             let method_response = ui.interact(method_rect, egui::Id::new(("builder-method", self.name.as_str())), egui::Sense::click());
@@ -278,11 +269,7 @@ impl RequestBuilder<'_> {
         // The progress line is painted over the bottom edge of the URL bar: it takes no layout
         // space, so starting a send moves nothing.
         if let (Some(progress), Some(bar)) = (self.sending, bar_rect) {
-            let fraction = ((progress.elapsed_ms % 1200) as f32) / 1200.0;
-            let line = egui::Rect::from_min_max(egui::pos2(bar.left() + 6.0, bar.bottom() - 2.0), egui::pos2(bar.right() - 6.0, bar.bottom()));
-            let painter = ui.painter().with_clip_rect(bar);
-            painter.rect_filled(line, 0.0, palette.surface_sunken);
-            painter.rect_filled(egui::Rect::from_min_size(line.min, vec2(line.width() * fraction, line.height())), 0.0, palette.accent);
+            paint_progress(ui, theme, bar, progress);
         }
     }
 
@@ -377,7 +364,7 @@ impl RequestBuilder<'_> {
     }
 
     fn authorization(&mut self, ui: &mut Ui, _theme: &Theme) {
-        let result = crate::auth::auth_editor(ui, &mut self.draft.auth, true, self.inherited_auth);
+        let result = crate::auth::auth_editor(ui, &mut self.draft.auth, true, self.inherited_auth, crate::auth::AuthScope::Http);
         if result.changed {
             *self.dirty = true;
         }
@@ -600,13 +587,7 @@ impl RequestBuilder<'_> {
     }
 
     fn tests(&mut self, ui: &mut Ui, theme: &Theme) {
-        use crate::script_snippets::{TESTS, script_editor};
-        ui.label(RichText::new("Assertions").small().color(theme.palette.text_muted));
-        let response = widgets::assertion_table(ui, &mut self.draft.tests.assertions);
-        let mut changed = response.changed;
-        ui.add_space(12.0);
-        changed |= script_editor(ui, theme, "Test script", egui::Id::new(("script", "Tests")), 8, &mut self.draft.tests.script, TESTS);
-        if changed {
+        if tests_tab(ui, theme, &mut self.draft.tests, "Tests", crate::script_snippets::TESTS) {
             *self.dirty = true;
         }
     }
@@ -836,9 +817,48 @@ fn raw_language_from_key(key: &str) -> RawLanguage {
     }
 }
 
+/// Allocate the URL bar (`width` x `height`) and paint its fill and focus/hover border.
+pub(crate) fn paint_url_bar(ui: &mut Ui, theme: &Theme, focus_id: egui::Id, height: f32, width: f32) -> egui::Rect {
+    let palette = theme.palette;
+    let (bar, _) = ui.allocate_exact_size(vec2(width, height), egui::Sense::hover());
+    let focused = ui.memory(|memory| memory.has_focus(focus_id));
+    let border = if focused {
+        palette.accent
+    } else if ui.rect_contains_pointer(bar) {
+        palette.input_border_hover
+    } else {
+        palette.input_border
+    };
+    let rounding = egui::CornerRadius::same(theme.metrics.radius as u8);
+    ui.painter().rect(bar, rounding, palette.input_bg, egui::Stroke::new(1.0, border), egui::StrokeKind::Inside);
+    bar
+}
+
+/// The in-flight progress line painted over the bottom edge of the URL bar `bar`; it takes no layout space.
+pub(crate) fn paint_progress(ui: &Ui, theme: &Theme, bar: egui::Rect, progress: SendProgress) {
+    let palette = theme.palette;
+    let fraction = ((progress.elapsed_ms % 1200) as f32) / 1200.0;
+    let line = egui::Rect::from_min_max(egui::pos2(bar.left() + 6.0, bar.bottom() - 2.0), egui::pos2(bar.right() - 6.0, bar.bottom()));
+    let painter = ui.painter().with_clip_rect(bar);
+    painter.rect_filled(line, 0.0, palette.surface_sunken);
+    painter.rect_filled(egui::Rect::from_min_size(line.min, vec2(line.width() * fraction, line.height())), 0.0, palette.accent);
+}
+
+/// The Assertions table plus the Test script editor, shared by the HTTP and gRPC builders. `id`
+/// salts the script editor's widget id. Returns true when anything changed.
+pub(crate) fn tests_tab(ui: &mut Ui, theme: &Theme, tests: &mut RequestTests, id: &str, snippets: &[(&str, &str)]) -> bool {
+    use crate::script_snippets::script_editor;
+    ui.label(RichText::new("Assertions").small().color(theme.palette.text_muted));
+    let response = widgets::assertion_table(ui, &mut tests.assertions);
+    let mut changed = response.changed;
+    ui.add_space(12.0);
+    changed |= script_editor(ui, theme, "Test script", egui::Id::new(("script", id)), 8, &mut tests.script, snippets);
+    changed
+}
+
 /// A bulk editor: `key: value` or `key=value` lines replace the rows when the text changes.
 /// The toggle and text live in egui's temporary data, keyed by the field id.
-fn bulk_edit(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debug, rows: &mut Vec<KeyValue>, theme: &Theme) -> bool {
+pub(crate) fn bulk_edit(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debug, rows: &mut Vec<KeyValue>, theme: &Theme) -> bool {
     let toggle_key = egui::Id::new((&id, "bulk-toggle"));
     let text_key = egui::Id::new((&id, "bulk-text"));
     let mut editing = ui.data(|data| data.get_temp::<bool>(toggle_key).unwrap_or(false));

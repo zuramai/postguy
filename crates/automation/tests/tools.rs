@@ -205,6 +205,7 @@ message EchoMessage { string text = 1; int32 number = 2; }
     );
     let described = call(&automation, "grpc_describe", json!({"collection": collection, "request": request}));
     assert_eq!(described["services"][0]["methods"][0]["path"], "echo.Echo/Say");
+    assert_eq!(described["messages"]["echo.EchoMessage"]["fields"][0]["typeLabel"], "string");
     let example = call(&automation, "grpc_example_message", json!({"collection": collection, "request": request}));
     assert!(example["message"].is_object());
     let invoked = call(&automation, "grpc_invoke", json!({"collection": collection, "request": request}));
@@ -230,6 +231,31 @@ message EchoMessage { string text = 1; int32 number = 2; }
     );
     let reflected = call(&automation, "grpc_invoke", json!({"collection": collection, "request": request}));
     assert_eq!(reflected["message"]["text"], "reflected");
+    let checked =
+        call(&automation, "grpc_check_message", json!({"collection": collection, "request": request, "message": "{\"text\":\"a\",\"bogus\":1}"}));
+    assert_eq!(checked["input"], "echo.EchoMessage");
+    assert_eq!(checked["unknownFields"].as_array().map(Vec::len), Some(1), "{checked}");
+    assert_eq!(checked["unknownFields"][0]["key"], "bogus");
+    call(
+        &automation,
+        "request_update",
+        json!({
+            "collection": collection,
+            "request": request,
+            "definition": {
+                "type": "grpc",
+                "url": server.url(),
+                "serviceDefinition": {"source": "protoSet", "name": "echo"},
+                "methodPath": "echo.Echo/Say",
+                "message": "{\"text\":\"scripted\"}",
+                "tests": {"script": {"text": "pm.test('ok', () => pm.expect(pm.response.code).to.equal(0))"}}
+            }
+        }),
+    );
+    let sent = call(&automation, "grpc_send", json!({"collection": collection, "request": request}));
+    assert_eq!(sent["status"]["name"], "OK", "{sent}");
+    assert_eq!(sent["messages"][0]["text"], "scripted");
+    assert_eq!(sent["script"]["tests"][0]["status"], "passed", "{sent}");
     let update_method = |path: &str| {
         call(
             &automation,
@@ -344,6 +370,30 @@ fn grpc_proto_paths_cannot_escape_the_workspace() {
         automation.call("grpc_describe", &json!({"collection": collection, "request": request})).is_err(),
         "a traversal proto set name must refuse"
     );
+}
+
+#[test]
+fn grpc_set_proto_is_confined_to_root() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let automation = automation_in(dir.path());
+    call(&automation, "workspace_open", json!({"path": "work"}));
+    let collection = call(&automation, "collection_create", json!({"name": "gRPC"}))["collection"].as_str().unwrap().to_string();
+    let request = call(&automation, "request_create", json!({"collection": collection, "kind": "grpc", "name": "Pick"}))["request"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let elsewhere = tempfile::tempdir().expect("outside tempdir");
+    let outside = elsewhere.path().join("outside.proto");
+    std::fs::write(&outside, "syntax = \"proto3\"; message Outside { string secret = 1; }").expect("outside proto");
+    let refused = automation.call("grpc_set_proto", &json!({"collection": collection, "request": request, "paths": [outside.to_string_lossy()]}));
+    assert!(refused.is_err(), "a proto outside --root must be refused: {refused:?}");
+    let inside = dir.path().join("work/echo.proto");
+    std::fs::write(&inside, "syntax = \"proto3\"; package echo; service Echo { rpc Say (M) returns (M); } message M { string text = 1; }")
+        .expect("proto");
+    let picked = call(&automation, "grpc_set_proto", json!({"collection": collection, "request": request, "paths": ["work/echo.proto"]}));
+    assert_eq!(picked["set"], "echo");
+    let described = call(&automation, "grpc_describe", json!({"collection": collection, "request": request}));
+    assert_eq!(described["services"][0]["name"], "echo.Echo");
 }
 
 #[test]

@@ -6,66 +6,48 @@ use std::path::PathBuf;
 
 use postguy_grpc::{DescriptorPool, GrpcError, GrpcTls, StreamResult, UnaryResult};
 use postguy_model::{Collection, Folder, GrpcRequest, Item, KeyValue, Request, ServiceDefinition};
+use postguy_vars::Resolver;
 
 use crate::Engine;
 use crate::error::{EngineError, Result};
-use crate::pipeline::{Located, build_resolver, resolve_auth, resolved_auth_chain};
+use crate::pipeline::{Located, build_resolver, refresh_expired_oauth2, resolve_auth, resolved_auth_chain};
 
 impl Engine {
-    /// Compile the protos referenced by a gRPC request.
+    /// Locate a stored gRPC request and build the `Located` the shared HTTP machinery (scopes,
+    /// auth inheritance, scripts) works on. The *draft's* auth, scripts and tests are used, not the
+    /// stored ones, so unsaved edits take effect.
+    pub(crate) fn grpc_located(&self, collection: &postguy_model::Id, request: &postguy_model::Id, draft: &GrpcRequest) -> Result<Located> {
+        let (collection, folders, stored) = self.locate_grpc(collection, request)?;
+        Ok(Located {
+            collection,
+            folders,
+            http: postguy_model::HttpRequest {
+                auth: draft.auth.clone(),
+                scripts: draft.scripts.clone(),
+                tests: draft.tests.clone(),
+                ..Default::default()
+            },
+            request_name: stored.name,
+            request_id: stored.id.0,
+        })
+    }
+
     /// Resolve a stored/draft gRPC request the way an HTTP send would: collection, folder and
     /// environment variables (including secrets) in every text field, then inherited auth
     /// applied as metadata. Unresolved variables and unsupported auth fail instead of being
     /// sent literally.
     pub fn prepare_grpc(&self, collection: &postguy_model::Id, request: &postguy_model::Id, draft: &GrpcRequest) -> Result<GrpcRequest> {
-        let (collection, folders, stored) = self.locate_grpc(collection, request)?;
-        let located = Located {
-            collection,
-            folders,
-            http: postguy_model::HttpRequest { auth: stored.auth.clone(), ..Default::default() },
-            request_name: String::new(),
-            request_id: String::new(),
-        };
+        let located = self.grpc_located(collection, request, draft)?;
         let resolver = build_resolver(self, &located, None, None)?;
         let mut prepared = draft.clone();
-        prepared.url = resolve_checked(&resolver, &draft.url, "URL")?;
-        prepared.method_path = resolve_checked(&resolver, &draft.method_path, "method path")?;
-        prepared.message = resolve_checked(&resolver, &draft.message, "request message")?;
-        for row in &mut prepared.metadata {
-            row.key = resolve_checked(&resolver, &row.key, "metadata key")?;
-            row.value = resolve_checked(&resolver, &row.value, "metadata value")?;
-        }
-        if let Some(definition) = prepared.service_definition.as_mut() {
-            match definition {
-                ServiceDefinition::ProtoSet { name, .. } => *name = resolve_checked(&resolver, name, "proto set name")?,
-                ServiceDefinition::Inline { protos, import_paths, .. } => {
-                    for file in protos {
-                        file.name = resolve_checked(&resolver, &file.name, "proto file name")?;
-                        file.path = resolve_checked(&resolver, &file.path, "proto file path")?;
-                    }
-                    for path in import_paths {
-                        *path = resolve_checked(&resolver, path, "import path")?;
-                    }
-                }
-                _ => {}
-            }
-        }
-        let auth = resolve_auth(&resolved_auth_chain(&located), &resolver)?;
-        if let Some(auth) = auth {
-            let mut spec = postguy_http::RequestSpec::get(prepared.url.clone());
-            let placement = postguy_http::apply_auth(&auth, &mut spec).map_err(|err| EngineError::BadRequest { reason: err.to_string() })?;
-            if matches!(placement, postguy_http::AuthPlacement::Query) {
-                return Err(EngineError::BadRequest { reason: "API-key query auth is not supported for gRPC; use the header location".into() });
-            }
-            for (key, value) in spec.headers {
-                prepared.metadata.retain(|row| !row.key.eq_ignore_ascii_case(&key));
-                prepared.metadata.push(KeyValue { key, value, enabled: true, ..Default::default() });
-            }
-        }
+        resolve_grpc_target(&resolver, &mut prepared)?;
+        resolve_grpc_payload(&resolver, &mut prepared)?;
+        let mut warnings = Vec::new();
+        self.inner.runtime.block_on(apply_grpc_auth(self, &located, &resolver, &mut prepared, &mut warnings))?;
         Ok(prepared)
     }
 
-    fn locate_grpc(&self, collection_id: &postguy_model::Id, request_id: &postguy_model::Id) -> Result<(Collection, Vec<Folder>, GrpcRequest)> {
+    fn locate_grpc(&self, collection_id: &postguy_model::Id, request_id: &postguy_model::Id) -> Result<(Collection, Vec<Folder>, Request)> {
         let collection = self.workspace().load_collection(collection_id)?.into_value();
         let mut stack: Vec<(Vec<Folder>, Vec<Item>)> = vec![(Vec::new(), collection.items.clone())];
         let mut visited = 0usize;
@@ -82,11 +64,11 @@ impl Engine {
                         stack.push((child, folder.items.clone()));
                     }
                     Item::Request(found) if found.id == *request_id => {
-                        let Request { kind, .. } = *found;
-                        let postguy_model::RequestKind::Grpc(grpc) = kind else {
+                        let found = *found;
+                        if !matches!(found.kind, postguy_model::RequestKind::Grpc(_)) {
                             return Err(EngineError::BadRequest { reason: "prepare_grpc expects a gRPC request".into() });
-                        };
-                        return Ok((collection, folders, grpc));
+                        }
+                        return Ok((collection, folders, found));
                     }
                     Item::Request(_) => {}
                 }
@@ -95,17 +77,30 @@ impl Engine {
         Err(EngineError::NotFound { what: "request".into(), id: request_id.0.clone() })
     }
 
+    /// Compile the protos referenced by a gRPC request (reflection fetches one service). Blocks via the engine runtime.
     pub fn grpc_pool(&self, request: &GrpcRequest) -> Result<DescriptorPool> {
+        self.inner.runtime.block_on(self.grpc_pool_async(request, false))
+    }
+
+    /// The async core of [`Engine::grpc_pool`]. `all_services` makes the reflection arm list and
+    /// fetch every service the server exposes instead of only the request's own.
+    pub(crate) async fn grpc_pool_async(&self, request: &GrpcRequest, all_services: bool) -> Result<DescriptorPool> {
         let protos = self.store_paths().protos_dir();
-        let root = protos
-            .canonicalize()
-            .map_err(|err| EngineError::BadRequest { reason: format!("workspace protos directory {}: {err}", protos.display()) })?;
+        let canonical_root = || {
+            protos.canonicalize().map_err(|err| EngineError::BadRequest { reason: format!("workspace protos directory {}: {err}", protos.display()) })
+        };
         match request.service_definition.as_ref().unwrap_or(&ServiceDefinition::Reflection) {
             ServiceDefinition::Reflection => {
                 let (endpoint, tls) = self.grpc_connection(request)?;
-                self.inner.runtime.block_on(postguy_grpc::reflection_pool(&endpoint, &tls, &request.method_path)).map_err(grpc_error)
+                let pool = if all_services {
+                    postguy_grpc::reflection_pool_all(&endpoint, &tls).await
+                } else {
+                    postguy_grpc::reflection_pool(&endpoint, &tls, &request.method_path).await
+                };
+                pool.map_err(|err| reflection_error(&endpoint, err))
             }
             ServiceDefinition::ProtoSet { name, .. } => {
+                let root = canonical_root()?;
                 if name.is_empty() {
                     return Err(EngineError::BadRequest { reason: "the proto set has no name".into() });
                 }
@@ -131,6 +126,7 @@ impl Engine {
                 }
             }
             ServiceDefinition::Inline { protos: files, import_paths, .. } => {
+                let root = canonical_root()?;
                 let mut names = Vec::new();
                 for file in files.iter().filter(|file| !file.path.trim().is_empty()) {
                     let path = confined_join(&root, &file.path)?;
@@ -160,10 +156,16 @@ impl Engine {
         }
     }
 
-    /// Service/method inventory for a request's compiled protos.
-    pub fn grpc_describe(&self, request: &GrpcRequest) -> Result<Vec<serde_json::Value>> {
-        let pool = self.grpc_pool(request)?;
-        Ok(postguy_grpc::describe(&pool))
+    /// The request's service definition as plain data: a proto set or inline files compile, and
+    /// reflection lists every service the server exposes. Variables in the message are not
+    /// resolved, so an unfinished message never blocks loading the definition.
+    pub fn grpc_schema(&self, collection: &postguy_model::Id, request: &postguy_model::Id, draft: &GrpcRequest) -> Result<postguy_model::GrpcSchema> {
+        let located = self.grpc_located(collection, request, draft)?;
+        let resolver = build_resolver(self, &located, None, None)?;
+        let mut resolved = draft.clone();
+        resolve_grpc_target(&resolver, &mut resolved)?;
+        let pool = self.inner.runtime.block_on(self.grpc_pool_async(&resolved, true))?;
+        Ok(postguy_grpc::schema(&pool))
     }
 
     /// A default JSON example for the request's input message.
@@ -209,7 +211,7 @@ impl Engine {
 }
 
 impl Engine {
-    fn grpc_connection(&self, request: &GrpcRequest) -> Result<(String, GrpcTls)> {
+    pub(crate) fn grpc_connection(&self, request: &GrpcRequest) -> Result<(String, GrpcTls)> {
         if request.url.trim().is_empty() {
             return Err(EngineError::BadRequest { reason: "the gRPC endpoint URL is empty".into() });
         }
@@ -311,4 +313,83 @@ fn resolve_checked(resolver: &postguy_vars::Resolver, text: &str, field: &str) -
         return Err(EngineError::BadRequest { reason: format!("the gRPC {field} has unresolved variable(s): {}", unresolved.join(", ")) });
     }
     Ok(resolved.text)
+}
+
+/// A reflection failure for the user: code 12 means the server has no reflection service.
+pub(crate) fn reflection_error(endpoint: &str, error: GrpcError) -> EngineError {
+    match error {
+        GrpcError::Status { code: 12, message } => {
+            EngineError::BadRequest { reason: format!("server reflection is not available at {endpoint}: {message}") }
+        }
+        other => grpc_error(other),
+    }
+}
+
+/// Resolve the URL and service-definition names of a request.
+pub(crate) fn resolve_grpc_target(resolver: &Resolver, req: &mut GrpcRequest) -> Result<()> {
+    req.url = resolve_checked(resolver, &req.url, "URL")?;
+    if let Some(definition) = req.service_definition.as_mut() {
+        match definition {
+            ServiceDefinition::ProtoSet { name, .. } => *name = resolve_checked(resolver, name, "proto set name")?,
+            ServiceDefinition::Inline { protos, import_paths, .. } => {
+                for file in protos {
+                    file.name = resolve_checked(resolver, &file.name, "proto file name")?;
+                    file.path = resolve_checked(resolver, &file.path, "proto file path")?;
+                }
+                for path in import_paths {
+                    *path = resolve_checked(resolver, path, "import path")?;
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Resolve the method path, message and metadata of a request.
+pub(crate) fn resolve_grpc_payload(resolver: &Resolver, req: &mut GrpcRequest) -> Result<()> {
+    req.method_path = resolve_checked(resolver, &req.method_path, "method path")?;
+    req.message = resolve_checked(resolver, &req.message, "request message")?;
+    for row in &mut req.metadata {
+        row.key = resolve_checked(resolver, &row.key, "metadata key")?;
+        row.value = resolve_checked(resolver, &row.value, "metadata value")?;
+    }
+    Ok(())
+}
+
+/// Apply the request's (inherited) auth as metadata rows, refreshing an expired OAuth 2.0 token first.
+pub(crate) async fn apply_grpc_auth(
+    engine: &Engine,
+    located: &Located,
+    resolver: &Resolver,
+    req: &mut GrpcRequest,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
+    let mut auth = resolve_auth(&resolved_auth_chain(located), resolver)?;
+    refresh_expired_oauth2(engine, &mut auth, warnings).await?;
+    if let Some(auth) = auth {
+        let mut spec = postguy_http::RequestSpec::get(req.url.clone());
+        let placement = postguy_http::apply_auth(&auth, &mut spec).map_err(|err| EngineError::BadRequest { reason: err.to_string() })?;
+        if matches!(placement, postguy_http::AuthPlacement::Query) {
+            return Err(EngineError::BadRequest { reason: "API-key query auth is not supported for gRPC; use the header location".into() });
+        }
+        for (key, value) in spec.headers {
+            req.metadata.retain(|row| !row.key.eq_ignore_ascii_case(&key));
+            req.metadata.push(KeyValue { key, value, enabled: true, ..Default::default() });
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unimplemented_reflection_status_explains_itself() {
+        let error = reflection_error("http://h:1", GrpcError::Status { code: 12, message: "no service".into() });
+        assert!(matches!(&error, EngineError::BadRequest { reason } if reason.starts_with("server reflection is not available at")), "{error:?}");
+        let other = reflection_error("http://h:1", GrpcError::Connect("connection refused".into()));
+        assert!(matches!(&other, EngineError::BadRequest { reason } if !reason.starts_with("server reflection is not available")), "{other:?}");
+    }
 }

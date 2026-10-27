@@ -14,6 +14,8 @@ pub mod console;
 pub mod cookies;
 pub mod environment;
 pub mod export;
+pub mod grpc_builder;
+pub mod grpc_response;
 pub mod icons;
 pub mod import;
 pub mod menu;
@@ -30,6 +32,7 @@ pub mod trash;
 pub mod widgets;
 pub mod window;
 
+pub use auth::AuthScope;
 pub use builder::{BodyDrafts, BuilderAction, BuilderTab, RequestBuilder, SendProgress};
 pub use collection::{AssetRow, CollectionAction, CollectionDetail, DetailState, DetailTab};
 pub use commands::{Command, CommandAction, CommandRegistry, PaletteItem, PaletteState, command_palette};
@@ -37,6 +40,8 @@ pub use console::{ConsoleAction, ConsoleFilter, ConsoleRow, ConsoleState, consol
 pub use cookies::{CookieAction, CookieData, CookieRow, CookieState, cookie_manager};
 pub use environment::{EnvironmentAction, EnvironmentEditor, VariableGroup, variable_quick_look};
 pub use export::{ExportFormat, ExportRequest, ExportState, ExportTarget, export_dialog};
+pub use grpc_builder::{GrpcAction, GrpcBuilder, GrpcSchemaState, GrpcTab};
+pub use grpc_response::{GrpcResponseData, GrpcResponseState, GrpcResponseTab, grpc_response_view};
 pub use import::{ImportAction, ImportItemView, ImportState, ImportSummary, import_dialog};
 pub use response::{BodyMode, ResponseAction, ResponseData, ResponseTab, ResponseViewerState, SendErrorView, TestFilter, error_view, response_view};
 pub use runner::{RunRequestView, RunResultView, RunSummaryView, RunnerAction, RunnerRequestRow, RunnerState, RunnerView, runner_panel};

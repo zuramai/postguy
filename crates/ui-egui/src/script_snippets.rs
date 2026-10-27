@@ -33,6 +33,26 @@ pub const TESTS: &[(&str, &str)] = &[
     ("Save runtime variable", "pg.setVar(\"session_id\", pg.response.json().session_id);"),
 ];
 
+/// `(menu label, code)` pairs for the gRPC Pre-invoke editor.
+pub const GRPC_PRE_INVOKE: &[(&str, &str)] = &[
+    ("Set a variable", "pg.variables.set(\"name\", \"value\");"),
+    ("Add metadata", "pg.request.headers.add({ key: \"x-trace-id\", value: \"123\" });"),
+];
+
+/// `(menu label, code)` pairs for the gRPC On message editor.
+pub const GRPC_ON_MESSAGE: &[(&str, &str)] =
+    &[("Message has a field", "pg.test(\"message has text\", () => pg.expect(pg.response.json()).to.have.property(\"text\"));")];
+
+/// `(menu label, code)` pairs for the gRPC Post-response editor.
+pub const GRPC_POST_RESPONSE: &[(&str, &str)] = &[
+    ("Status is OK", "pg.test(\"Status is OK\", () => pg.expect(pg.response.code).to.equal(0));"),
+    ("Response time below 1s", "pg.test(\"Response time below 1 s\", () => pg.expect(pg.response.responseTime).to.be.below(1000));"),
+    ("Save a value", "pg.environment.set(\"id\", pg.response.json().id);"),
+];
+
+/// `(menu label, code)` pairs for the gRPC Test script.
+pub const GRPC_TESTS: &[(&str, &str)] = GRPC_POST_RESPONSE;
+
 /// One script editor under `label` with a Snippets menu. Returns true when the text changed.
 pub fn script_editor(
     ui: &mut Ui,

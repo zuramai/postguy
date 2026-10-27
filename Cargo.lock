@@ -3675,6 +3675,7 @@ dependencies = [
  "miette",
  "postguy-http",
  "postguy-model",
+ "postguy-testkit",
  "prost",
  "prost-reflect",
  "prost-types",

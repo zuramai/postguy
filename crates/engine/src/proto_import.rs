@@ -36,6 +36,18 @@ pub struct ProtoImportOutcome {
     pub methods: usize,
 }
 
+/// One proto set chosen for a single request (no collection created).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtoDefinitionOutcome {
+    /// The set directory name under `protos/`.
+    pub set: String,
+    /// The files copied into the set, relative to it.
+    pub files: Vec<String>,
+    /// The definition to store on the request.
+    pub definition: ServiceDefinition,
+}
+
 fn import_error(message: impl Into<String>) -> EngineError {
     EngineError::Import { message: message.into() }
 }
@@ -89,7 +101,9 @@ impl Engine {
         }
     }
 
-    fn import_protos_inner(&self, files: &[PathBuf], options: ProtoImportOptions) -> Result<ProtoImportOutcome> {
+    /// Validate and compile the picked files, then choose the set name and directory (nothing is
+    /// written yet). Returns `(set, set_dir, root, files to copy)`.
+    fn copy_proto_set(&self, files: &[PathBuf], name: Option<String>, replace: bool) -> Result<(String, PathBuf, PathBuf, Vec<String>)> {
         if files.is_empty() || files.len() > MAX_PROTO_FILES {
             return Err(import_error("choose one or more .proto files"));
         }
@@ -118,15 +132,11 @@ impl Engine {
         copy.dedup();
 
         let base = sanitize(
-            &options
-                .name
-                .clone()
-                .or_else(|| canonical.first().and_then(|file| file.file_stem()).map(|stem| stem.to_string_lossy().into_owned()))
-                .unwrap_or_default(),
+            &name.or_else(|| canonical.first().and_then(|file| file.file_stem()).map(|stem| stem.to_string_lossy().into_owned())).unwrap_or_default(),
         );
         let protos_dir = self.store_paths().protos_dir();
         std::fs::create_dir_all(&protos_dir).map_err(|err| import_error(format!("creating {}: {err}", protos_dir.display())))?;
-        let set = if options.replace {
+        let set = if replace {
             let existing = protos_dir.join(&base);
             if existing.exists() {
                 postguy_store::trash::move_to_trash(self.store_paths(), &existing, "proto set")?;
@@ -136,8 +146,44 @@ impl Engine {
             free_set_name(&protos_dir, &base)?
         };
         let set_dir = protos_dir.join(&set);
+        Ok((set, set_dir, root, copy))
+    }
 
+    fn import_protos_inner(&self, files: &[PathBuf], options: ProtoImportOptions) -> Result<ProtoImportOutcome> {
+        let (set, set_dir, root, copy) = self.copy_proto_set(files, options.name, options.replace)?;
         let result = self.copy_and_build(&root, &copy, &set, &set_dir);
+        if result.is_err() {
+            let _ = std::fs::remove_dir_all(&set_dir);
+        }
+        result
+    }
+
+    /// Copy the picked set into the workspace and prove it compiles, without creating a
+    /// collection: for choosing a `.proto` on one gRPC request. An internal panic becomes an
+    /// error, never a crash.
+    pub fn import_proto_definition(&self, files: &[PathBuf]) -> Result<ProtoDefinitionOutcome> {
+        match std::panic::catch_unwind(AssertUnwindSafe(|| self.import_proto_definition_inner(files))) {
+            Ok(result) => result,
+            Err(payload) => {
+                let message = payload
+                    .downcast_ref::<&str>()
+                    .map(|text| (*text).to_string())
+                    .or_else(|| payload.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "unknown panic".to_string());
+                Err(import_error(format!("the importer failed unexpectedly: {message}")))
+            }
+        }
+    }
+
+    fn import_proto_definition_inner(&self, files: &[PathBuf]) -> Result<ProtoDefinitionOutcome> {
+        let (set, set_dir, root, copy) = self.copy_proto_set(files, None, false)?;
+        let build = || -> Result<ProtoDefinitionOutcome> {
+            write_set_files(&root, &copy, &set_dir)?;
+            let definition = ServiceDefinition::ProtoSet { name: set.clone(), extras: Default::default() };
+            self.grpc_pool(&GrpcRequest { service_definition: Some(definition.clone()), ..GrpcRequest::default() })?;
+            Ok(ProtoDefinitionOutcome { set: set.clone(), files: copy.clone(), definition })
+        };
+        let result = build();
         if result.is_err() {
             let _ = std::fs::remove_dir_all(&set_dir);
         }
@@ -147,22 +193,18 @@ impl Engine {
     /// Copy the files, prove the set compiles through the normal `ProtoSet` path, build and save
     /// the collection.
     fn copy_and_build(&self, root: &Path, copy: &[String], set: &str, set_dir: &Path) -> Result<ProtoImportOutcome> {
-        for name in copy {
-            let source = confined_join(root, name)?;
-            let bytes = postguy_util::read_file_capped(&source, usize::try_from(MAX_PROTO_FILE_BYTES).unwrap_or(usize::MAX))
-                .map_err(|err| import_error(format!("{}: {err}", source.display())))?;
-            postguy_util::atomic_write(&set_dir.join(name), &bytes).map_err(|err| import_error(format!("writing {name}: {err}")))?;
-        }
+        write_set_files(root, copy, set_dir)?;
         let definition = ServiceDefinition::ProtoSet { name: set.to_string(), extras: Default::default() };
         let pool = self.grpc_pool(&GrpcRequest { service_definition: Some(definition.clone()), ..GrpcRequest::default() })?;
 
         let mut folders = Vec::new();
         let mut methods = 0usize;
-        for service in postguy_grpc::describe(&pool) {
-            let service_name = service["name"].as_str().unwrap_or_default().to_string();
+        let schema = postguy_grpc::schema(&pool);
+        for service in &schema.services {
+            let service_name = service.name.clone();
             let mut items = Vec::new();
-            for method in service["methods"].as_array().into_iter().flatten() {
-                let (Some(name), Some(path)) = (method["name"].as_str(), method["path"].as_str()) else { continue };
+            for method in &service.methods {
+                let (name, path) = (method.name.as_str(), method.path.as_str());
                 let message = postguy_grpc::example_message(&pool, path)
                     .ok()
                     .and_then(|example| serde_json::to_string_pretty(&example).ok())
@@ -202,4 +244,15 @@ impl Engine {
         let collection = self.save_imported_collection(collection, report, ImportOptions::default())?;
         Ok(ProtoImportOutcome { set: set.to_string(), files: copy.to_vec(), collection, services, methods })
     }
+}
+
+/// Copy each file of the set from `root` into `set_dir`, size-capped.
+fn write_set_files(root: &Path, copy: &[String], set_dir: &Path) -> Result<()> {
+    for name in copy {
+        let source = confined_join(root, name)?;
+        let bytes = postguy_util::read_file_capped(&source, usize::try_from(MAX_PROTO_FILE_BYTES).unwrap_or(usize::MAX))
+            .map_err(|err| import_error(format!("{}: {err}", source.display())))?;
+        postguy_util::atomic_write(&set_dir.join(name), &bytes).map_err(|err| import_error(format!("writing {name}: {err}")))?;
+    }
+    Ok(())
 }

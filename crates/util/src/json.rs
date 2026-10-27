@@ -198,10 +198,184 @@ pub fn walk(value: &Value, max_depth: usize, visit: &mut dyn FnMut(&Value, usize
     }
 }
 
+/// One step from the document root to the container holding a key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JsonPathSegment {
+    /// The container is the value of this object key.
+    Key(String),
+    /// The container is an element of an array.
+    Index,
+}
+
+/// An object key found by [`object_keys`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JsonKey {
+    /// Byte range of the key token, quotes included.
+    pub range: std::ops::Range<usize>,
+    /// The unescaped key.
+    pub name: String,
+    /// Containers from the root down to (excluding) the object that holds the key.
+    pub path: Vec<JsonPathSegment>,
+}
+
+/// Containers deeper than this are not scanned for keys.
+pub const MAX_SCAN_DEPTH: usize = 64;
+/// The scan stops after this many keys.
+pub const MAX_SCAN_KEYS: usize = 10_000;
+
+enum ScanFrame {
+    Object { entered: Option<JsonPathSegment>, expect_key: bool, last_key: String },
+    Array { entered: Option<JsonPathSegment> },
+}
+
+impl ScanFrame {
+    fn entered(&self) -> Option<&JsonPathSegment> {
+        match self {
+            ScanFrame::Object { entered, .. } | ScanFrame::Array { entered } => entered.as_ref(),
+        }
+    }
+}
+
+/// Lists every object key in possibly half-typed JSON, with its byte range and path. Purely
+/// lexical and tolerant: invalid or unfinished text never fails, `{{variable}}` placeholders
+/// outside strings are skipped, an unterminated string ends the scan, unbalanced closers are
+/// ignored, nesting past [`MAX_SCAN_DEPTH`] is not descended and at most [`MAX_SCAN_KEYS`] keys
+/// are returned.
+pub fn object_keys(text: &str) -> Vec<JsonKey> {
+    let bytes = text.as_bytes();
+    let mut keys = Vec::new();
+    let mut stack: Vec<ScanFrame> = Vec::new();
+    // Containers opened past the depth cap; their contents are scanned but not recorded.
+    let mut overflow: usize = 0;
+    let mut i = 0usize;
+    while let Some(&byte) = bytes.get(i) {
+        match byte {
+            b'"' => {
+                let Some(end) = string_end(bytes, i) else { break };
+                let after = skip_whitespace(bytes, end);
+                if overflow == 0
+                    && bytes.get(after) == Some(&b':')
+                    && let Some(ScanFrame::Object { expect_key, last_key, .. }) = stack.last_mut()
+                    && *expect_key
+                {
+                    let quoted = text.get(i..end).unwrap_or_default();
+                    let name = serde_json::from_str::<String>(quoted)
+                        .unwrap_or_else(|_| text.get(i.saturating_add(1)..end.saturating_sub(1)).unwrap_or_default().to_owned());
+                    *expect_key = false;
+                    last_key.clone_from(&name);
+                    let path = stack.iter().filter_map(ScanFrame::entered).cloned().collect();
+                    keys.push(JsonKey { range: i..end, name, path });
+                    if keys.len() >= MAX_SCAN_KEYS {
+                        break;
+                    }
+                }
+                i = end;
+                continue;
+            }
+            b'{' if bytes.get(i.saturating_add(1)) == Some(&b'{') => {
+                i = find_from(bytes, i.saturating_add(2), b"}}").map_or(bytes.len(), |at| at.saturating_add(2));
+                continue;
+            }
+            b'{' | b'[' => {
+                if overflow > 0 || stack.len() >= MAX_SCAN_DEPTH {
+                    overflow = overflow.saturating_add(1);
+                } else {
+                    let entered = match stack.last() {
+                        Some(ScanFrame::Object { last_key, .. }) => Some(JsonPathSegment::Key(last_key.clone())),
+                        Some(ScanFrame::Array { .. }) => Some(JsonPathSegment::Index),
+                        None => None,
+                    };
+                    stack.push(if byte == b'{' {
+                        ScanFrame::Object { entered, expect_key: true, last_key: String::new() }
+                    } else {
+                        ScanFrame::Array { entered }
+                    });
+                }
+            }
+            b'}' | b']' => {
+                if overflow > 0 {
+                    overflow = overflow.saturating_sub(1);
+                } else if matches!((stack.last(), byte), (Some(ScanFrame::Object { .. }), b'}') | (Some(ScanFrame::Array { .. }), b']')) {
+                    stack.pop();
+                }
+            }
+            b',' => {
+                if overflow == 0
+                    && let Some(ScanFrame::Object { expect_key, .. }) = stack.last_mut()
+                {
+                    *expect_key = true;
+                }
+            }
+            _ => {}
+        }
+        i = i.saturating_add(1);
+    }
+    keys
+}
+
+/// Byte offset just past the closing quote of the string opening at `start`, or `None` when
+/// the string is unterminated.
+fn string_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut i = start.saturating_add(1);
+    loop {
+        match bytes.get(i)? {
+            b'\\' => i = i.saturating_add(2),
+            b'"' => return Some(i.saturating_add(1)),
+            _ => i = i.saturating_add(1),
+        }
+    }
+}
+
+fn skip_whitespace(bytes: &[u8], mut i: usize) -> usize {
+    while bytes.get(i).is_some_and(u8::is_ascii_whitespace) {
+        i = i.saturating_add(1);
+    }
+    i
+}
+
+fn find_from(bytes: &[u8], from: usize, needle: &[u8]) -> Option<usize> {
+    bytes.get(from..)?.windows(needle.len()).position(|window| window == needle).map(|at| at.saturating_add(from))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::error::Error;
+
+    fn names(text: &str) -> Vec<(String, Vec<JsonPathSegment>)> {
+        object_keys(text).into_iter().map(|key| (key.name, key.path)).collect()
+    }
+
+    #[test]
+    fn object_keys_reports_ranges_and_paths() {
+        let text = r#"{"a": 1, "b": {"c": [ {"d": "x,y:"} ]}}"#;
+        let keys = object_keys(text);
+        assert_eq!(keys.len(), 4);
+        assert_eq!(&text[keys[0].range.clone()], "\"a\"");
+        assert_eq!(&text[keys[3].range.clone()], "\"d\"");
+        use JsonPathSegment::{Index, Key};
+        assert_eq!(
+            names(text),
+            vec![
+                ("a".into(), vec![]),
+                ("b".into(), vec![]),
+                ("c".into(), vec![Key("b".into())]),
+                ("d".into(), vec![Key("b".into()), Key("c".into()), Index]),
+            ]
+        );
+    }
+
+    #[test]
+    fn object_keys_tolerates_half_typed_text_and_variables() {
+        assert!(object_keys(r#"{"te"#).is_empty(), "unterminated string ends the scan");
+        assert_eq!(names(r#"{"n": {{num}}, "m": "{{v}}", "é\"q": 1"#), vec![("n".into(), vec![]), ("m".into(), vec![]), ("é\"q".into(), vec![]),]);
+        assert_eq!(names(r#"]]}} {"a": 1"#), vec![("a".into(), vec![])], "stray closers are ignored");
+        assert_eq!(names(r#"{"a" 1, "b": 2}"#), vec![("b".into(), vec![])], "a string without a colon is no key");
+        assert_eq!(names(r#"{"a": "b": 1}"#), vec![("a".into(), vec![])], "a value is no key");
+        let deep = format!("{}{{\"k\":1}}", "[".repeat(MAX_SCAN_DEPTH));
+        assert!(object_keys(&deep).is_empty(), "past the depth cap nothing is recorded");
+        assert!(object_keys("{{ unterminated").is_empty());
+    }
 
     #[test]
     fn parses_scalars_and_preserves_object_key_order() {

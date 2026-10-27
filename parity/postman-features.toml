@@ -420,61 +420,61 @@ title = "Service definitions: import .proto files with import paths"
 area = "D"
 tier = "P0"
 status = "partial"
-notes = "Proto sets and inline file lists compile with a confined protox resolver: canonical roots, no .. or symlink escapes, 1 MiB/file, 16 MiB total and 256 files. A set resolves imports relative to the protos root or to its own folder. Picked .proto files import into <workspace>/protos/<name>/ (g.proto-import) and compile errors report file:line:column."
-
-evidence = ["crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary"]
+notes = "Proto sets and inline file lists compile with a confined protox resolver: canonical roots, no .. or symlink escapes, 1 MiB/file, 16 MiB total and 256 files. A set resolves imports relative to the protos root or to its own folder. Picked .proto files import into <workspace>/protos/<name>/ (g.proto-import), or into a set the request points at from the Service definition tab (grpc_set_proto), and compile errors report file:line:column."
+tools = ["grpc_set_proto"]
+evidence = ["crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary", "crates/engine/tests/grpc.rs::import_proto_definition_copies_set_without_collection", "crates/automation/tests/tools.rs::grpc_set_proto_is_confined_to_root"]
 [[feature]]
 id = "d.unary-invoke"
 title = "Unary invoke with dynamic codec (no codegen)"
 area = "D"
 tier = "P0"
 status = "shipped"
-notes = "Dynamic unary invoke with prost-reflect JSON, descriptor-guided examples, validated ASCII/binary metadata and status errors; stored requests resolve environment/collection variables and inherited auth; reflection resolves descriptors when the service exposes it."
-
-evidence = ["crates/grpc/tests/unary.rs::unary_echo_and_status_errors_work", "crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary", "apps/postguy/src/main.rs::grpc_editor_invokes_a_unary_method"]
+notes = "Dynamic unary invoke with prost-reflect JSON, descriptor-guided examples, validated ASCII/binary metadata and status errors; stored requests resolve environment/collection variables and inherited auth; reflection resolves descriptors when the service exposes it. The request tab invokes the unsaved draft through grpc_send: pre-invoke, on-message and post-response request scripts plus the Test tab, a non-OK status reported as a result, and Cancel. Collection/folder scripts do not run for gRPC and invokes are not recorded in History."
+tools = ["grpc_send"]
+evidence = ["crates/grpc/tests/unary.rs::unary_echo_and_status_errors_work", "crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary", "apps/postguy/src/main.rs::grpc_editor_invokes_a_unary_method", "crates/engine/tests/grpc.rs::grpc_send_runs_pre_invoke_on_message_post_response_and_tests", "crates/engine/tests/grpc.rs::grpc_send_reports_non_ok_status_and_still_runs_tests", "crates/engine/tests/grpc.rs::grpc_send_uses_unsaved_draft_auth"]
 [[feature]]
 id = "d.method-selector"
 title = "Method selector grouped by service with type icons"
 area = "D"
 tier = "P0"
-status = "partial"
-notes = "The composer takes a package.Service/Method path and grpc_describe lists services/methods; the grouped selector with type glyphs is still open."
+status = "shipped"
+notes = "The URL bar's method picker lists the loaded definition's methods grouped by service with their call shape (unary, server/client/bidi stream); without a definition it points to the Service definition tab. Type glyphs are text labels, not icons."
 
-evidence = ["crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary"]
+evidence = ["crates/ui-egui/tests/grpc_builder.rs::method_picker_without_definition_points_to_service_definition_tab", "crates/ui-egui/tests/grpc_builder.rs::service_definition_renders_request_and_response_tables", "apps/postguy/src/main.rs::grpc_editor_loads_services_by_reflection"]
 [[feature]]
 id = "d.message-editor"
 title = "Message editor with proto-aware autocomplete and tooltips"
 area = "D"
 tier = "P1"
 status = "partial"
-notes = "Plain JSON message editor with example generation from the input descriptor; proto-aware completion, tooltips and saved messages are still open."
-
-evidence = ["crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary"]
+notes = "JSON message editor with example generation from the input descriptor and Beautify; keys the input message does not define are red with an Unknown field tooltip (map keys and google.protobuf.* contents are never flagged; grpc_check_message is the headless check). Proto-aware completion and saved messages are still open."
+tools = ["grpc_check_message"]
+evidence = ["crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary", "crates/model/src/grpc_schema.rs::flags_unknown_top_level_and_nested_keys_with_ranges", "crates/model/src/grpc_schema.rs::map_keys_are_not_flagged_but_map_values_are_checked"]
 [[feature]]
 id = "d.metadata"
 title = "Metadata key/value table; -bin base64; lowercased keys"
 area = "D"
 tier = "P0"
-status = "partial"
-notes = "Enabled metadata rows are lowercased by tonic and sent on unary calls; the UI table, -bin base64 and auth-joined metadata are still open."
+status = "shipped"
+notes = "Metadata tab with a key/value table and bulk edit; enabled rows are lowercased and sent on every call shape, -bin keys take base64 values and request or inherited auth is joined as metadata."
 
-evidence = ["crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary"]
+evidence = ["crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary", "crates/engine/tests/grpc.rs::grpc_send_uses_unsaved_draft_auth"]
 [[feature]]
 id = "d.reflection"
 title = "Server reflection (v1, then v1alpha) with Try again"
 area = "D"
 tier = "P1"
 status = "shipped"
-notes = "Reflection v1 with v1alpha fallback fetches the transitive file set for the service symbol and compiles it into the dynamic pool."
+notes = "Reflection v1 with v1alpha fallback. Load services lists every service (ListServices, then each service's transitive file set) without a method path and compiles them into the dynamic pool; a server without reflection shows the error and Reload services retries. Loading only happens on a click."
 
-evidence = ["crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary"]
+evidence = ["crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary", "crates/grpc/tests/unary.rs::reflection_pool_all_lists_echo_service", "crates/engine/tests/grpc.rs::grpc_schema_lists_services_by_reflection_without_method", "crates/engine/tests/grpc.rs::grpc_schema_reports_reflection_unavailable"]
 [[feature]]
 id = "d.streaming"
 title = "Server, client and bidirectional streaming with End streaming"
 area = "D"
 tier = "P1"
 status = "partial"
-notes = "Server, client and bidi streaming use finite message arrays and collect up to 10,000 replies; the composer has Invoke stream. Interactive Send/End streaming, cancellation and the reverse-chronological timeline are still open."
+notes = "Server, client and bidi streaming use finite message arrays and collect up to 10,000 replies; the request tab picks the call shape from the method and Cancel stops a running call. Interactive Send/End streaming and the reverse-chronological timeline are still open."
 
 evidence = ["crates/automation/tests/tools.rs::grpc_tools_describe_example_and_invoke_unary", "apps/postguy/src/main.rs::grpc_editor_invokes_a_unary_method"]
 [[feature]]
@@ -587,9 +587,9 @@ title = "Pre-request and post-response scripts with the pm API subset"
 area = "F"
 tier = "P1"
 status = "partial"
-notes = "QuickJS (rquickjs) sandbox; pre-request and post-response scripts run for HTTP requests in the order collection > folders > request, with the pm API (variables in every scope, request edits, response, cookies, sendRequest, setNextRequest, skipRequest, console). `pg` carries every pm member plus Bruno-style variable methods (runtime scope that lives for the engine session), flow control, pg.assets and pg.report; Bruno globals bru/req/res/test/expect share the same Rust code. require() loads collection assets as CommonJS modules with read-only fs/path/Buffer shims and crypto.randomUUID; npm packages, fs writes, bru.sleep/cwd/runRequest are refused with actionable errors. Missing: gRPC and WebSocket script phases, pm.cookies.jar(), pm.visualizer."
+notes = "QuickJS (rquickjs) sandbox; pre-request and post-response scripts run for HTTP requests in the order collection > folders > request, with the pm API (variables in every scope, request edits, response, cookies, sendRequest, setNextRequest, skipRequest, console). gRPC requests run their request-level pre-invoke, on-message (once per received message, up to 1000) and post-response scripts plus the Test tab, with pm.response.code as the gRPC status. `pg` carries every pm member plus Bruno-style variable methods (runtime scope that lives for the engine session), flow control, pg.assets and pg.report; Bruno globals bru/req/res/test/expect share the same Rust code. require() loads collection assets as CommonJS modules with read-only fs/path/Buffer shims and crypto.randomUUID; npm packages, fs writes, bru.sleep/cwd/runRequest are refused with actionable errors. Missing: WebSocket script phases, collection/folder scripts for gRPC, pm.cookies.jar(), pm.visualizer."
 tools = ["runtime_variables"]
-evidence = ["crates/engine/tests/scripts.rs::pre_request_scripts_run_collection_then_folder_then_request", "crates/script/tests/sandbox.rs::variables_set_unset_and_precedence", "crates/script/tests/sandbox.rs::pg_has_every_pm_member_and_bruno_methods", "crates/script/tests/sandbox.rs::bru_runtime_vars_round_trip", "crates/script/tests/sandbox.rs::req_get_set_body_json", "crates/script/tests/sandbox.rs::res_callable_query", "crates/script/tests/sandbox.rs::require_loads_asset_modules_with_fs_and_path_shims", "crates/script/tests/sandbox.rs::require_npm_package_is_actionable_error", "crates/script/tests/sandbox.rs::fs_write_is_refused", "crates/engine/tests/scripts.rs::runtime_vars_survive_between_requests_in_a_run", "crates/automation/tests/engine_tools.rs::runtime_variables_tool_reads_and_clears"]
+evidence = ["crates/engine/tests/scripts.rs::pre_request_scripts_run_collection_then_folder_then_request", "crates/script/tests/sandbox.rs::variables_set_unset_and_precedence", "crates/script/tests/sandbox.rs::pg_has_every_pm_member_and_bruno_methods", "crates/script/tests/sandbox.rs::bru_runtime_vars_round_trip", "crates/script/tests/sandbox.rs::req_get_set_body_json", "crates/script/tests/sandbox.rs::res_callable_query", "crates/script/tests/sandbox.rs::require_loads_asset_modules_with_fs_and_path_shims", "crates/script/tests/sandbox.rs::require_npm_package_is_actionable_error", "crates/script/tests/sandbox.rs::fs_write_is_refused", "crates/engine/tests/scripts.rs::runtime_vars_survive_between_requests_in_a_run", "crates/automation/tests/engine_tools.rs::runtime_variables_tool_reads_and_clears", "crates/engine/tests/grpc.rs::grpc_send_runs_pre_invoke_on_message_post_response_and_tests"]
 
 [[feature]]
 id = "f.expect"
