@@ -897,7 +897,7 @@ title = "Request builder detail (tabs, indicators, save flows, chips)"
 area = "H"
 tier = "P0"
 status = "partial"
-notes = "Breadcrumb, editable name, method+URL in 32 px rounded controls, Send/Cancel with timer, Params/Auth/Headers/Body/Scripts/Settings/Docs tab pills with count chips and content dots, Save and dirty tracking, cURL paste, and the URL field chip-resolves its variables (unresolved names tinted danger). Missing: Save dropdown (duplicate/close), custom header presets, the response splitter and the inline post-paste undo hint."
+notes = "Breadcrumb, editable name, method+URL in 32 px rounded controls, Send/Cancel with timer, Params/Auth/Headers/Body/Scripts/Settings/Docs tab pills with count chips and content dots, Save and dirty tracking, cURL paste, and the URL field chip-resolves its variables (unresolved names tinted danger). Missing: Save dropdown (duplicate/close), custom header presets and the inline post-paste undo hint."
 evidence = ["crates/ui-egui/tests/builder.rs::send_and_save_emit_their_intents", "crates/ui-egui/tests/builder.rs::authorization_switches_to_basic_and_shows_fields", "crates/ui-egui/tests/builder.rs::body_mode_switches_and_keeps_the_raw_text_available", "crates/ui-egui/tests/builder.rs::settings_toggles_persist_into_the_request_settings"]
 [[feature]]
 id = "h.env-editor"
@@ -970,9 +970,9 @@ title = "Two-pane layout and resizable response splitter"
 area = "H"
 tier = "P1"
 status = "partial"
-notes = "Toggle Cmd/Ctrl+Alt+V and a draggable response splitter; the splitter position and toggle are not yet persisted in the session."
+notes = "Toggle Cmd/Ctrl+Alt+V and a draggable divider between builder and response in both layouts (each layout keeps its own position, clamped to per-pane minimums); the Console and code snippet panel resize from their edges. The divider position and the toggle are not yet persisted in the session."
 
-evidence = ["crates/ui-egui/tests/widgets.rs::the_shell_bottom_bar_opens_panels_and_the_snippet_shows_generated_code"]
+evidence = ["crates/ui-egui/tests/widgets.rs::the_shell_bottom_bar_opens_panels_and_the_snippet_shows_generated_code", "crates/ui-egui/tests/resize.rs::the_stacked_divider_drags_between_the_minimums", "crates/ui-egui/tests/resize.rs::the_side_by_side_divider_drags_and_stops_at_the_request_minimum", "crates/ui-egui/tests/resize.rs::the_console_top_edge_drags_its_height"]
 [[feature]]
 id = "h.control-channel-ui"
 title = "`--control` channel wired to the running UI"

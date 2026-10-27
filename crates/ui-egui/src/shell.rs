@@ -198,8 +198,10 @@ impl PostguyShell {
         self.header(ui, &theme);
         self.bottom_bar(ui, &theme);
         if self.state.console_open {
-            let height = 190.0;
-            egui::Panel::bottom("console-panel").exact_size(height).resizable(true).show(ui, |ui| {
+            // `exact_size` would pin the panel; a default plus a floor lets the edge drag it. The
+            // content claims the whole height, or the panel would shrink back to its rows.
+            egui::Panel::bottom("console-panel").default_size(190.0).min_size(80.0).resizable(true).show(ui, |ui| {
+                ui.set_min_height(ui.available_height());
                 if let Some(ConsoleAction::Clear) = console_view(ui, &self.console_rows, &mut self.console_state) {
                     self.command_action = Some(CommandAction::ClearConsole);
                 }
@@ -232,10 +234,13 @@ impl PostguyShell {
         }
         if self.state.right_panel_open {
             egui::Panel::right("snippet-panel")
-                .exact_size(metrics.right_panel)
+                .default_size(metrics.right_panel)
+                .min_size(240.0)
                 .resizable(true)
                 .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(12, 10)))
                 .show(ui, |ui| {
+                    // Claim the dragged width; the panel would otherwise shrink to its text.
+                    ui.set_min_width(ui.available_width());
                     if let Some(request) = self.snippet_request.clone() {
                         snippet_panel(ui, &request, &mut self.snippet);
                     } else {

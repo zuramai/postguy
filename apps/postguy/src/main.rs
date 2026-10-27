@@ -12,7 +12,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use egui::{Align, Layout, vec2};
 use postguy_auth::oauth2::TokenResponse;
 use postguy_engine::ws_session::WsEventView;
 use postguy_engine::{
@@ -37,6 +36,7 @@ use postguy_ui_egui::sidebar::{RequestProtocol, RowKind, SidebarAction, SidebarD
 use postguy_ui_egui::tabs::{TabAction, TabDoc, Tabs};
 use postguy_ui_egui::trash::{TrashAction, TrashEntryView, trash_view};
 use postguy_ui_egui::widgets::field::VariableInfo;
+use postguy_ui_egui::widgets::{SplitAxis, split};
 use postguy_ui_egui::{PostguyShell, ThemeMode, WindowChrome};
 use serde::{Deserialize, Serialize};
 
@@ -3237,46 +3237,32 @@ impl eframe::App for App {
                         let mut retry_from_error = false;
                         let builder_action = if error.is_some() || response.is_some() {
                             let viewer = viewer_states.entry(panel_id).or_default();
-                            if two_pane {
-                                // Two fixed rectangles: a half whose content is wider than the half is
-                                // clipped instead of pushing the other half off the window.
-                                let area = ui.available_rect_before_wrap();
-                                let half = ((area.width() - 9.0) * 0.5).max(260.0);
-                                let left_rect = egui::Rect::from_min_size(area.min, vec2(half, area.height()));
-                                let divider_x = left_rect.right() + 4.0;
-                                let right_rect = egui::Rect::from_min_max(egui::pos2(divider_x + 5.0, area.top()), area.max);
-                                ui.painter().vline(divider_x, area.y_range(), ui.visuals().widgets.noninteractive.bg_stroke);
-                                let mut action = None;
-                                ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
-                                    ui.set_clip_rect(left_rect.intersect(ui.clip_rect()));
-                                    action = builder.show(ui);
-                                });
-                                ui.scope_builder(egui::UiBuilder::new().max_rect(right_rect), |ui| {
-                                    ui.set_clip_rect(right_rect.intersect(ui.clip_rect()));
-                                    if let Some(error) = error {
-                                        retry_from_error = error_view(ui, error);
-                                    } else if let Some(data) = response {
-                                        response_action = response_view(ui, data, viewer);
-                                    }
-                                });
-                                ui.advance_cursor_after_rect(area);
-                                action
+                            // Request and response share the area across a draggable divider.
+                            // (axis, memory key, default request share, request min, response min)
+                            let (axis, split_id, share, min_request, min_response) = if two_pane {
+                                (SplitAxis::Horizontal, "request-split-two-pane", 0.5, 260.0, 260.0)
                             } else {
-                                let total = ui.available_height();
-                                let request_height = (total * 0.52).max(170.0);
-                                let action = ui
-                                    .allocate_ui_with_layout(vec2(ui.available_width(), request_height), Layout::top_down(Align::Min), |ui| {
-                                        builder.show(ui)
-                                    })
-                                    .inner;
-                                ui.separator();
+                                (SplitAxis::Vertical, "request-split-stacked", 0.52, 170.0, 120.0)
+                            };
+                            let area = ui.available_rect_before_wrap();
+                            let (request_rect, response_rect) = split(ui, egui::Id::new(split_id), axis, share, min_request, min_response);
+                            // Fixed rectangles: a pane whose content is larger than the pane is
+                            // clipped instead of pushing the other pane off the window.
+                            let mut action = None;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(request_rect), |ui| {
+                                ui.set_clip_rect(request_rect.intersect(ui.clip_rect()));
+                                action = builder.show(ui);
+                            });
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(response_rect), |ui| {
+                                ui.set_clip_rect(response_rect.intersect(ui.clip_rect()));
                                 if let Some(error) = error {
                                     retry_from_error = error_view(ui, error);
                                 } else if let Some(data) = response {
                                     response_action = response_view(ui, data, viewer);
                                 }
-                                action
-                            }
+                            });
+                            ui.advance_cursor_after_rect(area);
+                            action
                         } else {
                             builder.show(ui)
                         };
