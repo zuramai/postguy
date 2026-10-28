@@ -31,22 +31,22 @@ No account. No cloud. No telemetry. Just your requests.
 
 ## Install
 
-**Latest version: [v0.1.1](https://github.com/zuramai/postguy/releases/latest)**
+**Latest version: [v0.1.2](https://github.com/zuramai/postguy/releases/latest)**
 
 | Platform | Download |
 | --- | --- |
-| macOS (Apple Silicon + Intel) | [**postguy-0.1.1-macos-universal.dmg**](https://github.com/zuramai/postguy/releases/download/v0.1.1/postguy-0.1.1-macos-universal.dmg) |
-| Windows (64-bit) | [**postguy-0.1.1-windows-x64.msi**](https://github.com/zuramai/postguy/releases/download/v0.1.1/postguy-0.1.1-windows-x64.msi) |
-| Windows (ARM) | [postguy-0.1.1-windows-arm64.msi](https://github.com/zuramai/postguy/releases/download/v0.1.1/postguy-0.1.1-windows-arm64.msi) |
-| Linux (any distro) | [postguy-0.1.1-linux-x86_64.AppImage](https://github.com/zuramai/postguy/releases/download/v0.1.1/postguy-0.1.1-linux-x86_64.AppImage) |
-| Debian / Ubuntu | [postguy-0.1.1-linux-x86_64.deb](https://github.com/zuramai/postguy/releases/download/v0.1.1/postguy-0.1.1-linux-x86_64.deb) |
-| Fedora / openSUSE | [postguy-0.1.1-linux-x86_64.rpm](https://github.com/zuramai/postguy/releases/download/v0.1.1/postguy-0.1.1-linux-x86_64.rpm) |
+| macOS (Apple Silicon + Intel) | [**postguy-0.1.2-macos-universal.dmg**](https://github.com/zuramai/postguy/releases/download/v0.1.2/postguy-0.1.2-macos-universal.dmg) |
+| Windows (64-bit) | [**postguy-0.1.2-windows-x64.msi**](https://github.com/zuramai/postguy/releases/download/v0.1.2/postguy-0.1.2-windows-x64.msi) |
+| Windows (ARM) | [postguy-0.1.2-windows-arm64.msi](https://github.com/zuramai/postguy/releases/download/v0.1.2/postguy-0.1.2-windows-arm64.msi) |
+| Linux (any distro) | [postguy-0.1.2-linux-x86_64.AppImage](https://github.com/zuramai/postguy/releases/download/v0.1.2/postguy-0.1.2-linux-x86_64.AppImage) |
+| Debian / Ubuntu | [postguy-0.1.2-linux-x86_64.deb](https://github.com/zuramai/postguy/releases/download/v0.1.2/postguy-0.1.2-linux-x86_64.deb) |
+| Fedora / openSUSE | [postguy-0.1.2-linux-x86_64.rpm](https://github.com/zuramai/postguy/releases/download/v0.1.2/postguy-0.1.2-linux-x86_64.rpm) |
 
 Other builds (ARM Linux, Flatpak, portable `.zip`, CLI only) and checksums are on the [releases page](https://github.com/zuramai/postguy/releases/latest).
 
 ### macOS
 
-1. Download the [`.dmg`](https://github.com/zuramai/postguy/releases/download/v0.1.1/postguy-0.1.1-macos-universal.dmg) and open it.
+1. Download the [`.dmg`](https://github.com/zuramai/postguy/releases/download/v0.1.2/postguy-0.1.2-macos-universal.dmg) and open it.
 2. Drag **Postguy** into **Applications**.
 3. Open Postguy. macOS will say it "could not verify" the app, because it isn't signed yet. Click **Done**.
 4. Open **System Settings → Privacy & Security**.
@@ -67,7 +67,7 @@ open /Applications/Postguy.app
 
 ### Windows
 
-1. Download the [`.msi` installer](https://github.com/zuramai/postguy/releases/download/v0.1.1/postguy-0.1.1-windows-x64.msi) and run it.
+1. Download the [`.msi` installer](https://github.com/zuramai/postguy/releases/download/v0.1.2/postguy-0.1.2-windows-x64.msi) and run it.
 2. If you see **"Windows protected your PC"**, click **More info**, then **Run anyway**.
 3. Finish the installer. Postguy is now in the Start menu.
 
@@ -75,13 +75,13 @@ open /Applications/Postguy.app
 
 ```sh
 # AppImage
-chmod +x postguy-0.1.1-linux-x86_64.AppImage && ./postguy-0.1.1-linux-x86_64.AppImage
+chmod +x postguy-0.1.2-linux-x86_64.AppImage && ./postguy-0.1.2-linux-x86_64.AppImage
 
 # Debian / Ubuntu
-sudo apt install ./postguy-0.1.1-linux-x86_64.deb
+sudo apt install ./postguy-0.1.2-linux-x86_64.deb
 
 # Fedora / openSUSE
-sudo dnf install ./postguy-0.1.1-linux-x86_64.rpm
+sudo dnf install ./postguy-0.1.2-linux-x86_64.rpm
 ```
 
 ## Your data
