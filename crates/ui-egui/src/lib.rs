@@ -43,7 +43,10 @@ pub use export::{ExportFormat, ExportRequest, ExportState, ExportTarget, export_
 pub use grpc_builder::{GrpcAction, GrpcBuilder, GrpcSchemaState, GrpcTab};
 pub use grpc_response::{GrpcResponseData, GrpcResponseState, GrpcResponseTab, grpc_response_view};
 pub use import::{ImportAction, ImportItemView, ImportState, ImportSummary, import_dialog};
-pub use response::{BodyMode, ResponseAction, ResponseData, ResponseTab, ResponseViewerState, SendErrorView, TestFilter, error_view, response_view};
+pub use response::{
+    BodyMode, ResponseAction, ResponseData, ResponseTab, ResponseViewerState, SendErrorView, SentPart, SentRequestData, TestFilter, error_view,
+    response_view,
+};
 pub use runner::{RunRequestView, RunResultView, RunSummaryView, RunnerAction, RunnerRequestRow, RunnerState, RunnerView, runner_panel};
 pub use settings::{SettingsAction, SettingsEditor, SettingsSection, SettingsState};
 pub use shell::{PostguyShell, ShellState, WindowChrome};

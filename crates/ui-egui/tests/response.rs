@@ -4,7 +4,7 @@
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use postguy_model::{ScriptFailure, ScriptPhase, TestResult, TestStatus};
-use postguy_ui_egui::response::{ResponseAction, ResponseData, ResponseViewerState, response_view};
+use postguy_ui_egui::response::{ResponseAction, ResponseData, ResponseViewerState, SentRequestData, response_view};
 
 struct State {
     data: ResponseData,
@@ -33,6 +33,14 @@ fn data() -> ResponseData {
         proxy: None,
         tests: Vec::new(),
         script_failures: Vec::new(),
+        sent: SentRequestData {
+            method: "POST".into(),
+            url: "https://api.test/upload".into(),
+            headers: vec![("x-signed".into(), "from-script".into())],
+            body_len: 20,
+            body_text: Some("{\"image\":\"aGVsbG8=\"}".into()),
+            body_truncated: false,
+        },
     }
 }
 
@@ -107,6 +115,29 @@ fn search_counts_matches() {
     harness.state_mut().viewer.search = "a".into();
     harness.run();
     assert!(harness.query_by_label_contains("match(es)").is_some(), "a match counter is visible");
+}
+
+#[test]
+fn the_request_tab_shows_what_was_sent_or_says_why_not() {
+    let mut harness = harness();
+    harness.run();
+    harness.get_by_label("Request").click();
+    harness.run();
+    assert!(harness.query_by_label_contains("POST https://api.test/upload").is_some());
+    assert!(harness.query_by_label_contains("aGVsbG8=").is_some(), "the sent body text is shown");
+    harness.get_by_label_contains("Headers 1").click();
+    harness.run();
+    assert!(harness.query_by_label_contains("from-script").is_some());
+
+    harness.state_mut().viewer.sent_part = postguy_ui_egui::SentPart::Body;
+    harness.state_mut().data.sent.body_text = None;
+    harness.state_mut().data.revision = 2;
+    harness.run();
+    assert!(harness.query_by_label_contains("Binary body · 20 B (not shown).").is_some());
+
+    harness.state_mut().data.sent.body_len = 0;
+    harness.run();
+    assert!(harness.query_by_label_contains("No body was sent.").is_some());
 }
 
 #[test]

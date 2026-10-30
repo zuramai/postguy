@@ -29,7 +29,7 @@ use postguy_ui_egui::cookies::{CookieAction, CookieData, CookieRow, cookie_manag
 use postguy_ui_egui::environment::{EnvironmentAction, EnvironmentEditor};
 use postguy_ui_egui::export::{ExportFormat, ExportRequest, ExportState, ExportTarget};
 use postguy_ui_egui::import::{ImportAction, ImportItemView, ImportState, ImportSummary};
-use postguy_ui_egui::response::{ResponseAction, ResponseData, ResponseViewerState, SendErrorView, error_view, response_view};
+use postguy_ui_egui::response::{ResponseAction, ResponseData, ResponseViewerState, SendErrorView, SentRequestData, error_view, response_view};
 use postguy_ui_egui::settings::SettingsAction;
 use postguy_ui_egui::shell::PanelAction;
 use postguy_ui_egui::sidebar::{RequestProtocol, RowKind, SidebarAction, SidebarData};
@@ -643,6 +643,21 @@ impl App {
                 editor.state.tab = tab;
                 Ok(serde_json::json!({"ok": true, "detail-tab": name}))
             }
+            "response-tab" => {
+                use postguy_ui_egui::ResponseTab;
+                let name = value.as_str().ok_or("`response-tab` needs a string value")?;
+                let tab = match name.to_ascii_lowercase().as_str() {
+                    "body" => ResponseTab::Body,
+                    "cookies" => ResponseTab::Cookies,
+                    "headers" => ResponseTab::Headers,
+                    "request" => ResponseTab::Request,
+                    "tests" => ResponseTab::Tests,
+                    _ => return Err("`response-tab` is body, cookies, headers, request or tests".into()),
+                };
+                let active = self.shell.tabs.active.ok_or("no active tab")?;
+                self.viewer_states.entry(active).or_default().tab = tab;
+                Ok(serde_json::json!({"ok": true, "response-tab": name}))
+            }
             "sidebar-sections" => {
                 let open: [bool; 3] = serde_json::from_value(value)
                     .map_err(|_| "`sidebar-sections` is three booleans: [collections, environments, history]".to_string())?;
@@ -650,7 +665,7 @@ impl App {
                 Ok(serde_json::json!({"ok": true, "sidebar-sections": open}))
             }
             other => Err(format!(
-                "unknown key `{other}`; keys are tab, console, right, two-pane, sidebar, sidebar-sections, theme, url, open, request-tab, detail-tab"
+                "unknown key `{other}`; keys are tab, console, right, two-pane, sidebar, sidebar-sections, theme, url, open, request-tab, detail-tab, response-tab"
             )),
         }
     }
@@ -2807,6 +2822,14 @@ fn response_from_cached(cached: &postguy_engine::CachedResponse) -> ResponseData
         proxy: cached.request.proxy.clone(),
         tests: cached.script.tests.clone(),
         script_failures: cached.script.failures.clone(),
+        sent: SentRequestData {
+            method: cached.request.method.clone(),
+            url: cached.request.url.clone(),
+            headers: cached.request.headers.clone(),
+            body_len: cached.request.body_len,
+            body_text: cached.request.body_text.as_deref().map(std::sync::Arc::from),
+            body_truncated: cached.request.body_truncated,
+        },
     }
 }
 
@@ -3064,13 +3087,15 @@ impl eframe::App for App {
                             let area = ui.available_rect_before_wrap();
                             let (request_rect, response_rect) = split(ui, egui::Id::new(split_id), axis, share, min_request, min_response);
                             // Fixed rectangles: a pane whose content is larger than the pane is
-                            // clipped instead of pushing the other pane off the window.
+                            // clipped instead of pushing the other pane off the window. Each pane
+                            // gets its own id salt: without one both get the same stable id, so
+                            // their unsalted scroll areas share state and scroll together.
                             let mut action = None;
-                            ui.scope_builder(egui::UiBuilder::new().max_rect(request_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().id_salt("request-pane").max_rect(request_rect), |ui| {
                                 ui.set_clip_rect(request_rect.intersect(ui.clip_rect()));
                                 action = builder.show(ui);
                             });
-                            ui.scope_builder(egui::UiBuilder::new().max_rect(response_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().id_salt("response-pane").max_rect(response_rect), |ui| {
                                 ui.set_clip_rect(response_rect.intersect(ui.clip_rect()));
                                 if let Some(error) = error {
                                     retry_from_error = error_view(ui, error);
@@ -3360,6 +3385,9 @@ mod tests {
         let active = app.shell.tabs.active.expect("active tab");
         assert_eq!(app.editors.get(&active).map(|editor| editor.tab), Some(BuilderTab::Tests));
         assert!(app.set_control("request-tab", serde_json::json!("nope")).is_err());
+        app.set_control("response-tab", serde_json::json!("request")).expect("request response tab");
+        assert_eq!(app.viewer_states.get(&active).map(|state| state.tab), Some(postguy_ui_egui::ResponseTab::Request));
+        assert!(app.set_control("response-tab", serde_json::json!("timeline")).is_err());
 
         app.set_control("open", serde_json::json!(collection.id.0)).expect("open collection");
         app.sync_detail_editors();

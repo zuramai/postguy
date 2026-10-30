@@ -1,6 +1,7 @@
 //! The response viewer: the header strip with status/time/size and phase
-//! popovers, Body/Cookies/Headers tabs, Pretty/Raw/Preview/Hex body modes, a search box and the
-//! Save/Clear menus.
+//! popovers, Body/Cookies/Headers/Request tabs, Pretty/Raw/Preview/Hex body modes, a search box
+//! and the Save/Clear menus. The Request tab shows the request as it went on the wire (after
+//! pre-request scripts and variable resolution).
 //!
 //! Large bodies stay virtualised: text goes through [`LargeTextView`] (precomputed line starts,
 //! only visible rows laid out) and hex is generated per visible row. Bodies over the pretty cap
@@ -42,6 +43,23 @@ pub struct ResponseData {
     pub tests: Vec<TestResult>,
     /// Scripts that threw, timed out or ran out of memory (they never discard the response).
     pub script_failures: Vec<ScriptFailure>,
+    /// The request as it was sent.
+    pub sent: SentRequestData,
+}
+
+/// The request as it went on the wire (mapped by the app from the engine's `SentRequest`):
+/// secret values masked, the body cut at the engine's cap. Kept in memory only.
+#[derive(Debug, Clone, Default)]
+pub struct SentRequestData {
+    pub method: String,
+    pub url: String,
+    pub headers: Vec<(String, String)>,
+    /// Bytes of the body actually sent.
+    pub body_len: usize,
+    /// The body as text; `None` when it was empty or binary.
+    pub body_text: Option<Arc<str>>,
+    /// `body_text` holds only the first part of a longer body.
+    pub body_truncated: bool,
 }
 
 /// Which content tab is open.
@@ -51,7 +69,16 @@ pub enum ResponseTab {
     Body,
     Cookies,
     Headers,
+    Request,
     Tests,
+}
+
+/// Which part of the sent request the Request tab shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SentPart {
+    #[default]
+    Body,
+    Headers,
 }
 
 /// Which test results the Test Results tab lists.
@@ -94,6 +121,7 @@ pub struct ResponseViewerState {
     pub search: String,
     pub wrap: bool,
     pub test_filter: TestFilter,
+    pub sent_part: SentPart,
     /// Cache of the pretty-printed body and the signature it was built from.
     pretty: Option<(u64, usize, Arc<str>)>,
     /// Cache of the UTF-8 body for Raw/Preview, keyed by the response revision so a new send
@@ -102,6 +130,8 @@ pub struct ResponseViewerState {
     /// The virtualised viewer for (revision, mode, language). Rebuilding it rescans the whole
     /// body for line starts, so it is kept until the body or the mode changes.
     view_cache: Option<(u64, BodyMode, CodeLanguage, LargeTextView)>,
+    /// The virtualised viewer for the sent body, keyed by the response revision.
+    sent_view: Option<(u64, LargeTextView)>,
 }
 
 impl Default for ResponseViewerState {
@@ -112,9 +142,11 @@ impl Default for ResponseViewerState {
             search: String::new(),
             wrap: false,
             test_filter: TestFilter::All,
+            sent_part: SentPart::Body,
             pretty: None,
             raw: None,
             view_cache: None,
+            sent_view: None,
         }
     }
 }
@@ -199,6 +231,7 @@ pub fn response_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseV
             (ResponseTab::Body, "Body"),
             (ResponseTab::Cookies, "Cookies"),
             (ResponseTab::Headers, "Headers"),
+            (ResponseTab::Request, "Request"),
             (ResponseTab::Tests, tests_label.as_str()),
         ];
         for (tab, label) in tabs {
@@ -206,7 +239,7 @@ pub fn response_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseV
             let count = match tab {
                 ResponseTab::Cookies => Some(set_cookie_rows(&data.headers).len()),
                 ResponseTab::Headers => Some(data.headers.len()),
-                ResponseTab::Body | ResponseTab::Tests => None,
+                ResponseTab::Body | ResponseTab::Request | ResponseTab::Tests => None,
             };
             let dot =
                 tab == ResponseTab::Tests && (!data.script_failures.is_empty() || data.tests.iter().any(|test| test.status == TestStatus::Failed));
@@ -285,8 +318,9 @@ pub fn response_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseV
     ui.separator();
     match state.tab {
         ResponseTab::Body => body_view(ui, data, state, &theme),
-        ResponseTab::Headers => headers_view(ui, data, &theme),
+        ResponseTab::Headers => headers_table(ui, &data.headers, &theme),
         ResponseTab::Cookies => cookies_view(ui, data, &theme),
+        ResponseTab::Request => sent_view(ui, data, state, &theme),
         ResponseTab::Tests => tests_view(
             ui,
             &data.tests,
@@ -486,9 +520,75 @@ fn body_view(ui: &mut Ui, data: &mut ResponseData, state: &mut ResponseViewerSta
     }
 }
 
-fn headers_view(ui: &mut Ui, data: &ResponseData, theme: &Theme) {
+/// The sent request: method and URL, then its body or headers.
+fn sent_view(ui: &mut Ui, data: &ResponseData, state: &mut ResponseViewerState, theme: &Theme) {
+    let sent = &data.sent;
     let palette = theme.palette;
-    if data.headers.is_empty() {
+    if sent.method.is_empty() {
+        ui.label(RichText::new("The sent request is not available.").color(palette.text_muted));
+        return;
+    }
+    ui.add(egui::Label::new(RichText::new(format!("{} {}", sent.method, sent.url)).monospace().color(palette.text)).wrap().selectable(true));
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        for (part, label, count) in [(SentPart::Body, "Body", None), (SentPart::Headers, "Headers", Some(sent.headers.len()))] {
+            if widgets::sub_tab_sized(ui, label, state.sent_part == part, count, false, 26.0).clicked() {
+                state.sent_part = part;
+            }
+        }
+        if state.sent_part == SentPart::Body {
+            ui.label(RichText::new(format_size(sent.body_len as u64)).small().color(palette.text_muted));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if let Some(text) = &sent.body_text
+                    && widgets::icon_button_with(ui, "copy", "Copy request body", "Copy request body").clicked()
+                {
+                    ui.ctx().copy_text(text.to_string());
+                }
+                widgets::icon_toggle(ui, "text-wrap", "Wrap", "Wrap lines", &mut state.wrap);
+            });
+        }
+    });
+    match state.sent_part {
+        SentPart::Headers => headers_table(ui, &sent.headers, theme),
+        SentPart::Body => match &sent.body_text {
+            Some(text) => {
+                if sent.body_truncated {
+                    ui.label(
+                        RichText::new(format!(
+                            "Showing the first {} of the {} body that was sent.",
+                            format_size(text.len() as u64),
+                            format_size(sent.body_len as u64)
+                        ))
+                        .color(palette.warning),
+                    );
+                }
+                if !matches!(&state.sent_view, Some((revision, _)) if *revision == data.revision) {
+                    let content_type =
+                        sent.headers.iter().find(|(name, _)| name.eq_ignore_ascii_case("content-type")).map(|(_, value)| value.as_str());
+                    let language = language_for(content_type.unwrap_or_default(), text.bytes().find(|byte| !byte.is_ascii_whitespace()));
+                    state.sent_view =
+                        Some((data.revision, LargeTextView::new(text.clone()).language(language).id(egui::Id::new("sent-request-body"))));
+                }
+                let wrap = state.wrap;
+                if let Some((_, view)) = state.sent_view.as_mut() {
+                    view.wrap = wrap;
+                    let _ = view.show(ui);
+                }
+            }
+            None if sent.body_len == 0 => {
+                ui.label(RichText::new("No body was sent.").color(palette.text_muted));
+            }
+            None => {
+                ui.label(RichText::new(format!("Binary body · {} (not shown).", format_size(sent.body_len as u64))).color(palette.text_muted));
+            }
+        },
+    }
+}
+
+/// A two-column Key/Value table of headers.
+fn headers_table(ui: &mut Ui, headers: &[(String, String)], theme: &Theme) {
+    let palette = theme.palette;
+    if headers.is_empty() {
         ui.label(RichText::new("No headers.").color(palette.text_muted));
         return;
     }
@@ -516,7 +616,7 @@ fn headers_view(ui: &mut Ui, data: &ResponseData, theme: &Theme) {
                     );
                 }
                 ui.painter().hline(head.x_range(), head.bottom(), line);
-                for (name, value) in &data.headers {
+                for (name, value) in headers {
                     let row = ui
                         .horizontal_top(|ui| {
                             for (cell_width, text, font, color) in [
@@ -607,8 +707,15 @@ fn text_for_search(data: &ResponseData, state: &ResponseViewerState) -> Option<S
 
 /// The syntax the body should be coloured with, from the content type and the first byte.
 fn detected_language(data: &ResponseData) -> CodeLanguage {
-    let content_type = data.content_type().unwrap_or_default();
     if data.looks_json() {
+        return CodeLanguage::Json;
+    }
+    language_for(data.content_type().unwrap_or_default(), None)
+}
+
+/// The syntax for a body with this content type and first non-blank byte.
+fn language_for(content_type: &str, first_byte: Option<u8>) -> CodeLanguage {
+    if content_type.contains("json") || matches!(first_byte, Some(b'{' | b'[')) {
         CodeLanguage::Json
     } else if content_type.contains("xml") {
         CodeLanguage::Xml
@@ -671,6 +778,7 @@ mod tests {
             proxy: None,
             tests: Vec::new(),
             script_failures: Vec::new(),
+            sent: SentRequestData::default(),
         }
     }
 

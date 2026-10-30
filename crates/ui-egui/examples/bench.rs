@@ -92,6 +92,7 @@ fn response() {
         proxy: None,
         tests: Vec::new(),
         script_failures: Vec::new(),
+        sent: Default::default(),
     };
     let mut state = ResponseViewerState::default();
     state.mode = BodyMode::Raw;

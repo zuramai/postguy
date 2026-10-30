@@ -360,6 +360,15 @@ status = "partial"
 notes = "Headers and Cookies (parsed Set-Cookie display) tabs exist; header values are selectable. Test Results lists pm.test outcomes; the Timeline tab is P2; hover details for header rows are not drawn."
 evidence = ["crates/ui-egui/tests/response.rs::raw_hex_headers_and_cookies_are_reachable", "crates/ui-egui/tests/response.rs::test_results_tab_lists_and_filters_tests"]
 [[feature]]
+id = "c.sent-request"
+title = "Sent request view: method, URL, headers and body as sent after pre-request scripts"
+area = "C"
+tier = "P1"
+status = "shipped"
+tools = ["request_send", "response_get"]
+evidence = ["crates/ui-egui/tests/response.rs::the_request_tab_shows_what_was_sent_or_says_why_not", "crates/automation/tests/engine_tools.rs::the_sent_body_reflects_pre_request_scripts_is_masked_and_stays_out_of_history", "crates/engine/src/pipeline.rs::a_secret_straddling_the_cap_is_masked_not_cut"]
+notes = "Response pane Request tab and the tools' `request.bodyText`. Secrets masked; the body is cut at 1 MiB and binary bodies show only their size. Memory only (latest send per tab plus the 20-send response cache); History stores no request body. Not shown: per-part detail for multipart bodies with binary files, and the sent body of collection-runner iterations."
+[[feature]]
 id = "c.timings"
 title = "Phase timings with hover breakdown"
 area = "C"
@@ -723,8 +732,8 @@ id = "g.postman-collection"
 title = "Postman Collection v2.1/v2.0 import and export"
 area = "G"
 tier = "P0"
-status = "shipped"
-notes = "Collection v2.0/v2.1 import and export with folders, bodies, auth, scripts, variables, examples, extras; five fidelity goldens. The export dialog offers Postman and native shapes and strips secret variable values."
+status = "partial"
+notes = "Collection v2.0/v2.1 import and export with folders, bodies, auth, variables, examples, extras; five fidelity goldens. The export dialog offers Postman and native shapes and strips secret variable values. Missing: request scripts are read from and written to `request.event`, but the schema puts `event` on the item, so scripts in real Postman exports are dropped on import without a report line (gap 15)."
 
 evidence = ["crates/interop/src/postman/tests.rs::typical_v21_maps_the_tree", "crates/interop/src/postman/tests.rs::unknown_fields_survive_every_level", "crates/interop/src/postman/tests.rs::goldens_round_trip", "apps/postguy/src/main.rs::exporting_a_collection_writes_stripped_secrets_and_a_workspace_zip"]
 [[feature]]

@@ -89,6 +89,39 @@ fn request_send_and_the_response_tools_share_one_cached_outcome() {
 }
 
 #[test]
+fn the_sent_body_reflects_pre_request_scripts_is_masked_and_stays_out_of_history() {
+    let server = Server::start();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let automation = automation_in(dir.path());
+    let (collection, request) = prepared_request(&automation, &format!("{}/echo", server.base_url()));
+    let environment = call(&automation, "env_create", json!({"name": "Local"}))["environment"].as_str().expect("environment id").to_string();
+    call(&automation, "env_set_var", json!({"environment": environment, "key": "token", "value": "hunter2", "secret": true}));
+
+    let got = call(&automation, "request_get", json!({"collection": collection, "request": request}));
+    let mut definition = got["request"]["kind"].clone();
+    definition["method"] = json!("POST");
+    definition["body"] = json!({"type": "raw", "language": "json", "text": "{\"authored\":true}"});
+    // The payload is assembled by the script so its literal never appears in the stored script.
+    definition["scripts"] = json!({
+        "prerequest": {"text": "pm.request.body.update(JSON.stringify({image: 'aGVs' + 'bG8=', token: pm.variables.get('token')}));"}
+    });
+    call(&automation, "request_update", json!({"collection": collection, "request": request, "definition": definition}));
+
+    let sent = call(&automation, "request_send", json!({"collection": collection, "request": request, "environment": environment}));
+    let echo: Value = serde_json::from_str(sent["response"]["bodyText"].as_str().expect("utf-8 echo")).expect("echo json");
+    assert!(echo["body"]["utf8"].as_str().is_some_and(|body| body.contains("hunter2")), "the server got the real secret: {echo}");
+    let body_text = sent["request"]["bodyText"].as_str().expect("sent body text");
+    assert_eq!(body_text, "{\"image\":\"aGVsbG8=\",\"token\":\"•••••••\"}", "the script's body, secret masked");
+    assert_eq!(sent["request"]["bodyLen"], 38);
+    assert_eq!(sent["request"]["bodyTruncated"], false);
+
+    let history_id = sent["historyId"].as_str().expect("history id");
+    assert_eq!(call(&automation, "response_get", json!({"id": history_id}))["request"]["bodyText"], body_text);
+    let history_file = std::fs::read_to_string(dir.path().join("work/history.jsonl")).expect("history file");
+    assert!(!history_file.contains("aGVsbG8="), "history.jsonl never stores the body: {history_file}");
+}
+
+#[test]
 fn cookies_are_captured_listed_deleted_and_cleared() {
     let server = Server::start();
     let dir = tempfile::tempdir().expect("tempdir");

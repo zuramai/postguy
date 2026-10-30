@@ -60,7 +60,8 @@ pub struct IterationScope {
     pub data: Vec<(String, serde_json::Value)>,
 }
 
-/// The request exactly as it went on the wire (secrets masked in the history snapshot).
+/// The request exactly as it went on the wire (secrets masked). Lives only in memory (the send
+/// outcome and the response cache); History never stores the body.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SentRequest {
@@ -68,6 +69,11 @@ pub struct SentRequest {
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub body_len: usize,
+    /// The encoded body as sent, secrets masked, cut at [`SENT_BODY_CAP`] bytes. `None` when
+    /// the body is empty or not UTF-8 (binary files, binary multipart parts).
+    pub body_text: Option<String>,
+    /// `body_text` holds only the first [`SENT_BODY_CAP`] bytes of a longer body.
+    pub body_truncated: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<AuthPlacement>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -394,7 +400,9 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
         params: request.params,
         path_vars: request.path_vars,
         headers: mask_rows(&request.headers, resolver.scopes()),
-        body: request.body,
+        // The body stays out of history.jsonl: it can be megabytes (base64 payloads) and the
+        // file is rewritten whole once it reaches its cap. The sent body lives in `SentRequest`.
+        body: Body::None,
         auth: request.auth,
         scripts: request.scripts,
         tests: request.tests,
@@ -450,11 +458,14 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
         engine.console().push(ConsoleLevel::Warning, ConsoleKind::Warning, postguy_vars::mask_secrets(warning, resolver.scopes()));
     }
 
+    let (body_text, body_truncated) = sent_body_text(&built.body, resolver.scopes());
     let sent = SentRequest {
         method: built.method,
         url: masked_url,
         headers: mask_pairs(&built.headers, resolver.scopes()),
         body_len: built.body.len(),
+        body_text,
+        body_truncated,
         auth: auth_placement,
         proxy,
         redirect_hops: outcome.hops,
@@ -468,6 +479,44 @@ pub(crate) async fn execute(engine: &Engine, target: SendTarget, options: SendOp
         timings: PipelineTimings { prepare_ms, network_ms, record_ms, total_ms: millis(started.elapsed()) },
         script: report,
     })
+}
+
+/// What a send keeps of the body it sent (the UI, the response cache and the tools read it).
+pub const SENT_BODY_CAP: usize = 1 << 20;
+
+/// Room past the cap for a UTF-8 character the window cuts (at most 3 bytes are backed off).
+const UTF8_SLACK: usize = 4;
+
+/// The masked UTF-8 text of the first [`SENT_BODY_CAP`] bytes of `body`, and whether more was
+/// cut. Only a window of the cap plus the longest secret is masked, so a secret straddling the
+/// cut is still hidden and a 50 MB upload is never copied whole.
+fn sent_body_text(body: &[u8], scopes: &[Scope]) -> (Option<String>, bool) {
+    if body.is_empty() {
+        return (None, false);
+    }
+    let longest_secret = scopes.iter().flat_map(|scope| scope.secret_values()).map(|value| value.len()).max().unwrap_or(0);
+    let window_len = body.len().min(SENT_BODY_CAP.saturating_add(longest_secret).saturating_add(UTF8_SLACK));
+    let window = body.get(..window_len).unwrap_or(body);
+    let text = match std::str::from_utf8(window) {
+        Ok(text) => text,
+        // The window cut a multi-byte character: keep the complete prefix.
+        Err(err) if err.error_len().is_none() && window_len < body.len() => match window.get(..err.valid_up_to()).map(std::str::from_utf8) {
+            Some(Ok(text)) => text,
+            _ => return (None, false),
+        },
+        Err(_) => return (None, false),
+    };
+    let mut masked = postguy_vars::mask_secrets(text, scopes);
+    // Masks can be longer in bytes than the secret, so the cut is on the masked text.
+    let truncated = body.len() > SENT_BODY_CAP || masked.len() > SENT_BODY_CAP;
+    if masked.len() > SENT_BODY_CAP {
+        let mut cut = SENT_BODY_CAP;
+        while cut > 0 && !masked.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        masked.truncate(cut);
+    }
+    (Some(masked), truncated)
 }
 
 /// The request as a post-response script sees it: what was sent, with secrets masked.
@@ -1024,4 +1073,42 @@ fn mask_rows(rows: &[KeyValue], scopes: &[Scope]) -> Vec<KeyValue> {
             extras: row.extras.clone(),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn secret_scope(value: &str) -> Vec<Scope> {
+        vec![Scope::new(ScopeKind::Environment, Vec::new()).with_secrets([("token".into(), value.into())])]
+    }
+
+    #[test]
+    fn a_secret_straddling_the_cap_is_masked_not_cut() {
+        let mut body = vec![b'a'; SENT_BODY_CAP - 3];
+        body.extend_from_slice(b"hunter2 and more");
+        let (text, truncated) = sent_body_text(&body, &secret_scope("hunter2"));
+        let text = text.expect("utf-8 body");
+        assert!(truncated);
+        assert!(text.len() <= SENT_BODY_CAP);
+        assert!(!text.contains("hun"), "no prefix of the secret survives the cut");
+        assert!(text.ends_with('•'));
+    }
+
+    #[test]
+    fn a_multibyte_character_at_the_cut_keeps_the_text() {
+        let mut body = vec![b'a'; SENT_BODY_CAP - 1];
+        body.extend_from_slice("é".repeat(10).as_bytes());
+        let (text, truncated) = sent_body_text(&body, &[]);
+        let text = text.expect("still text");
+        assert!(truncated);
+        assert_eq!(text.len(), SENT_BODY_CAP - 1, "the half character is dropped");
+    }
+
+    #[test]
+    fn binary_and_empty_bodies_have_no_text() {
+        assert_eq!(sent_body_text(&[0xff, 0xfe, 0x00], &[]), (None, false));
+        assert_eq!(sent_body_text(b"", &[]), (None, false));
+        assert_eq!(sent_body_text(b"{\"a\":1}", &[]), (Some("{\"a\":1}".into()), false));
+    }
 }
