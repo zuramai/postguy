@@ -107,11 +107,11 @@ pub(crate) fn grpc_panel(ui: &mut egui::Ui, editor: &mut GrpcEditor, context: &G
         let area = ui.available_rect_before_wrap();
         let (request_rect, response_rect) = split(ui, egui::Id::new(split_id), axis, share, min_request, min_response);
         let mut action = None;
-        ui.scope_builder(egui::UiBuilder::new().max_rect(request_rect), |ui| {
+        ui.scope_builder(egui::UiBuilder::new().id_salt("request-pane").max_rect(request_rect), |ui| {
             ui.set_clip_rect(request_rect.intersect(ui.clip_rect()));
             action = builder.show(ui);
         });
-        ui.scope_builder(egui::UiBuilder::new().max_rect(response_rect), |ui| {
+        ui.scope_builder(egui::UiBuilder::new().id_salt("response-pane").max_rect(response_rect), |ui| {
             ui.set_clip_rect(response_rect.intersect(ui.clip_rect()));
             if let Some(error) = &editor.error {
                 retry = error_view(ui, error);

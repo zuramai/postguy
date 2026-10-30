@@ -3087,13 +3087,15 @@ impl eframe::App for App {
                             let area = ui.available_rect_before_wrap();
                             let (request_rect, response_rect) = split(ui, egui::Id::new(split_id), axis, share, min_request, min_response);
                             // Fixed rectangles: a pane whose content is larger than the pane is
-                            // clipped instead of pushing the other pane off the window.
+                            // clipped instead of pushing the other pane off the window. Each pane
+                            // gets its own id salt: without one both get the same stable id, so
+                            // their unsalted scroll areas share state and scroll together.
                             let mut action = None;
-                            ui.scope_builder(egui::UiBuilder::new().max_rect(request_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().id_salt("request-pane").max_rect(request_rect), |ui| {
                                 ui.set_clip_rect(request_rect.intersect(ui.clip_rect()));
                                 action = builder.show(ui);
                             });
-                            ui.scope_builder(egui::UiBuilder::new().max_rect(response_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().id_salt("response-pane").max_rect(response_rect), |ui| {
                                 ui.set_clip_rect(response_rect.intersect(ui.clip_rect()));
                                 if let Some(error) = error {
                                     retry_from_error = error_view(ui, error);
