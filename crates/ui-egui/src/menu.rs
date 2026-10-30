@@ -121,6 +121,11 @@ pub fn display_shortcut(shortcut: &str, mac: bool) -> String {
     shortcut.replace("Cmd", "Ctrl")
 }
 
+/// [`display_shortcut`] for the platform this build runs on.
+pub fn platform_shortcut(shortcut: &str) -> String {
+    display_shortcut(shortcut, cfg!(target_os = "macos"))
+}
+
 /// Draw the in-app menu bar. Returns the action of the entry clicked this frame.
 pub fn menu_bar(ui: &mut Ui, registry: &CommandRegistry) -> Option<CommandAction> {
     let theme = Theme::current(ui.ctx());
@@ -170,8 +175,7 @@ fn show_entries(ui: &mut Ui, registry: &CommandRegistry, entries: &[MenuEntry], 
             }
             MenuEntry::Command(id) => {
                 let Some(command) = registry.find(id) else { continue };
-                let shortcut = command.shortcut.map(|shortcut| display_shortcut(shortcut, cfg!(target_os = "macos")));
-                if widgets::menu_item(ui, None, command.label, shortcut.as_deref(), true).clicked() {
+                if widgets::menu_item(ui, None, command.label, command.shortcut, true).clicked() {
                     *picked = Some(command.id);
                 }
             }

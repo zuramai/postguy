@@ -427,7 +427,8 @@ pub fn context_menu(response: &Response, contents: impl FnOnce(&mut Ui)) {
     });
 }
 
-/// One menu row: optional leading icon, label, right-aligned shortcut hint. Closes the menu
+/// One menu row: optional leading icon, label, right-aligned shortcut hint. `shortcut` is in
+/// registry form (`Cmd+C`) and is shown the platform way (`Ctrl+C` off macOS). Closes the menu
 /// when clicked. Returns the row response (`enabled` false rows do nothing).
 pub fn menu_item(ui: &mut Ui, icon: Option<&str>, label: &str, shortcut: Option<&str>, enabled: bool) -> Response {
     let theme = crate::theme::Theme::current(ui.ctx());
@@ -449,7 +450,7 @@ pub fn menu_item(ui: &mut Ui, icon: Option<&str>, label: &str, shortcut: Option<
         ui.painter().text(
             pos2(rect.right() - 10.0, rect.center().y),
             Align2::RIGHT_CENTER,
-            shortcut,
+            crate::menu::platform_shortcut(shortcut),
             TextStyle::Small.resolve(ui.style()),
             theme.palette.text_muted,
         );

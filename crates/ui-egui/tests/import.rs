@@ -72,3 +72,29 @@ fn the_dialog_names_the_supported_formats_and_toggles_the_openapi_folder_layout(
     harness.run();
     assert!(harness.state().import.folders_by_path);
 }
+
+/// Width of the dialog's Close button's right edge: it sits at the dialog's right inner edge.
+fn dialog_right(harness: &Harness<'_, State>) -> f32 {
+    harness.get_by_label("Close dialog").rect().max.x
+}
+
+#[test]
+fn a_wide_report_does_not_leave_the_dialog_stretched_after_reopening() {
+    let mut harness = harness(ImportState { open: true, ..ImportState::default() });
+    harness.run();
+    let fresh = dialog_right(&harness);
+    let long = "collections/some/deeply/nested/folder/structure/with/a/very/long/request/file/name.bru".repeat(3);
+    let failed = ImportItemView { source: long.clone(), error: Some(format!("unsupported file: {long}")), ..ImportItemView::default() };
+    let report = ImportReport { warnings: vec![long.clone()], dropped: vec![long.clone()], ..ImportReport::default() };
+    let imported = ImportItemView { source: long.clone(), kind: "collection".into(), name: long.clone(), report, ..ImportItemView::default() };
+    harness.state_mut().import.summary = Some(ImportSummary { items: vec![failed, imported], problems: vec![long] });
+    harness.run();
+    let with_report = dialog_right(&harness);
+    assert!((with_report - fresh).abs() < 1.0, "the report wraps inside the dialog: {fresh} vs {with_report}");
+    harness.state_mut().import.open = false;
+    harness.run();
+    postguy_ui_egui::import::open(&mut harness.state_mut().import);
+    harness.run();
+    let reopened = dialog_right(&harness);
+    assert!((reopened - fresh).abs() < 1.0, "the reopened dialog keeps its width: {fresh} vs {reopened}");
+}

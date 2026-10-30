@@ -29,7 +29,7 @@ fn settings_shortcuts_lists_the_registry_table() {
     harness.get_by_label("Shortcuts").click_accesskit();
     harness.run();
     assert!(harness.query_by_label_contains("Toggle console").is_some());
-    let shown = postguy_ui_egui::menu::display_shortcut("Cmd+Alt+C", cfg!(target_os = "macos"));
+    let shown = postguy_ui_egui::menu::platform_shortcut("Cmd+Alt+C");
     assert!(harness.query_by_label_contains(&shown).is_some(), "the console shortcut {shown} is listed");
 }
 

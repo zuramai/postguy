@@ -1347,12 +1347,10 @@ impl LargeTextView {
 
         widgets::context_menu(&response, |ui| {
             let copied = copy_text(&self.text, sels);
-            let copy_shortcut = crate::menu::display_shortcut("Cmd+C", cfg!(target_os = "macos"));
-            if widgets::menu_item(ui, Some("copy"), "Copy", Some(copy_shortcut.as_str()), !copied.is_empty()).clicked() {
+            if widgets::menu_item(ui, Some("copy"), "Copy", Some("Cmd+C"), !copied.is_empty()).clicked() {
                 ui.ctx().copy_text(copied);
             }
-            let select_all_shortcut = crate::menu::display_shortcut("Cmd+A", cfg!(target_os = "macos"));
-            if widgets::menu_item(ui, None, "Select all", Some(select_all_shortcut.as_str()), true).clicked() {
+            if widgets::menu_item(ui, None, "Select all", Some("Cmd+A"), true).clicked() {
                 sels.set(Sel { anchor: 0, head: self.text.len() });
             }
         });

@@ -2,7 +2,7 @@
 //! pickers and a drop hint, an explicit Replace option, and the per-file ImportReport view.
 //! Parsing and workspace writes happen outside the UI thread; this widget is data/actions only.
 
-use egui::{Align, Layout, RichText, ScrollArea};
+use egui::{RichText, ScrollArea};
 use postguy_interop::ImportReport;
 
 use crate::theme::Theme;
@@ -128,27 +128,31 @@ pub fn import_dialog(ctx: &egui::Context, state: &mut ImportState) -> Option<Imp
                 for (index, item) in summary.items.iter().enumerate() {
                     ui.separator();
                     if let Some(error) = &item.error {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(&item.source).monospace());
-                            ui.label(RichText::new(error).color(theme.palette.danger));
-                        });
+                        // Sources are full paths and errors can be long: wrap both inside the
+                        // dialog. An unwrapped row would widen the modal's remembered size, and
+                        // the dialog would stay stretched the next time it opens.
+                        ui.add(egui::Label::new(RichText::new(&item.source).monospace()).wrap());
+                        ui.add(egui::Label::new(RichText::new(error).color(theme.palette.danger)).wrap());
                         continue;
                     }
-                    ui.horizontal(|ui| {
-                        let kind = match item.kind.as_str() {
-                            "collection" => "Collection",
-                            "environment" => "Environment",
-                            "globals" => "Globals",
-                            other => other,
-                        };
-                        ui.label(RichText::new(item.name.clone()).strong());
-                        ui.label(RichText::new(kind).small().color(theme.palette.text_muted));
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let kind = match item.kind.as_str() {
+                        "collection" => "Collection",
+                        "environment" => "Environment",
+                        "globals" => "Globals",
+                        other => other,
+                    };
+                    egui::Sides::new().shrink_left().truncate().show(
+                        ui,
+                        |ui| {
+                            ui.label(RichText::new(item.name.clone()).strong());
+                            ui.label(RichText::new(kind).small().color(theme.palette.text_muted));
+                        },
+                        |ui| {
                             if ui.add(egui::Button::new("Open").frame(false)).clicked() {
                                 action = Some(ImportAction::Open { index });
                             }
-                        });
-                    });
+                        },
+                    );
                     if !item.report.warnings.is_empty() {
                         for warning in item.report.warnings.iter().take(8) {
                             ui.label(RichText::new(format!("warning: {warning}")).small().color(theme.palette.warning));
