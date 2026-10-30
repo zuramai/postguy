@@ -294,7 +294,8 @@ pub fn command_palette(ui: &mut Ui, state: &mut PaletteState, registry: &Command
                     if fuzzy(&needle, command.label)
                         && let Some(action) = registry.action(command.id)
                     {
-                        let hint = format!("{} · {}", command.group, command.shortcut.unwrap_or(""));
+                        let shortcut = command.shortcut.map(crate::menu::platform_shortcut).unwrap_or_default();
+                        let hint = format!("{} · {shortcut}", command.group);
                         results.push((action, command.label.to_string(), hint));
                     }
                 }
@@ -337,7 +338,7 @@ pub fn command_palette(ui: &mut Ui, state: &mut PaletteState, registry: &Command
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Enter open · Esc close · ↑↓ move").small().color(theme.palette.text_muted));
                     ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(RichText::new("Cmd/Ctrl+K").small().color(theme.palette.text_muted));
+                        ui.label(RichText::new(crate::menu::platform_shortcut("Cmd+K")).small().color(theme.palette.text_muted));
                     });
                 });
             });

@@ -197,7 +197,11 @@ pub fn variable_tooltip(ui: &Ui, output: &TextEditOutput, text: &str, variables:
                     ui.label(egui::RichText::new(format!("{{{{{}}}}}", info.name)).strong().color(theme.palette.accent));
                     ui.label(egui::RichText::new(&info.scope).small().color(theme.palette.text_muted));
                 });
-                let value = if info.secret && !reveal { "•••••• (hold Cmd/Ctrl to reveal)".to_string() } else { info.value.clone() };
+                let value = if info.secret && !reveal {
+                    format!("•••••• (hold {} to reveal)", crate::menu::platform_shortcut("Cmd"))
+                } else {
+                    info.value.clone()
+                };
                 ui.label(egui::RichText::new(value).monospace().color(theme.palette.text));
                 if info.secret {
                     ui.label(egui::RichText::new("Secret · masked in logs and history").small().color(theme.palette.warning));

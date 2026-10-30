@@ -398,7 +398,8 @@ fn the_welcome_state_offers_new_request_import_and_settings() {
     harness.run();
     assert!(harness.query_by_label_contains("New HTTP request").is_some());
     assert!(harness.query_by_label_contains("Import…").is_some());
-    assert!(harness.query_by_label_contains("Cmd/Ctrl+N new request").is_some());
+    let hint = postguy_ui_egui::menu::platform_shortcut("Cmd+N new request");
+    assert!(harness.query_by_label_contains(&hint).is_some(), "the welcome hint names {hint}");
 }
 
 #[test]

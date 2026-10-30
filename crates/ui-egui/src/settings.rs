@@ -294,7 +294,8 @@ fn themes(ui: &mut Ui, settings: &mut Settings) -> bool {
         settings.theme = new_theme;
         differs
     });
-    changed |= setting_row(ui, "Interface zoom", Some("Scales the whole interface. Cmd/Ctrl + and - change it too."), |ui| {
+    let zoom_hint = format!("Scales the whole interface. {} and - change it too.", crate::menu::platform_shortcut("Cmd +"));
+    changed |= setting_row(ui, "Interface zoom", Some(&zoom_hint), |ui| {
         let current = crate::commands::sanitize_zoom(settings.ui_zoom);
         let nearest = ZOOM_STEPS
             .iter()
@@ -334,7 +335,7 @@ fn shortcuts(ui: &mut Ui) {
         group(ui, name);
         for command in registry.commands().iter().filter(|command| command.group == name) {
             let Some(shortcut) = command.shortcut else { continue };
-            let shown = crate::menu::display_shortcut(shortcut, cfg!(target_os = "macos"));
+            let shown = crate::menu::platform_shortcut(shortcut);
             setting_row(ui, command.label, None, |ui| {
                 let keys = ui
                     .horizontal(|ui| {

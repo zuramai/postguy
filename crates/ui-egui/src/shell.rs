@@ -419,7 +419,7 @@ impl PostguyShell {
                     if search.clicked() {
                         self.palette.open = true;
                     }
-                    search.on_hover_text("Command palette (Cmd/Ctrl+K)");
+                    search.on_hover_text(format!("Command palette ({})", crate::menu::platform_shortcut("Cmd+K")));
                 }
             });
         if menu_action.is_some() {
@@ -518,7 +518,8 @@ impl PostguyShell {
                 }
             });
             ui.add_space(12.0);
-            ui.label(RichText::new("Cmd/Ctrl+N new request · Cmd/Ctrl+I import · Cmd/Ctrl+K commands").small().color(theme.palette.text_muted));
+            let hint = ["Cmd+N new request", "Cmd+I import", "Cmd+K commands"].map(crate::menu::platform_shortcut).join(" · ");
+            ui.label(RichText::new(hint).small().color(theme.palette.text_muted));
         });
     }
 
