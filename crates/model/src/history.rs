@@ -14,7 +14,8 @@ pub struct HistoryEntry {
     /// Unix millis (`postguy-util::time`).
     #[serde(default)]
     pub time_ms: i64,
-    /// Snapshot of the request asSENT (resolved values).
+    /// Snapshot of the request as SENT (resolved values, secrets masked), without its body:
+    /// bodies can be megabytes and the history file is rewritten whole at its cap.
     #[serde(default)]
     pub request: Option<RequestKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

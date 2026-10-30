@@ -784,7 +784,7 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
         ToolDef {
             name: "request_send",
             title: "Send a saved request",
-            description: "Runs the full send pipeline (variables, inherited auth, cookies, proxy, redirects, decompression) and records History, Console and the response cache.",
+            description: "Runs the full send pipeline (variables, inherited auth, cookies, proxy, redirects, decompression) and records History, Console and the response cache. `request` is what went on the wire after pre-request scripts: method, URL, headers and `bodyText` (secrets masked, capped at 1 MiB; null when empty or binary).",
             input_schema: schema! {
                 "collection": req("collection id"),
                 "request": req("request id"),
@@ -850,7 +850,7 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
         ToolDef {
             name: "response_get",
             title: "Get a finished response",
-            description: "The newest (or `id`) cached response: status, headers, body (base64 plus text when UTF-8, capped at 1 MiB), size and timings.",
+            description: "The newest (or `id`) cached response: status, headers, body (base64 plus text when UTF-8, capped at 1 MiB), size and timings, plus the sent `request` with its `bodyText`.",
             input_schema: schema! { "id": opt("history id (omit for the newest response)") },
             read_only: true,
             destructive: false,
@@ -917,7 +917,7 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
         ToolDef {
             name: "history_open",
             title: "Open a history entry",
-            description: "One entry by id, including the as-sent request snapshot.",
+            description: "One entry by id, including the as-sent request snapshot (URL and headers; History never stores the body).",
             input_schema: schema! { "id": req("history id") },
             read_only: true,
             destructive: false,

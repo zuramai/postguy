@@ -137,6 +137,7 @@ impl DemoState {
                 proxy: None,
                 tests: Vec::new(),
                 script_failures: Vec::new(),
+                sent: Default::default(),
             },
             viewer: {
                 let mut viewer = ResponseViewerState::default();
