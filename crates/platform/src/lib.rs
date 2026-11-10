@@ -1,11 +1,13 @@
 //! OS services: config/data dirs, file dialogs, reveal in file manager, open URL, clipboard,
-//! system proxy, system font fallback.
+//! system proxy, system font fallback, and installing app updates ([`update`]).
 //!
 //! Status: the import file/folder chooser is implemented with `rfd`'s async dialog (M4.1), so
 //! the UI polls the returned future from its own thread instead of blocking. The remaining
 //! services arrive with M5/M10.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
+
+pub mod update;
 
 use std::future::Future;
 use std::path::PathBuf;

@@ -48,6 +48,8 @@ pub enum CommandAction {
     Window(WindowCommand),
     /// Open a link in the system browser.
     OpenUrl(&'static str),
+    /// Open the update dialog, checking the release feed unless an update is already known.
+    CheckForUpdates,
 }
 
 /// Text-editing menu commands, routed to whichever text field has focus.
@@ -166,6 +168,7 @@ impl Default for CommandRegistry {
                 Command { id: "app.quit", label: "Quit Postguy", shortcut: Some("Cmd+Q"), group: "Window" },
                 Command { id: "help.docs", label: "Documentation", shortcut: None, group: "Help" },
                 Command { id: "help.github", label: "GitHub", shortcut: None, group: "Help" },
+                Command { id: "help.check-updates", label: "Check for updates…", shortcut: None, group: "Help" },
             ],
         }
     }
@@ -235,6 +238,7 @@ impl CommandRegistry {
             "window.close" | "app.quit" => CommandAction::Window(WindowCommand::Close),
             "help.docs" => CommandAction::OpenUrl(DOCS_URL),
             "help.github" => CommandAction::OpenUrl(GITHUB_URL),
+            "help.check-updates" => CommandAction::CheckForUpdates,
             _ => return None,
         })
     }

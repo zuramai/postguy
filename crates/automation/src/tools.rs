@@ -962,6 +962,26 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
             read_only: true,
             destructive: false,
         },
+        ToolDef {
+            name: "update_check",
+            title: "Check for a Postguy update",
+            description: "Asks the release feed (GitHub's latest Postguy release by default) for the newest published release; returns this build's version, the release (version, page, notes, assets) and `available` (newer and not a pre-release). Needs an open workspace for its proxy and CA settings.",
+            input_schema: schema! { "feed": opt("release feed URL with GitHub's latest-release shape (default: the Postguy repository)") },
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "update_download",
+            title: "Download a verified release asset",
+            description: "Downloads one asset of the latest release into `dir` (inside --root) and checks its SHA-256 against the release's SHA256SUMS.txt; a mismatch leaves no file. Installing over the desktop app is done by the app itself (Software update > Restart to update).",
+            input_schema: schema! {
+                "asset": req("asset file name from update_check, e.g. postguy-1.2.0-linux-x86_64.AppImage"),
+                "dir": req("folder to write the asset into"),
+                "feed": opt("release feed URL (default: the Postguy repository)")
+            },
+            read_only: false,
+            destructive: false,
+        },
     ]
 });
 
@@ -1819,6 +1839,30 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
                 })
                 .collect();
             Ok(json!({"text": resolution.text, "hits": hits}))
+        }
+        "update_check" => {
+            let engine = session.engine()?;
+            let check = match optional_string(args, tool, "feed")? {
+                Some(feed) => engine.check_for_update_at(&feed)?,
+                None => engine.check_for_update()?,
+            };
+            serde_json::to_value(check).map_err(json_error)
+        }
+        "update_download" => {
+            let asset = string_arg(args, tool, "asset")?;
+            let dir = session.resolve(&string_arg(args, tool, "dir")?)?;
+            let engine = session.engine()?;
+            let check = match optional_string(args, tool, "feed")? {
+                Some(feed) => engine.check_for_update_at(&feed)?,
+                None => engine.check_for_update()?,
+            };
+            let downloaded = engine.download_update_asset(&check.latest, &asset, &dir, &Cancel::new())?;
+            Ok(json!({
+                "version": check.latest.version,
+                "path": downloaded.path.to_string_lossy(),
+                "sha256": downloaded.sha256,
+                "bytes": downloaded.bytes,
+            }))
         }
         other => Err(AutomationError::UnknownTool { tool: other.to_string() }),
     }

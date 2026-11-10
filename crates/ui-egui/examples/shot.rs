@@ -469,6 +469,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if state.export.open {
                 export::export_dialog(ui.ctx(), &mut state.export);
             }
+            if state.shell.update.open {
+                postguy_ui_egui::update::update_dialog(ui.ctx(), &mut state.shell.update, "0.1.0");
+            }
         },
         {
             let mut demo = DemoState::new(shell);
@@ -513,6 +516,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             if base == "export" {
                 export::open(&mut demo.export, ExportTarget::Collection { id: "demo-collection".into(), name: "Payments API".into() });
+            }
+            if base == "update" || base == "update-ready" {
+                demo.shell.update.open = base == "update";
+                demo.shell.update.phase = if base == "update" {
+                    postguy_ui_egui::UpdatePhase::Available {
+                        version: "0.2.0".into(),
+                        notes: "## What's new\n\n- Response search\n- Faster imports".into(),
+                        page_url: "https://github.com/zuramai/postguy/releases/latest".into(),
+                        manual: None,
+                    }
+                } else {
+                    postguy_ui_egui::UpdatePhase::Ready { version: "0.2.0".into(), verification: "Checksum verified.".into() }
+                };
             }
             if base == "auth" {
                 demo.tab = BuilderTab::Authorization;

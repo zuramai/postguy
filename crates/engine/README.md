@@ -34,6 +34,11 @@ Facade and session: workspace handle, workspace edits, the send pipeline, consol
   request creation, rename, deep duplicate with fresh ids, move/copy with cycle refusal,
   examples, trash parking and history deletion. Saves go through the store's atomic writers.
 - `runtime` — one runtime, owned here; frontends never touch tokio directly.
+- `update` — `check_for_update` asks the release feed (GitHub's latest release) and compares
+  SemVer with this build; `download_update_asset` streams one asset to `<name>.part`, checks it
+  against the release's `SHA256SUMS.txt` and renames it only on a match. The feed JSON is
+  depth-capped, asset names must be plain file names, redirects never leave HTTPS, and every
+  body has a size cap. Certificate verification is always on; the user's proxy and CA apply.
 
 Conventions (AGENTS.md): `Result` everywhere, no panic paths, no `unsafe`, checked
 arithmetic and capped allocations on anything input-sized; errors are actionable.

@@ -157,7 +157,8 @@ if has appimage; then
   rm -f "$OUT.zsync"
   # Update information: AppImageUpdate and the like read it from the file and fetch only the
   # blocks that changed in a newer release, through the .zsync published next to each AppImage on
-  # GitHub Releases. This is read by an updater the user runs; Postguy itself never checks.
+  # GitHub Releases. This is for an updater the user runs; Postguy's own updater replaces the whole
+  # AppImage after checking it against SHA256SUMS.txt.
   REPO="${GITHUB_REPOSITORY:-zuramai/postguy}"
   UPDATE_INFO="gh-releases-zsync|${REPO%%/*}|${REPO#*/}|latest|postguy-*-linux-$ARCH.AppImage.zsync"
   # Extract-and-run: works without FUSE (containers, CI). The output embeds the static runtime,

@@ -44,7 +44,7 @@ The egui shell: theme, widgets and all screens.
   shortcuts and menus), the File/Edit/View/Window/Help menu model with its in-app egui bar,
   and window placement math (halves, quarters, thirds, fill, center).
 - `auth`, `collection`, `console`, `cookies`, `export`, `import`, `settings`, `snippet`,
-  `trash` — the remaining screens and dialogs, all data-in/actions-out.
+  `trash`, `update` — the remaining screens and dialogs, all data-in/actions-out.
 
 Conventions (AGENTS.md): `Result` everywhere, no panic paths, no `unsafe`, checked
 arithmetic and capped allocations on anything input-sized; errors are actionable.

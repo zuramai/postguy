@@ -3659,6 +3659,7 @@ dependencies = [
  "postguy-ws",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
  "zip",
@@ -3748,7 +3749,10 @@ dependencies = [
 name = "postguy-platform"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "rfd",
+ "tempfile",
+ "zip",
 ]
 
 [[package]]

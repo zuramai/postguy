@@ -50,6 +50,8 @@ impl SettingsSection {
 #[derive(Debug, Clone, Default)]
 pub struct SettingsState {
     pub section: SettingsSection,
+    /// Where the update check stands, shown under About (the app keeps it current).
+    pub update_status: String,
 }
 
 /// What the app should do.
@@ -58,6 +60,8 @@ pub enum SettingsAction {
     Save,
     /// The Data tab's reset action (settings only, never workspace data).
     ResetSettings,
+    /// About > Check now.
+    CheckForUpdates,
 }
 
 /// The editor.
@@ -71,6 +75,7 @@ impl SettingsEditor<'_> {
         let theme = UiTheme::current(ui.ctx());
         let mut changed = false;
         let mut reset = false;
+        let mut check_updates = false;
         let full = ui.available_rect_before_wrap();
 
         let nav_rect = Rect::from_min_size(full.min, vec2(NAV_WIDTH.min(full.width()), full.height()));
@@ -99,7 +104,7 @@ impl SettingsEditor<'_> {
                     SettingsSection::Data => reset = data(ui),
                     SettingsSection::Certificates => changed |= certificates(ui, self.settings),
                     SettingsSection::Proxy => changed |= proxy(ui, self.settings),
-                    SettingsSection::About => about(ui),
+                    SettingsSection::About => (changed, check_updates) = about(ui, self.settings, &self.state.update_status),
                 }
             });
         });
@@ -107,6 +112,8 @@ impl SettingsEditor<'_> {
 
         if reset {
             Some(SettingsAction::ResetSettings)
+        } else if check_updates {
+            Some(SettingsAction::CheckForUpdates)
         } else if changed {
             Some(SettingsAction::Save)
         } else {
@@ -447,19 +454,32 @@ fn proxy(ui: &mut Ui, settings: &mut Settings) -> bool {
     changed
 }
 
-fn about(ui: &mut Ui) {
+/// The About page; returns (a setting changed, the user asked for an update check now).
+fn about(ui: &mut Ui, settings: &mut Settings, update_status: &str) -> (bool, bool) {
     let theme = UiTheme::current(ui.ctx());
     group(ui, &format!("Postguy {}", env!("CARGO_PKG_VERSION")));
-    for (label, value) in [
-        ("Licence", "MIT OR Apache-2.0"),
-        ("Privacy", "Offline. No telemetry, no update check"),
-        ("Third-party notices", "ATTRIBUTION.md and NOTICE in the repository"),
-    ] {
+    for (label, value) in
+        [("Licence", "MIT OR Apache-2.0"), ("Privacy", "No telemetry"), ("Third-party notices", "ATTRIBUTION.md and NOTICE in the repository")]
+    {
         setting_row(ui, label, None, |ui| {
             ui.label(egui::RichText::new(value).color(theme.palette.text_muted));
             false
         });
     }
+    group(ui, "Updates");
+    let changed = toggle_row(
+        ui,
+        "Check automatically",
+        Some("Ask GitHub for the newest release at startup and once a day. Nothing downloads until you choose to update."),
+        &mut settings.check_for_updates,
+    );
+    let status = if update_status.is_empty() { "Not checked since Postguy started" } else { update_status };
+    let mut check = false;
+    setting_row(ui, "Check for updates", Some(status), |ui| {
+        check = widgets::text_button(ui, widgets::ButtonKind::Secondary, None, "Check now", true).clicked();
+        false
+    });
+    (changed, check)
 }
 
 fn http_version(ui: &mut Ui, version: &mut HttpVersion) -> bool {

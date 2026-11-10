@@ -42,7 +42,7 @@ What you get
   :::u-page-card
   ---
   title: Offline by design
-  description: No account, cloud sync, telemetry or update check. The network is used only when you send a request or start an action.
+  description: No account, cloud sync or telemetry. The network is used when you send a request or start an action, plus a daily update check you can turn off.
   icon: i-lucide-wifi-off
   ---
   :::

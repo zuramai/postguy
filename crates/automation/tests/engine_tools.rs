@@ -509,3 +509,29 @@ fn import_bruno_is_confined_to_the_root() {
     assert!(missing.contains("is outside the allowed directory"), "{missing}");
     assert!(existing.contains("is outside the allowed directory"), "{existing}");
 }
+
+#[test]
+fn update_tools_check_the_feed_and_download_only_verified_assets_inside_the_root() {
+    let server = Server::start();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path().join("root");
+    std::fs::create_dir_all(&root).expect("root");
+    let automation = automation_in(&root);
+    call(&automation, "workspace_open", json!({"path": "work"}));
+    let feed = format!("{}/releases/latest", server.base_url());
+
+    let check = call(&automation, "update_check", json!({"feed": feed}));
+    assert_eq!(check["available"], true, "{check}");
+    assert_eq!(check["latest"]["version"], "99.0.0");
+
+    let downloaded = call(&automation, "update_download", json!({"feed": feed, "asset": "postguy-test.bin", "dir": "downloads"}));
+    assert_eq!(std::fs::read(root.join("downloads/postguy-test.bin")).expect("asset"), postguy_testkit::routes::RELEASE_PAYLOAD, "{downloaded}");
+
+    let tampered = error_of(&automation, "update_download", json!({"feed": feed, "asset": "postguy-tampered.bin", "dir": "downloads"}));
+    assert!(tampered.contains("failed its checksum"), "{tampered}");
+    assert!(!root.join("downloads/postguy-tampered.bin").exists());
+
+    let outside = error_of(&automation, "update_download", json!({"feed": feed, "asset": "postguy-test.bin", "dir": "../outside"}));
+    assert!(outside.contains("is outside the allowed directory"), "{outside}");
+    assert!(!dir.path().join("outside").exists());
+}

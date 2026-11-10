@@ -16,6 +16,12 @@ and refuses to update a release that is already published.
 
 Not built: WebAssembly (AGENTS.md: there is no web build), riscv64, FreeBSD and Arch.
 
+The in-app updater depends on this layout: it reads the latest published release, picks the
+asset by the names above (`crates/platform/src/update.rs`, `Install::asset_name`) and refuses any
+download that does not match its line in `SHA256SUMS.txt`, which the release job writes. Keep the
+asset names and the checksum file when changing a script. The MSI records its folder as
+`HKLM\Software\Postguy\InstallDir`, so the app can tell an MSI install from the portable zip.
+
 `env.sh` is shared setup (version from the root `Cargo.toml`, `dist/release`, application id
 `io.github.zuramai.postguy`). Version overrides use `cargo xtask version set X.Y.Z`.
 

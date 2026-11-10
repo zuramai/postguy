@@ -17,7 +17,7 @@
       responses.
     </p>
     <p>
-      It makes no network request you did not start: no telemetry, no update check and no cloud sync.
+      It makes no network request you did not start, apart from a daily update check you can turn off: no telemetry and no cloud sync.
     </p>
   </description>
   <launchable type="desktop-id">io.github.zuramai.postguy.desktop</launchable>

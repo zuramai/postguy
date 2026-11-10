@@ -62,6 +62,11 @@
       <Component Id="PostguyCli">
         <File Id="PostguyCliExe" Source="$(var.BinDir)\postguy-cli.exe" KeyPath="yes" />
       </Component>
+      <!-- The install folder, so the app can tell an MSI install (updated by running the next
+           MSI) from the portable zip (updated by replacing the files). -->
+      <Component Id="PostguyInstallDir">
+        <RegistryValue Root="HKLM" Key="Software\Postguy" Name="InstallDir" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+      </Component>
 
       <!-- A plain (non-advertised) Start menu shortcut with its own component and an HKLM key
            path, so uninstall removes it. The package is per-machine: this is the all-users
