@@ -24,6 +24,9 @@ An MCP server is not implemented yet.
   and `pdf`.
 - Bodies echoed to an agent are capped at 1 MiB (plus `truncated` and the true length); the
   full body is written by `response_save`.
+- Updates: `update_check` (latest release vs this build) and `update_download` (one asset into
+  a folder inside `--root`, verified against the release's `SHA256SUMS.txt`). Installing over the
+  desktop app stays with the app.
 
 Conventions (AGENTS.md): `Result` everywhere, no panic paths, no `unsafe`, checked
 arithmetic and capped allocations on anything input-sized; errors are actionable.

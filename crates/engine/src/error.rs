@@ -27,6 +27,8 @@ pub enum EngineError {
     Script { phase: String, origin: String, message: String, line: Option<u32> },
     /// A pre-request script called `pm.execution.skipRequest()`; not a failure.
     Skipped { reason: String },
+    /// The release feed or a release download failed or could not be trusted.
+    Update { message: String },
 }
 
 impl std::fmt::Display for EngineError {
@@ -48,6 +50,7 @@ impl std::fmt::Display for EngineError {
             }
             EngineError::Skipped { reason } => write!(f, "{reason}"),
             EngineError::Run { message } => write!(f, "{message}"),
+            EngineError::Update { message } => write!(f, "update: {message}"),
         }
     }
 }

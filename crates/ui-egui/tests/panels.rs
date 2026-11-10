@@ -197,7 +197,7 @@ fn settings_auth_is_unaffected_by_the_editor() {
     // A small guard that the settings struct keeps unrelated fields while editing.
     let mut settings = Settings::default();
     settings.proxy.username = "user".into();
-    let mut state = SettingsState { section: SettingsSection::Proxy };
+    let mut state = SettingsState { section: SettingsSection::Proxy, ..SettingsState::default() };
     let mut harness = Harness::new_ui(move |ui| {
         let mut editor = SettingsEditor { settings: &mut settings, state: &mut state };
         let _ = editor.show(ui);

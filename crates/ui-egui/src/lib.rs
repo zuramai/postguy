@@ -29,6 +29,7 @@ pub mod snippet;
 pub mod tabs;
 pub mod theme;
 pub mod trash;
+pub mod update;
 pub mod widgets;
 pub mod window;
 
@@ -55,6 +56,7 @@ pub use snippet::{SnippetLanguage, SnippetPanelState, snippet_panel};
 pub use tabs::{CloseChoice, Tab, TabAction, TabDoc, Tabs, tab_strip};
 pub use theme::{Palette, Theme, ThemeMode};
 pub use trash::{TrashAction, TrashEntryView, trash_view};
+pub use update::{UpdateAction, UpdatePhase, UpdateState, update_dialog};
 pub use widgets::{
     AssetIndex, CodeEditor, CodeLanguage, ConfirmOutcome, InlineRename, LargeTextView, MessageDirection, RenameAction, SelectGroup, SelectItem,
     TableVariant, Timeline, TimelineEntry, checkbox, compact_checkbox, context_menu, icon_button, inline_rename, key_value_table, menu_item, modal,

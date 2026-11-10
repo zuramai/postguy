@@ -24,8 +24,8 @@ finish-args:
   - --share=ipc
   # GPU access for the OpenGL renderer.
   - --device=dri
-  # Postguy is an API client: requests the user sends need the network. Nothing else uses it
-  # (no telemetry, no update check).
+  # Postguy is an API client: requests the user sends need the network. Besides those, only the
+  # update check uses it (no telemetry); Flatpak installs update through Flatpak, never in-app.
   - --share=network
   # Deliberately not granted: any filesystem access. Open/Save dialogs go through the file-chooser
   # portal (rfd's xdg-portal backend), so files and workspace folders the user picks work anywhere.

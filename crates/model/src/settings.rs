@@ -97,6 +97,7 @@ impl Default for Settings {
             history_cap: 5000,
             save_history_responses: false,
             proxy: ProxySettings::default(),
+            check_for_updates: true,
             extras: Extras::default(),
         }
     }
@@ -181,6 +182,9 @@ pub struct Settings {
     /// Proxy: system env vars by default, or a custom route.
     #[serde(default)]
     pub proxy: ProxySettings,
+    /// Ask the release feed for a newer version at startup and once a day (Settings > About).
+    #[serde(default = "true_value")]
+    pub check_for_updates: bool,
     #[serde(default, flatten)]
     pub extras: Extras,
 }

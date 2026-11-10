@@ -18,6 +18,9 @@
 //! | `/huge?mb=N` | N MiB pattern body |
 //! | `/token` (POST) | OAuth 2.0 token endpoint: grant_type=client_credentials → JSON token |
 //! | `/no-content` | 204 with no body |
+//! | `/releases/latest?version=V` | GitHub-style latest-release JSON for `vV` (default 99.0.0), assets on this server |
+//! | `/releases/download/<tag>/<name>` | 302 to `/releases/files/<name>` (the asset CDN hop) |
+//! | `/releases/files/<name>` | `SHA256SUMS.txt`, or [`RELEASE_PAYLOAD`] for `postguy-test.bin` / `postguy-tampered.bin` (the latter listed with a wrong sum) |
 
 use base64::Engine as _;
 use hyper::header::{CONTENT_TYPE, LOCATION, SET_COOKIE, WWW_AUTHENTICATE};
@@ -82,7 +85,10 @@ pub fn route(request: Incoming) -> Reply {
         "/huge" => huge(&request.query),
         "/token" => token(&request),
         "/json" => json_body(&request.query),
+        "/releases/latest" => release_latest(&request),
         "/no-content" => Reply { status: StatusCode::NO_CONTENT, headers: Vec::new(), body: Vec::new(), chunks: Vec::new(), delay_ms: 0 },
+        path if path.starts_with("/releases/download/") => release_download(path),
+        path if path.starts_with("/releases/files/") => release_file(path),
         _ => {
             if let Some(code) = path.strip_prefix("/status/").and_then(|code| code.parse::<u16>().ok())
                 && let Ok(status) = StatusCode::from_u16(code)
@@ -159,6 +165,51 @@ fn redirect(query: &str) -> Reply {
     let to = query_get(&pairs, "to").unwrap_or("/redirect/done");
     let status = StatusCode::from_u16(code).unwrap_or(StatusCode::FOUND);
     Reply::ok(Vec::new()).with_header(LOCATION.as_str(), to).tap_status(status)
+}
+
+/// The bytes every release fixture asset serves.
+pub const RELEASE_PAYLOAD: &[u8] = b"postguy release fixture payload\n";
+
+/// A GitHub "latest release" document whose asset URLs point back at this (plain HTTP) server.
+fn release_latest(request: &Incoming) -> Reply {
+    let pairs = query_pairs(&request.query);
+    let version = query_get(&pairs, "version").unwrap_or("99.0.0");
+    let base = format!("http://{}", header_value(request, "host").unwrap_or("127.0.0.1"));
+    let tag = format!("v{version}");
+    let asset =
+        |name: &str, size: usize| json!({"name": name, "size": size, "browser_download_url": format!("{base}/releases/download/{tag}/{name}")});
+    Reply::with_json(&json!({
+        "tag_name": tag,
+        "name": format!("Postguy {tag}"),
+        "html_url": format!("{base}/releases/tag/{tag}"),
+        "body": "Fixture release notes.",
+        "draft": false,
+        "prerelease": false,
+        "published_at": "2026-01-01T00:00:00Z",
+        "assets": [
+            asset("postguy-test.bin", RELEASE_PAYLOAD.len()),
+            asset("postguy-tampered.bin", RELEASE_PAYLOAD.len()),
+            asset("SHA256SUMS.txt", 0),
+        ],
+    }))
+}
+
+fn release_download(path: &str) -> Reply {
+    let name = path.rsplit('/').next().unwrap_or_default();
+    Reply::ok(Vec::new()).with_header(LOCATION.as_str(), format!("/releases/files/{name}")).tap_status(StatusCode::FOUND)
+}
+
+fn release_file(path: &str) -> Reply {
+    use sha2::Digest as _;
+    match path.trim_start_matches("/releases/files/") {
+        "SHA256SUMS.txt" => {
+            let good: String = sha2::Sha256::digest(RELEASE_PAYLOAD).iter().map(|byte| format!("{byte:02x}")).collect();
+            let wrong = "0".repeat(64);
+            Reply::ok(format!("{good}  postguy-test.bin\n{wrong}  postguy-tampered.bin\n").into_bytes())
+        }
+        "postguy-test.bin" | "postguy-tampered.bin" => Reply::ok(RELEASE_PAYLOAD.to_vec()),
+        _ => Reply { status: StatusCode::NOT_FOUND, headers: Vec::new(), body: b"no such asset".to_vec(), chunks: Vec::new(), delay_ms: 0 },
+    }
 }
 
 trait TapStatus {

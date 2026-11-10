@@ -129,6 +129,8 @@ pub struct PostguyShell {
     pub cookie_state: CookieState,
     pub settings: SettingsState,
     pub settings_value: postguy_model::Settings,
+    /// The update flow; the header shows an Update button while one is on offer.
+    pub update: crate::update::UpdateState,
     pub snippet: SnippetPanelState,
     pub snippet_request: Option<postguy_model::HttpRequest>,
     /// How the window frame is arranged (the app sets this per platform).
@@ -163,6 +165,7 @@ impl PostguyShell {
             cookie_state: CookieState::default(),
             settings: SettingsState::default(),
             settings_value: postguy_model::Settings::default(),
+            update: crate::update::UpdateState::default(),
             snippet: SnippetPanelState::default(),
             snippet_request: None,
             chrome: WindowChrome::default(),
@@ -378,6 +381,13 @@ impl PostguyShell {
                         right_start = settings.rect.left();
                         if settings.clicked() {
                             self.tabs.open(TabDoc::Settings, "Settings");
+                        }
+                        if let Some((label, tooltip)) = self.update.header_button() {
+                            let update = widgets::text_button(ui, widgets::ButtonKind::Primary, Some("download"), label, true).on_hover_text(tooltip);
+                            right_start = update.rect.left();
+                            if update.clicked() {
+                                self.command_action = Some(CommandAction::CheckForUpdates);
+                            }
                         }
                     });
                     free = (left_end, right_start);

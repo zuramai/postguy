@@ -10,6 +10,13 @@ publish = false
 workspace = true
 
 [dependencies]
+# The Windows portable update is a zip (the engine already links this crate); flate2 is listed
+# only to select its pure-Rust backend for zip's deflate.
+zip.workspace = true
+flate2.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "dragonfly", target_os = "netbsd", target_os = "openbsd"))'.dependencies]
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }

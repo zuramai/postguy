@@ -35,6 +35,7 @@ use postguy_ui_egui::shell::PanelAction;
 use postguy_ui_egui::sidebar::{RequestProtocol, RowKind, SidebarAction, SidebarData};
 use postguy_ui_egui::tabs::{TabAction, TabDoc, Tabs};
 use postguy_ui_egui::trash::{TrashAction, TrashEntryView, trash_view};
+use postguy_ui_egui::update::{UpdateAction, UpdatePhase, update_dialog};
 use postguy_ui_egui::widgets::field::VariableInfo;
 use postguy_ui_egui::widgets::{SplitAxis, split};
 use postguy_ui_egui::{PostguyShell, ThemeMode, WindowChrome};
@@ -46,6 +47,7 @@ mod grpc;
 #[cfg(target_os = "macos")]
 mod macos;
 mod runner;
+mod update;
 
 struct ClipboardItem {
     source_collection: Id,
@@ -72,6 +74,9 @@ struct StoredSession {
     /// False while the app is running; set true on a clean exit (crash recovery).
     #[serde(default)]
     clean_exit: bool,
+    /// When the last update check finished (Unix ms), so the automatic check runs once a day.
+    #[serde(default)]
+    update_checked_at_ms: i64,
 }
 
 /// A builder draft per request tab; names, unsaved fields and per-mode body data survive the
@@ -229,6 +234,8 @@ struct App {
     previous_outer: Option<egui::Rect>,
     /// Registry ids of clicked native menu items.
     menu_events: Option<std::sync::mpsc::Receiver<String>>,
+    /// Release checks, the verified download and the install hand-off to `main`.
+    updater: update::Updater,
     #[cfg(target_os = "macos")]
     native_menu: Option<muda::Menu>,
 }
@@ -282,6 +289,7 @@ impl App {
                     pending_window: Vec::new(),
                     previous_outer: None,
                     menu_events: None,
+                    updater: update::Updater::default(),
                     #[cfg(target_os = "macos")]
                     native_menu: None,
                 };
@@ -336,6 +344,7 @@ impl App {
                     pending_window: Vec::new(),
                     previous_outer: None,
                     menu_events: None,
+                    updater: update::Updater::default(),
                     #[cfg(target_os = "macos")]
                     native_menu: None,
                 }
@@ -1318,6 +1327,7 @@ impl App {
             self.shell.sidebar_state.section_heights = stored.sidebar_heights;
         }
         self.shell.sidebar_state.sections = stored.sidebar_sections;
+        self.updater.checked_at_ms = stored.update_checked_at_ms;
         // The theme lives in Settings, not in the session file.
         self.shell.state.theme_mode = ThemeMode::from(self.shell.settings_value.theme);
         if !stored.clean_exit {
@@ -1356,6 +1366,7 @@ impl App {
             sidebar_heights: self.shell.sidebar_state.section_heights,
             theme: theme.to_string(),
             clean_exit,
+            update_checked_at_ms: self.updater.checked_at_ms,
         };
         let Ok(json) = serde_json::to_string(&stored) else { return };
         if !force && self.last_session.as_deref() == Some(json.as_str()) {
@@ -2443,6 +2454,10 @@ impl App {
     }
 
     fn apply_settings(&mut self, action: SettingsAction) {
+        if action == SettingsAction::CheckForUpdates {
+            self.open_updates();
+            return;
+        }
         let Some(engine) = self.engine.clone() else {
             self.shell.state.status = "Settings could not be saved: the workspace engine is not running".into();
             return;
@@ -2458,6 +2473,63 @@ impl App {
             }
             Err(err) => self.shell.state.status = format!("Settings save failed: {err}"),
         }
+    }
+
+    /// Help > Check for updates…, the header's Update button and Settings > About > Check now:
+    /// open the dialog, and check unless an update is already on offer, downloading or staged.
+    fn open_updates(&mut self) {
+        self.shell.update.open = true;
+        if matches!(self.shell.update.phase, UpdatePhase::Available { .. } | UpdatePhase::Downloading { .. } | UpdatePhase::Ready { .. }) {
+            return;
+        }
+        match self.engine.clone() {
+            Some(engine) => self.updater.start_check(&engine, true, &mut self.shell.update),
+            None => {
+                self.shell.update.phase =
+                    UpdatePhase::Failed { message: "no workspace is open, so Postguy cannot check for updates".into(), page_url: None }
+            }
+        }
+        self.shell.settings.update_status = self.shell.update.summary();
+    }
+
+    /// Start the daily automatic check when it is due, and collect finished update jobs.
+    fn poll_updates(&mut self) {
+        let now = postguy_util::time::now_unix_ms();
+        if let Some(engine) = self.engine.clone()
+            && self.updater.automatic_check_due(self.shell.settings_value.check_for_updates, now)
+        {
+            self.updater.start_check(&engine, false, &mut self.shell.update);
+        }
+        if self.updater.poll(&mut self.shell.update, now) {
+            self.shell.settings.update_status = self.shell.update.summary();
+        }
+    }
+
+    fn apply_update_action(&mut self, action: UpdateAction) {
+        match action {
+            UpdateAction::CheckAgain => {
+                self.shell.update.phase = UpdatePhase::Idle;
+                self.open_updates();
+            }
+            UpdateAction::Download => {
+                if let Some(engine) = self.engine.clone() {
+                    self.updater.start_download(&engine, &mut self.shell.update);
+                }
+            }
+            UpdateAction::CancelDownload => self.updater.cancel_download(),
+            UpdateAction::Restart => {
+                if self.updater.restart() {
+                    // `on_exit` saves the session (drafts included); `main` installs afterwards.
+                    self.pending_window.push(WindowCommand::Close);
+                }
+            }
+            UpdateAction::OpenPage(url) => {
+                if let Err(error) = postguy_platform::open_url(&url) {
+                    self.shell.state.status = format!("Could not open {url}: {error}");
+                }
+            }
+        }
+        self.shell.settings.update_status = self.shell.update.summary();
     }
 
     fn apply_trash(&mut self, action: TrashAction) {
@@ -2555,6 +2627,7 @@ impl App {
                     self.shell.state.status = format!("Could not open {url}: {error}");
                 }
             }
+            CheckForUpdates => self.open_updates(),
         }
     }
 
@@ -2934,6 +3007,11 @@ impl eframe::App for App {
         self.poll_graphql();
         self.poll_ws();
         self.poll_grpc_jobs(ui.ctx());
+        self.poll_updates();
+        if self.updater.busy() {
+            // A check or download finishes on a worker thread; a slow tick is enough to notice.
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+        }
         // Sends and background imports/exports finish on other threads; without a repaint the
         // UI would poll only on the next mouse/key event and appear not to have reacted at all.
         if self.sending.is_some()
@@ -3194,6 +3272,9 @@ impl eframe::App for App {
         if let Some(request) = postguy_ui_egui::export::export_dialog(ui.ctx(), &mut self.export) {
             self.begin_export(request);
         }
+        if let Some(action) = update_dialog(ui.ctx(), &mut self.shell.update, postguy_engine::update::current_version()) {
+            self.apply_update_action(action);
+        }
         if let Some(action) = result {
             match action {
                 PanelAction::Builder(action) => self.apply_builder(panel_tab.unwrap_or(0), action),
@@ -3295,7 +3376,15 @@ fn main() -> eframe::Result<()> {
     #[cfg(target_os = "macos")]
     let viewport = viewport.with_fullsize_content_view(true).with_titlebar_shown(false).with_title_shown(false);
     let options = eframe::NativeOptions { viewport, renderer: eframe::Renderer::Glow, ..Default::default() };
+    postguy_platform::update::cleanup_previous();
     let mut app = App::new(workspace);
+    app.updater.automatic = true;
+    let pending_restart = app.updater.restart.clone();
+    if let Some(message) = update::take_failure() {
+        app.shell.update.phase = UpdatePhase::Failed { message, page_url: Some(postguy_engine::update::RELEASES_PAGE_URL.into()) };
+        app.shell.update.open = true;
+        app.shell.settings.update_status = app.shell.update.summary();
+    }
     if let Some(path) = control_argument() {
         match control::ControlServer::start(path) {
             Ok((server, _queue)) => app.attach_control(server),
@@ -3305,7 +3394,7 @@ fn main() -> eframe::Result<()> {
             }
         }
     }
-    eframe::run_native(
+    let result = eframe::run_native(
         "Postguy",
         options,
         Box::new(move |cc| {
@@ -3315,7 +3404,14 @@ fn main() -> eframe::Result<()> {
             let _ = cc;
             Ok(Box::new(app))
         }),
-    )
+    );
+    // "Restart to update": the window has closed, the session is saved and the app (with its
+    // workspace lock) is gone, so the install cannot race the old process's files.
+    let staged = pending_restart.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+    if let Some(prepared) = staged {
+        update::install_and_relaunch(prepared);
+    }
+    result
 }
 
 #[cfg(test)]

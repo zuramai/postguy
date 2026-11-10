@@ -1061,6 +1061,16 @@ tier = "P0"
 status = "partial"
 notes = "Docus documentation site in docs/ published to GitHub Pages by .github/workflows/docs.yml; release workflow in .github/workflows/release.yml; licence list in ATTRIBUTION.md. Missing: security review and final gaps list for v1.0."
 
+[[feature]]
+id = "i.app-updates"
+title = "In-app updates: check, download, verify, install and relaunch"
+area = "I"
+tier = "P1"
+status = "partial"
+tools = ["update_check", "update_download"]
+evidence = ["crates/engine/tests/update.rs::a_newer_release_is_offered_and_an_older_one_is_not", "crates/engine/tests/update.rs::a_download_follows_the_redirect_and_matches_its_checksum", "crates/engine/tests/update.rs::a_checksum_mismatch_leaves_nothing_behind", "crates/automation/tests/engine_tools.rs::update_tools_check_the_feed_and_download_only_verified_assets_inside_the_root", "crates/platform/src/update.rs::a_signed_app_only_accepts_the_same_signer", "crates/platform/src/update.rs::replacing_a_file_keeps_the_old_one_aside_and_restores_it_on_failure"]
+notes = "GitHub latest-release check at startup and once a day (Settings > About > Check automatically) or from Help > Check for updates…; an Update button in the header; downloads checked against SHA256SUMS.txt, plus a same-signer check (Developer ID team, Authenticode subject) when the running app is signed; install after the window closed for the macOS bundle, Windows MSI and portable zip, AppImage and Linux tarball, then relaunch; Flatpak/deb/rpm point to their package manager. Missing: automated tests of the swap on real Windows and Linux installs, a download progress bar, delta updates, and a release signing key (current releases are ad-hoc signed on macOS, so only the checksum applies there)."
+
 # ==================================================================================================
 # na: Postman cloud-only capabilities — no local equivalent planned
 # ==================================================================================================

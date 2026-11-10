@@ -105,7 +105,7 @@ pub fn app_menus() -> Vec<MenuSpec> {
                 Command("window.close"),
             ],
         },
-        MenuSpec { title: "Help", entries: commands(&["help.docs", "help.github"]) },
+        MenuSpec { title: "Help", entries: vec![Command("help.docs"), Command("help.github"), Separator, Command("help.check-updates")] },
     ]
 }
 

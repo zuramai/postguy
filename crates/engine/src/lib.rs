@@ -20,6 +20,7 @@ pub mod proto_import;
 pub mod run;
 pub mod runtime;
 pub mod scripts;
+pub mod update;
 pub mod workspace_zip;
 pub mod ws_session;
 pub use postguy_grpc::{StreamResult, UnaryResult};
