@@ -1,4 +1,4 @@
-//! Selection model for the read-only response viewer: several carets and ranges over one text,
+//! Selection model and line helpers shared by the response viewer and the code editor: several carets and ranges over one text,
 //! addressed by byte offsets that always sit on char boundaries. Everything here is pure logic
 //! over `&str` so it can be tested without a UI, and total: no indexing, no panics on stale
 //! offsets (the text can change between frames).
@@ -67,7 +67,7 @@ pub(crate) enum Motion {
     DocEnd,
 }
 
-fn floor_boundary(text: &str, offset: usize) -> usize {
+pub(crate) fn floor_boundary(text: &str, offset: usize) -> usize {
     let mut offset = offset.min(text.len());
     while offset > 0 && !text.is_char_boundary(offset) {
         offset -= 1;
@@ -108,7 +108,7 @@ pub(crate) fn line_at(text: &str, at: usize) -> Range<usize> {
 }
 
 /// End of the line's content (before the newline) for the line containing `at`.
-fn line_content_end(text: &str, at: usize) -> usize {
+pub(crate) fn line_content_end(text: &str, at: usize) -> usize {
     let line = line_at(text, at);
     if text.get(..line.end).is_some_and(|slice| slice.ends_with('\n')) { line.end.saturating_sub(1) } else { line.end }
 }

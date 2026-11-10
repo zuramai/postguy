@@ -16,6 +16,7 @@ use postguy_model::{GrpcSchema, UnknownField};
 
 use crate::theme::{Palette, Theme};
 use crate::widgets;
+use crate::widgets::code_input;
 use crate::widgets::field::{VariableInfo, variable_marks, variable_spans, variable_tooltip};
 use crate::widgets::shortcode::{AssetIndex, overlay, overlay_colors, shortcode_marks};
 use crate::widgets::text_selection::{Motion, Sel, Selections, add_next_occurrence, apply_motion, clamp_to_text, copy_text, line_at, word_at};
@@ -135,6 +136,8 @@ impl<'a> CodeEditor<'a> {
     /// Show the editor inside a scroll area. The line-number gutter is painted from the edit's
     /// own galley rows, so numbers scroll with the text and follow soft wraps.
     pub fn show(self, ui: &mut Ui, text: &mut String) -> Response {
+        let editable = !self.read_only;
+        let typed = editable && code_input::before_edit(ui, self.id, text);
         let theme = Theme::current(ui.ctx());
         let palette = theme.palette;
         let font = FontId::monospace(theme.metrics.code_font);
@@ -193,7 +196,9 @@ impl<'a> CodeEditor<'a> {
                             }
                             ui.fonts_mut(|fonts| fonts.layout_job(job))
                         };
-                        let output = TextEdit::multiline(text)
+                        let before_cursor =
+                            if editable { TextEdit::load_state(ui.ctx(), self.id).and_then(|state| state.cursor.char_range()) } else { None };
+                        let mut output = TextEdit::multiline(text)
                             .id(self.id)
                             .font(font.clone())
                             .code_editor()
@@ -204,6 +209,9 @@ impl<'a> CodeEditor<'a> {
                             .interactive(!self.read_only)
                             .layouter(&mut layouter)
                             .show(ui);
+                        if editable {
+                            code_input::after_edit(ui, self.id, text, before_cursor, &mut output);
+                        }
                         if let Some(variables) = variables {
                             variable_tooltip(ui, &output, text, variables);
                         }
@@ -228,6 +236,9 @@ impl<'a> CodeEditor<'a> {
                     });
                 });
             });
+        if typed {
+            response.mark_changed();
+        }
         response
     }
 }
@@ -992,12 +1003,12 @@ struct PaintedRow {
 }
 
 /// The char index of the byte offset `rel` inside `content` (floored to a char boundary).
-fn char_of_byte(content: &str, rel: usize) -> usize {
+pub(crate) fn char_of_byte(content: &str, rel: usize) -> usize {
     content.char_indices().take_while(|(index, _)| *index < rel).count()
 }
 
 /// The byte offset of char `index` inside `content`, or its end.
-fn byte_of_char(content: &str, index: usize) -> usize {
+pub(crate) fn byte_of_char(content: &str, index: usize) -> usize {
     content.char_indices().nth(index).map_or(content.len(), |(offset, _)| offset)
 }
 
