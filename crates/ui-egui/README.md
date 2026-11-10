@@ -11,7 +11,8 @@ The egui shell: theme, widgets and all screens.
 - `widgets` — custom controls (square checkbox, outlined radio, switch, grouped/searchable
   select, split button, context menu rows, modal, typed confirm, inline rename), the
   KeyValueTable, the `{{var}}` field, CodeEditor, LargeTextView and Timeline. Every control
-  reports AccessKit state and has a kittest.
+  reports AccessKit state and has a kittest. CodeEditor's typing aids (auto-indent, auto-close
+  pairs, Tab/Shift+Tab, a second Home/End across a soft wrap) live in `widgets/code_input.rs`.
 - `shell` — header, sidebar, tab strip, central panel, optional right panel and
   bottom bar; `apps/postguy` hosts it with eframe/glow.
 - `sidebar` — the data-in/actions-out tree: COLLECTIONS/ENVIRONMENTS/HISTORY sections, a

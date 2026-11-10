@@ -358,6 +358,57 @@ fn code_editor_has_a_gutter_and_accepts_edits() {
     assert!(harness.state().text.contains(' '));
 }
 
+struct TypingState {
+    text: String,
+    changed: bool,
+}
+
+#[test]
+fn code_editor_enter_inside_braces_indents_and_marks_changed() {
+    let mut harness = Harness::new_ui_state(
+        |ui, state: &mut TypingState| {
+            state.changed |= CodeEditor::new(CodeLanguage::Json).id(egui::Id::new("typing")).show(ui, &mut state.text).changed();
+        },
+        TypingState { text: String::new(), changed: false },
+    );
+    harness.run();
+    harness.get_by_role(egui::accesskit::Role::MultilineTextInput).click();
+    harness.get_by_role(egui::accesskit::Role::MultilineTextInput).type_text("{");
+    harness.run();
+    assert_eq!(harness.state().text, "{}");
+
+    harness.state_mut().changed = false;
+    harness.key_press(egui::Key::Enter);
+    harness.run();
+    assert_eq!(harness.state().text, "{\n  \n}");
+    assert!(harness.state().changed, "an Enter handled by the editor still marks the response changed");
+
+    harness.key_press(egui::Key::Tab);
+    harness.run();
+    assert_eq!(harness.state().text, "{\n    \n}");
+}
+
+#[test]
+fn code_editor_second_end_reaches_the_end_of_a_wrapped_line() {
+    let long = "ab ".repeat(120);
+    let mut harness = Harness::builder().with_size(egui::vec2(320.0, 400.0)).build_ui_state(
+        |ui, state: &mut EditorState| {
+            let _ = CodeEditor::new(CodeLanguage::Json).id(egui::Id::new("wrapped")).show(ui, &mut state.text);
+        },
+        EditorState { text: format!("{long}\nz") },
+    );
+    harness.run();
+    harness.get_by_role(egui::accesskit::Role::MultilineTextInput).click();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::ArrowUp);
+    harness.key_press(egui::Key::End);
+    harness.run();
+    harness.key_press(egui::Key::End);
+    harness.run();
+    harness.get_by_role(egui::accesskit::Role::MultilineTextInput).type_text("X");
+    harness.run();
+    assert_eq!(harness.state().text, format!("{long}X\nz"));
+}
+
 #[test]
 fn large_text_view_virtualises_many_lines() {
     let text: Arc<str> = (0..10_000).map(|line| format!("line {line}\n")).collect::<String>().into();

@@ -4,6 +4,7 @@
 //! poorly on light themes, so every control here paints with [`Theme`] tokens and reports
 //! itself to AccessKit (kittest and real screen readers use the same labels).
 
+mod code_input;
 pub mod editor;
 pub mod field;
 pub mod shortcode;
