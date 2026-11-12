@@ -41,6 +41,7 @@ use postguy_ui_egui::widgets::{SplitAxis, split};
 use postguy_ui_egui::{PostguyShell, ThemeMode, WindowChrome};
 use serde::{Deserialize, Serialize};
 
+mod agent;
 mod assets;
 mod control;
 mod grpc;
@@ -236,6 +237,8 @@ struct App {
     menu_events: Option<std::sync::mpsc::Receiver<String>>,
     /// Release checks, the verified download and the install hand-off to `main`.
     updater: update::Updater,
+    /// The AI Agent pane: turns on a worker thread, approvals and the settings page's keychain saves.
+    agent: agent::AgentUi,
     #[cfg(target_os = "macos")]
     native_menu: Option<muda::Menu>,
 }
@@ -290,6 +293,7 @@ impl App {
                     previous_outer: None,
                     menu_events: None,
                     updater: update::Updater::default(),
+                    agent: Default::default(),
                     #[cfg(target_os = "macos")]
                     native_menu: None,
                 };
@@ -345,6 +349,7 @@ impl App {
                     previous_outer: None,
                     menu_events: None,
                     updater: update::Updater::default(),
+                    agent: Default::default(),
                     #[cfg(target_os = "macos")]
                     native_menu: None,
                 }
@@ -562,11 +567,12 @@ impl App {
                 self.shell.tabs.open(doc, title);
                 Ok(serde_json::json!({"ok": true, "tab": name}))
             }
-            "console" | "right" | "two-pane" | "sidebar" => {
+            "console" | "right" | "two-pane" | "sidebar" | "agent" => {
                 let open = value.as_bool().ok_or("panel values are booleans")?;
                 match key {
                     "console" => self.shell.state.console_open = open,
                     "right" => self.shell.state.right_panel_open = open,
+                    "agent" => self.shell.state.agent_open = open,
                     "two-pane" => self.shell.state.two_pane = open,
                     _ => self.shell.state.sidebar_open = open,
                 }
@@ -700,6 +706,7 @@ impl App {
             "sidebar": self.shell.state.sidebar_open,
             "console": self.shell.state.console_open,
             "right": self.shell.state.right_panel_open,
+            "agent": self.shell.state.agent_open,
             "twoPane": self.shell.state.two_pane,
             "status": self.shell.state.status,
             "consoleRows": self.shell.console_rows.len(),
@@ -2454,6 +2461,10 @@ impl App {
     }
 
     fn apply_settings(&mut self, action: SettingsAction) {
+        if matches!(action, SettingsAction::SaveAi | SettingsAction::RemoveAiKey | SettingsAction::CheckAiKey) {
+            self.apply_ai_settings(action);
+            return;
+        }
         if action == SettingsAction::CheckForUpdates {
             self.open_updates();
             return;
@@ -3043,6 +3054,7 @@ impl eframe::App for App {
         }
         self.poll_send();
         self.poll_runner(ui.ctx());
+        self.poll_agent(ui.ctx());
         self.sync_editors();
         self.sync_ws_editors();
         self.sync_grpc_editors();
@@ -3263,6 +3275,9 @@ impl eframe::App for App {
         }
         if let Some(action) = self.shell.command_action.take() {
             self.apply_command(action);
+        }
+        if let Some(action) = self.shell.agent_action.take() {
+            self.apply_agent(action, ui.ctx());
         }
         if let Some(text) = self.pending_clipboard.take() {
             ui.ctx().copy_text(text);
@@ -4401,5 +4416,34 @@ message EchoMessage { string text = 1; int32 number = 2; }
         assert_eq!(history_tab_title("GET", "https://jsonplaceholder.typicode.com/posts/1"), "GET /posts/1");
         assert_eq!(history_tab_title("POST", "http://localhost:3000"), "POST localhost:3000");
         assert_eq!(history_tab_title("GET", "{{base}}/users?id=1"), "GET /users?id=1");
+    }
+
+    #[test]
+    fn agent_send_creates_a_collection_and_refreshes_the_sidebar() {
+        use postguy_ui_egui::{AgentAction, AgentRow};
+        let server = postguy_testkit::Server::start();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_in(dir.path());
+        let engine = app.engine.clone().expect("engine");
+        engine.set_key_store(std::sync::Arc::new(postguy_store::keychain::MemoryKeyStore::default()));
+        engine.set_ai_api_key(postguy_model::AiProvider::OpenAiCompatible, Some("test-key")).expect("key");
+        app.shell.settings_value.ai.openai_endpoint = format!("{}/ai/v1", server.base_url());
+        app.shell.settings_value.ai.models.openai_compatible = "fake".into();
+        engine.update_settings(app.shell.settings_value.clone()).expect("settings");
+
+        let ctx = egui::Context::default();
+        app.apply_agent(AgentAction::Send(r#"{"call":"collection_create","args":{"name":"From agent"}}"#.into()), &ctx);
+        assert!(app.shell.agent.busy.is_some(), "the turn runs off the UI thread");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while app.shell.agent.busy.is_some() {
+            assert!(std::time::Instant::now() < deadline, "the agent turn finished in time");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            app.poll_agent(&ctx);
+        }
+        assert!(app.shell.sidebar_data.collections.iter().any(|collection| collection.name == "From agent"), "the sidebar shows the agent's change");
+        let rows = &app.shell.agent.rows;
+        assert!(rows.iter().any(|row| matches!(row, AgentRow::User(_))));
+        assert!(rows.iter().any(|row| matches!(row, AgentRow::Step { ok: true, .. })), "{rows:?}");
+        assert!(rows.iter().any(|row| matches!(row, AgentRow::Assistant(text) if text.starts_with("done:"))), "{rows:?}");
     }
 }

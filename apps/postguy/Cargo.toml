@@ -14,6 +14,7 @@ eframe.workspace = true
 egui.workspace = true
 postguy-ui-egui = { path = "../../crates/ui-egui" }
 postguy-engine.workspace = true
+postguy-automation.workspace = true
 postguy-platform.workspace = true
 postguy-auth.workspace = true
 postguy-snippets.workspace = true
