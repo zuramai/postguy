@@ -43,6 +43,12 @@ impl Automation {
         Automation { session: Mutex::new(Session::new(root)), cancels: Arc::new(Mutex::new(HashMap::new())) }
     }
 
+    /// An automation over an engine the caller already opened (the desktop app's AI Agent
+    /// shares the app's engine); `root` confines every path argument when set.
+    pub fn with_engine(engine: postguy_engine::Engine, root: Option<Root>) -> Automation {
+        Automation { session: Mutex::new(Session::with_engine(root, engine)), cancels: Arc::new(Mutex::new(HashMap::new())) }
+    }
+
     /// Resolve a path the CALLER supplies outside the tools (a `--script` file): the same
     /// confinement rules apply, including the identical outside-root refusal.
     pub fn resolve_user_path(&self, given: &str) -> Result<std::path::PathBuf> {
@@ -305,6 +311,21 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
             destructive: false,
         },
         ToolDef {
+            name: "collection_update",
+            title: "Update a collection",
+            description: "Replaces the given fields of a collection: name, description, variables, auth and/or scripts. Fields you leave out stay as they are.",
+            input_schema: schema! {
+                "collection": req("collection id"),
+                "name": opt("new name"),
+                "description": opt("new description (Markdown)"),
+                "variables": (json!({"type": "array", "description": "full list of Variable objects {key,value,description,enabled,secret}"}), false),
+                "auth": (json!({"type": ["object", "null"], "description": "AuthConfig object, or null for no auth"}), false),
+                "scripts": (json!({"type": "object", "description": "Scripts object {prerequest:{text},test:{text}}"}), false),
+            },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
             name: "collection_delete",
             title: "Delete a collection",
             description: "Moves the collection file to the workspace trash and drops its secrets.",
@@ -329,6 +350,30 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
             title: "Rename a folder",
             description: "New name; empty names are refused.",
             input_schema: schema! { "collection": req("collection id"), "folder": req("folder id"), "name": req("new name") },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "folder_get",
+            title: "Get one folder",
+            description: "The folder JSON: name, description, variables, auth, scripts and its items.",
+            input_schema: schema! { "collection": req("collection id"), "folder": req("folder id") },
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "folder_update",
+            title: "Update a folder",
+            description: "Replaces the given fields of a folder: name, description, variables, auth and/or scripts. Fields you leave out stay as they are.",
+            input_schema: schema! {
+                "collection": req("collection id"),
+                "folder": req("folder id"),
+                "name": opt("new name"),
+                "description": opt("new description (Markdown)"),
+                "variables": (json!({"type": "array", "description": "full list of Variable objects {key,value,description,enabled,secret}"}), false),
+                "auth": (json!({"type": ["object", "null"], "description": "AuthConfig object, or null for no auth"}), false),
+                "scripts": (json!({"type": "object", "description": "Scripts object {prerequest:{text},test:{text}}"}), false),
+            },
             read_only: false,
             destructive: false,
         },
@@ -796,8 +841,8 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
         ToolDef {
             name: "request_cancel",
             title: "Cancel an in-flight send",
-            description: "Cancels the send started by request_send for that request id, or the most recent send (`last`), or a collection run (`run:<collection id>`).",
-            input_schema: schema! { "sendId": req("request id passed to request_send, `last`, or `run:<collection id>`") },
+            description: "Cancels the send started by request_send for that request id, or the most recent send (`last`), a collection run (`run:<collection id>`) or the running agent_chat turn (`agent`).",
+            input_schema: schema! { "sendId": req("request id passed to request_send, `last`, `run:<collection id>` or `agent`") },
             read_only: false,
             destructive: false,
         },
@@ -1047,6 +1092,15 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
             session.engine()?.copy_collection_assets(&Id(id), &collection.id);
             Ok(json!({"collection": collection.id.0, "name": collection.name}))
         }
+        "collection_update" => {
+            let id = string_arg(args, tool, "collection")?;
+            let patch = ContainerPatch::from_args(args, tool)?;
+            let mut collection = session.load_collection(&id)?;
+            let c = &mut collection;
+            patch.apply(&mut c.name, &mut c.description, &mut c.variables, &mut c.auth, &mut c.scripts);
+            session.save_collection(&collection)?;
+            Ok(json!({"collection": id}))
+        }
         "collection_delete" => {
             let id = string_arg(args, tool, "collection")?;
             session.workspace()?.delete_collection(&Id(id.clone()))?;
@@ -1071,6 +1125,33 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
             let mut collection = session.load_collection(&collection_id)?;
             match find_item_mut(&mut collection, &folder_id) {
                 Some(Item::Folder(folder)) => folder.name = name,
+                Some(Item::Request(_)) => {
+                    return Err(AutomationError::Failed { message: format!("`{folder_id}` is a request, not a folder") });
+                }
+                None => return Err(AutomationError::NotFound { kind: "folder".into(), id: folder_id }),
+            }
+            session.save_collection(&collection)?;
+            Ok(json!({"folder": folder_id}))
+        }
+        "folder_get" => {
+            let collection = session.load_collection(&string_arg(args, tool, "collection")?)?;
+            let folder_id = string_arg(args, tool, "folder")?;
+            match find_item(&collection, &folder_id) {
+                Some(Item::Folder(folder)) => Ok(json!({"folder": folder})),
+                Some(Item::Request(_)) => Err(AutomationError::Failed { message: format!("`{folder_id}` is a request, not a folder") }),
+                None => Err(AutomationError::NotFound { kind: "folder".into(), id: folder_id }),
+            }
+        }
+        "folder_update" => {
+            let collection_id = string_arg(args, tool, "collection")?;
+            let folder_id = string_arg(args, tool, "folder")?;
+            let patch = ContainerPatch::from_args(args, tool)?;
+            let mut collection = session.load_collection(&collection_id)?;
+            match find_item_mut(&mut collection, &folder_id) {
+                Some(Item::Folder(folder)) => {
+                    let f = folder.as_mut();
+                    patch.apply(&mut f.name, &mut f.description, &mut f.variables, &mut f.auth, &mut f.scripts);
+                }
                 Some(Item::Request(_)) => {
                     return Err(AutomationError::Failed { message: format!("`{folder_id}` is a request, not a folder") });
                 }
@@ -1893,6 +1974,72 @@ fn cached_json(cached: &postguy_engine::CachedResponse) -> Value {
         },
         "warnings": cached.warnings,
         "script": cached.script,
+    })
+}
+
+/// The fields `collection_update` and `folder_update` replace; `None` keeps the stored value.
+struct ContainerPatch {
+    name: Option<String>,
+    description: Option<String>,
+    variables: Option<Vec<Variable>>,
+    /// `Some(None)` removes the auth (`"auth": null`).
+    auth: Option<Option<postguy_model::AuthConfig>>,
+    scripts: Option<postguy_model::Scripts>,
+}
+
+impl ContainerPatch {
+    fn from_args(args: &serde_json::Map<String, Value>, tool: &str) -> Result<ContainerPatch> {
+        let name = optional_string(args, tool, "name")?;
+        if let Some(name) = &name {
+            require_non_empty(tool, "name", name)?;
+        }
+        let auth = match args.get("auth") {
+            None => None,
+            Some(Value::Null) => Some(None),
+            Some(value) => Some(Some(serialized_arg(tool, "auth", "AuthConfig", value)?)),
+        };
+        Ok(ContainerPatch {
+            name,
+            description: optional_string(args, tool, "description")?,
+            variables: args.get("variables").map(|value| serialized_arg(tool, "variables", "list of Variable objects", value)).transpose()?,
+            auth,
+            scripts: args.get("scripts").map(|value| serialized_arg(tool, "scripts", "Scripts object", value)).transpose()?,
+        })
+    }
+
+    fn apply(
+        self,
+        name: &mut String,
+        description: &mut String,
+        variables: &mut Vec<Variable>,
+        auth: &mut Option<postguy_model::AuthConfig>,
+        scripts: &mut postguy_model::Scripts,
+    ) {
+        if let Some(value) = self.name {
+            *name = value;
+        }
+        if let Some(value) = self.description {
+            *description = value;
+        }
+        if let Some(value) = self.variables {
+            *variables = value;
+        }
+        if let Some(value) = self.auth {
+            *auth = value;
+        }
+        if let Some(value) = self.scripts {
+            *scripts = value;
+        }
+    }
+}
+
+/// Deserialize a model value passed as a tool argument, naming the type on failure.
+fn serialized_arg<T: serde::de::DeserializeOwned>(tool: &str, argument: &str, type_name: &str, value: &Value) -> Result<T> {
+    serde_json::from_value(value.clone()).map_err(|err| AutomationError::BadArgument {
+        tool: tool.to_string(),
+        argument: argument.to_string(),
+        expected: format!("a serialized {type_name} ({err})"),
+        got: "unparseable value".to_string(),
     })
 }
 
