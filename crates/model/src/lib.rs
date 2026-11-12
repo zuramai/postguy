@@ -5,6 +5,7 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod agent;
 pub mod auth;
 pub mod body;
 pub mod collection;
@@ -17,6 +18,7 @@ pub mod requests;
 pub mod settings;
 pub mod testing;
 
+pub use agent::{AgentChat, AiModels, AiProvider, AiSettings, ChatMessage, ToolCall};
 pub use auth::AuthConfig;
 pub use body::{Body, RawLanguage};
 pub use collection::{Collection, Folder, Item, Request};

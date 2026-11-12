@@ -98,6 +98,7 @@ impl Default for Settings {
             save_history_responses: false,
             proxy: ProxySettings::default(),
             check_for_updates: true,
+            ai: crate::agent::AiSettings::default(),
             extras: Extras::default(),
         }
     }
@@ -185,6 +186,9 @@ pub struct Settings {
     /// Ask the release feed for a newer version at startup and once a day (Settings > About).
     #[serde(default = "true_value")]
     pub check_for_updates: bool,
+    /// Settings → AI Agent (provider, endpoint, models). The API key lives in the OS keychain.
+    #[serde(default)]
+    pub ai: crate::agent::AiSettings,
     #[serde(default, flatten)]
     pub extras: Extras,
 }
