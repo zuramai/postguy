@@ -7,6 +7,7 @@
 
 use egui::{Align, Layout, RichText};
 
+use crate::agent::{AgentAction, AgentPanelState, agent_panel};
 use crate::collection::CollectionAction;
 use crate::commands::{CommandAction, CommandRegistry, PaletteItem, PaletteState, command_palette, parse_shortcut, sanitize_zoom};
 use crate::console::{ConsoleAction, ConsoleRow, ConsoleState, console_view};
@@ -41,6 +42,8 @@ pub struct ShellState {
     pub theme_mode: ThemeMode,
     pub sidebar_open: bool,
     pub right_panel_open: bool,
+    /// The AI Agent pane at the right edge.
+    pub agent_open: bool,
     pub console_open: bool,
     pub two_pane: bool,
     pub status: String,
@@ -52,6 +55,7 @@ impl Default for ShellState {
             theme_mode: ThemeMode::System,
             sidebar_open: true,
             right_panel_open: false,
+            agent_open: false,
             console_open: false,
             two_pane: false,
             status: "Ready".to_string(),
@@ -133,6 +137,10 @@ pub struct PostguyShell {
     pub update: crate::update::UpdateState,
     pub snippet: SnippetPanelState,
     pub snippet_request: Option<postguy_model::HttpRequest>,
+    /// The AI Agent pane (the app fills rows and examples, and runs the agent).
+    pub agent: AgentPanelState,
+    /// What the AI Agent pane did this frame.
+    pub agent_action: Option<AgentAction>,
     /// How the window frame is arranged (the app sets this per platform).
     pub chrome: WindowChrome,
     /// Registry shortcuts, most specific first (see [`shortcut_table`]).
@@ -168,6 +176,8 @@ impl PostguyShell {
             update: crate::update::UpdateState::default(),
             snippet: SnippetPanelState::default(),
             snippet_request: None,
+            agent: AgentPanelState::default(),
+            agent_action: None,
             chrome: WindowChrome::default(),
             shortcuts: shortcut_table(&CommandRegistry::default()),
         }
@@ -198,6 +208,7 @@ impl PostguyShell {
         self.action = None;
         self.tab_action = None;
         self.command_action = None;
+        self.agent_action = None;
         self.header(ui, &theme);
         self.bottom_bar(ui, &theme);
         if self.state.console_open {
@@ -234,6 +245,18 @@ impl PostguyShell {
             // never replaces the tab you were on.
             let doc = doc_for_row(&row, kind);
             self.tabs.open(doc, row.label.clone());
+        }
+        // Added before the snippet panel, so it sits at the window's right edge.
+        if self.state.agent_open {
+            egui::Panel::right("agent-panel")
+                .default_size(380.0)
+                .min_size(300.0)
+                .resizable(true)
+                .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(12, 10)))
+                .show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    self.agent_action = agent_panel(ui, &mut self.agent);
+                });
         }
         if self.state.right_panel_open {
             egui::Panel::right("snippet-panel")
@@ -494,6 +517,10 @@ impl PostguyShell {
                     crate::icons::paint(ui.painter(), icon_rect, "play", palette.text_muted, 1.5);
                     ui.label(RichText::new("Runner").small().color(palette.text_muted));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        let agent = self.state.agent_open;
+                        if widgets::text_button_with(ui, widgets::ButtonKind::Ghost, Some("bot"), "AI Agent", true, item(agent)).clicked() {
+                            self.state.agent_open = !self.state.agent_open;
+                        }
                         let right = self.state.right_panel_open;
                         if widgets::text_button_with(ui, widgets::ButtonKind::Ghost, Some("code"), "Right", true, item(right)).clicked() {
                             self.state.right_panel_open = !self.state.right_panel_open;

@@ -90,6 +90,9 @@ http-body-util = "0.1"
 tower-service = "0.3"
 cookie = { version = "0.18", default-features = false }
 bytes = "1"
+# OS credential store for the AI Agent API key (MIT OR Apache-2.0). Linux/FreeBSD use the
+# pure-Rust Secret Service client (zbus); no libdbus is linked.
+keyring = { version = "3.6", default-features = false, features = ["apple-native", "windows-native", "async-secret-service", "crypto-rust", "tokio"] }
 
 # Testing
 proptest = "1"

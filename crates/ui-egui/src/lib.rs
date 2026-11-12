@@ -6,6 +6,7 @@
 /// Icon path data generated from assets/icons by `cargo xtask icons` (regenerate, never edit).
 pub mod icons_gen;
 
+pub mod agent;
 pub mod auth;
 pub mod builder;
 pub mod collection;
@@ -33,6 +34,7 @@ pub mod update;
 pub mod widgets;
 pub mod window;
 
+pub use agent::{AgentAction, AgentPanelState, AgentRow, TextPart, agent_panel, split_reply};
 pub use auth::AuthScope;
 pub use builder::{BodyDrafts, BuilderAction, BuilderTab, RequestBuilder, SendProgress};
 pub use collection::{AssetRow, CollectionAction, CollectionDetail, DetailState, DetailTab};
@@ -49,7 +51,7 @@ pub use response::{
     response_view,
 };
 pub use runner::{RunRequestView, RunResultView, RunSummaryView, RunnerAction, RunnerRequestRow, RunnerState, RunnerView, runner_panel};
-pub use settings::{SettingsAction, SettingsEditor, SettingsSection, SettingsState};
+pub use settings::{AiDraft, AiKeyStatus, SettingsAction, SettingsEditor, SettingsSection, SettingsState};
 pub use shell::{PostguyShell, ShellState, WindowChrome};
 pub use sidebar::{RequestProtocol, RowKind, Sidebar, SidebarAction, SidebarData, SidebarRow, SidebarState};
 pub use snippet::{SnippetLanguage, SnippetPanelState, snippet_panel};

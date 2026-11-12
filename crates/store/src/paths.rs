@@ -108,6 +108,11 @@ impl StorePaths {
         self.dot_dir().join("lock")
     }
 
+    /// The AI Agent chat of this workspace.
+    pub fn agent_chat_file(&self) -> PathBuf {
+        self.dot_dir().join("agent-chat.json")
+    }
+
     /// `<config>/settings.json`.
     pub fn settings_file(&self) -> PathBuf {
         self.config.join("settings.json")

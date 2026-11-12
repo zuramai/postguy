@@ -7,6 +7,15 @@ An MCP server is not implemented yet.
 
 - `Session` opens an `Engine` (workspace, runtime, jar, console, history) under one optional
   `--root`; every path argument resolves through it with the identical refusal.
+  `Automation::with_engine` wraps an engine the caller already opened (the desktop app's).
+- `agent` — the AI Agent loop (`Automation::agent_turn`): provider round trips through
+  `Engine::ai_complete` (at most 25 per message, 16 tool calls each) over the `AGENT_TOOLS`
+  subset of the table; destructive tools and export overwrites wait for `AgentHost::approve`;
+  each call runs inside `catch_unwind`; results are capped at 64 KiB; every step is saved to the
+  chat. Tools: `agent_chat` (headless turn, `allow_destructive`), `agent_chat_get`,
+  `agent_chat_clear`, `agent_settings_get`/`set` (the key goes to the OS keychain, never
+  returned). `collection_update`, `folder_get` and `folder_update` edit variables, auth,
+  scripts and descriptions.
 - HTTP tools: `request_send`/`request_cancel`, `response_get`/`save`/`render_body`,
   `cookies_list`/`set`/`delete`/`clear`, `history_list`/`open`/`clear`,
   `console_get`/`clear`, `variables_resolve`. `request_send` releases the session lock while

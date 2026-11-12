@@ -6,6 +6,7 @@
 //! escaped panic becomes [`EngineError::Panicked`] and the session keeps its data. The UI calls
 //! [`Engine::send_async`] from the runtime and never blocks its own thread.
 
+pub mod ai;
 pub mod assets;
 pub mod console;
 pub mod edit;
@@ -29,6 +30,7 @@ use std::collections::{HashMap, VecDeque};
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};
 
+pub use ai::{AiTool, AiTurn};
 pub use assets::{AssetImportOutcome, AssetInfo};
 pub use error::{EngineError, Result};
 pub use exports::CollectionFormat;
@@ -62,6 +64,8 @@ struct Inner {
     console: ConsoleLog,
     jar: Mutex<CookieJar>,
     settings: Mutex<Settings>,
+    /// Where AI Agent API keys live (the OS keychain unless a test swaps it).
+    key_store: Mutex<Arc<dyn postguy_store::keychain::KeyStore>>,
     /// The newest finished sends, so `response_*` tools and the viewer can ask by history id.
     responses: Mutex<VecDeque<CachedResponse>>,
     ws_sessions: Mutex<HashMap<String, crate::ws_session::WsHandle>>,
@@ -105,6 +109,7 @@ impl Engine {
                 console: ConsoleLog::new(),
                 jar: Mutex::new(CookieJar::from_json(&cookie_value)),
                 settings: Mutex::new(settings),
+                key_store: Mutex::new(Arc::new(postguy_store::keychain::OsKeyStore)),
                 responses: Mutex::new(VecDeque::new()),
                 ws_sessions: Mutex::new(HashMap::new()),
                 runtime_vars: Mutex::new(HashMap::new()),

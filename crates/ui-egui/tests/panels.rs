@@ -206,3 +206,21 @@ fn settings_auth_is_unaffected_by_the_editor() {
     let _ = AuthConfig::NoAuth;
     let _ = ConsoleFilter::All;
 }
+
+#[test]
+fn ai_agent_page_shows_endpoint_only_for_openai_compatible() {
+    let mut harness = settings_harness(SettingsSection::AiAgent);
+    assert_eq!(harness.state().last, Some(SettingsAction::CheckAiKey), "opening the page asks whether a key is stored");
+    assert!(harness.query_by_label("Endpoint").is_some(), "the default provider is OpenAI compatible");
+    assert!(harness.query_by_label("API key").is_some());
+
+    harness.state_mut().state.ai.provider = postguy_model::AiProvider::Claude;
+    harness.state_mut().state.ai.loaded = true;
+    harness.run();
+    assert!(harness.query_by_label("Endpoint").is_none(), "Claude has a fixed endpoint");
+
+    harness.get_by_label("Save").click();
+    harness.run();
+    assert_eq!(harness.state().last, Some(SettingsAction::SaveAi));
+    assert_eq!(harness.state().settings, Settings::default(), "the form saves only through the app");
+}

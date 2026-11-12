@@ -43,6 +43,37 @@ impl Automation {
         Automation { session: Mutex::new(Session::new(root)), cancels: Arc::new(Mutex::new(HashMap::new())) }
     }
 
+    /// An automation over an engine the caller already opened (the desktop app's AI Agent
+    /// shares the app's engine); `root` confines every path argument when set.
+    pub fn with_engine(engine: postguy_engine::Engine, root: Option<Root>) -> Automation {
+        Automation { session: Mutex::new(Session::with_engine(root, engine)), cancels: Arc::new(Mutex::new(HashMap::new())) }
+    }
+
+    /// The open engine, cloned out of the session (cheap; never held across a call).
+    pub(crate) fn engine(&self) -> Result<postguy_engine::Engine> {
+        let session = self.session.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        Ok(session.engine()?.clone())
+    }
+
+    /// Resolve an output path argument the same way the tools do (confined to the root).
+    pub(crate) fn resolve_output(&self, given: &str) -> Result<std::path::PathBuf> {
+        let session = self.session.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.resolve(given)
+    }
+
+    /// Register a cancellation handle under `key` for `request_cancel`.
+    pub(crate) fn register_cancel(&self, key: &str, cancel: &Cancel) {
+        if let Ok(mut cancels) = self.cancels.lock() {
+            cancels.insert(key.to_string(), cancel.clone());
+        }
+    }
+
+    pub(crate) fn unregister_cancel(&self, key: &str) {
+        if let Ok(mut cancels) = self.cancels.lock() {
+            cancels.remove(key);
+        }
+    }
+
     /// Resolve a path the CALLER supplies outside the tools (a `--script` file): the same
     /// confinement rules apply, including the identical outside-root refusal.
     pub fn resolve_user_path(&self, given: &str) -> Result<std::path::PathBuf> {
@@ -77,6 +108,10 @@ impl Automation {
         }
         if tool_name == "collection_run" {
             return self.run_collection(tool_name, &args);
+        }
+        // The agent loop calls back into `call`, so it must not hold the session lock either.
+        if tool_name == "agent_chat" {
+            return self.agent_chat_tool(tool_name, &args);
         }
         let mut session = self.session.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         dispatch(tool_name, &args, &mut session)
@@ -305,6 +340,21 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
             destructive: false,
         },
         ToolDef {
+            name: "collection_update",
+            title: "Update a collection",
+            description: "Replaces the given fields of a collection: name, description, variables, auth and/or scripts. Fields you leave out stay as they are.",
+            input_schema: schema! {
+                "collection": req("collection id"),
+                "name": opt("new name"),
+                "description": opt("new description (Markdown)"),
+                "variables": (json!({"type": "array", "description": "full list of Variable objects {key,value,description,enabled,secret}"}), false),
+                "auth": (json!({"type": ["object", "null"], "description": "AuthConfig object, or null for no auth"}), false),
+                "scripts": (json!({"type": "object", "description": "Scripts object {prerequest:{text},test:{text}}"}), false),
+            },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
             name: "collection_delete",
             title: "Delete a collection",
             description: "Moves the collection file to the workspace trash and drops its secrets.",
@@ -329,6 +379,30 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
             title: "Rename a folder",
             description: "New name; empty names are refused.",
             input_schema: schema! { "collection": req("collection id"), "folder": req("folder id"), "name": req("new name") },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "folder_get",
+            title: "Get one folder",
+            description: "The folder JSON: name, description, variables, auth, scripts and its items.",
+            input_schema: schema! { "collection": req("collection id"), "folder": req("folder id") },
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "folder_update",
+            title: "Update a folder",
+            description: "Replaces the given fields of a folder: name, description, variables, auth and/or scripts. Fields you leave out stay as they are.",
+            input_schema: schema! {
+                "collection": req("collection id"),
+                "folder": req("folder id"),
+                "name": opt("new name"),
+                "description": opt("new description (Markdown)"),
+                "variables": (json!({"type": "array", "description": "full list of Variable objects {key,value,description,enabled,secret}"}), false),
+                "auth": (json!({"type": ["object", "null"], "description": "AuthConfig object, or null for no auth"}), false),
+                "scripts": (json!({"type": "object", "description": "Scripts object {prerequest:{text},test:{text}}"}), false),
+            },
             read_only: false,
             destructive: false,
         },
@@ -796,8 +870,8 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
         ToolDef {
             name: "request_cancel",
             title: "Cancel an in-flight send",
-            description: "Cancels the send started by request_send for that request id, or the most recent send (`last`), or a collection run (`run:<collection id>`).",
-            input_schema: schema! { "sendId": req("request id passed to request_send, `last`, or `run:<collection id>`") },
+            description: "Cancels the send started by request_send for that request id, or the most recent send (`last`), a collection run (`run:<collection id>`) or the running agent_chat turn (`agent`).",
+            input_schema: schema! { "sendId": req("request id passed to request_send, `last`, `run:<collection id>` or `agent`") },
             read_only: false,
             destructive: false,
         },
@@ -982,6 +1056,55 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
             read_only: false,
             destructive: false,
         },
+        ToolDef {
+            name: "agent_chat",
+            title: "Ask the AI Agent",
+            description: "Sends one message to the AI Agent (Settings → AI Agent: provider, model and the API key in the OS keychain) and runs the workspace tools it asks for until it replies. The turn is saved to the workspace's agent chat. Returns the reply, the steps run, Runner links for collection runs and the destructive steps that were declined. Cancel with request_cancel `agent`.",
+            input_schema: schema! {
+                "message": req("what to ask the agent"),
+                "allow_destructive": opt_bool("approve deletes and overwrites the agent asks for (default false: they are declined)")
+            },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "agent_chat_get",
+            title: "Read the AI Agent chat",
+            description: "The newest messages of the workspace's agent chat (default 100), oldest first.",
+            input_schema: schema! { "limit": (json!({"type": "integer", "minimum": 1, "maximum": 500}), false) },
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "agent_chat_clear",
+            title: "Clear the AI Agent chat",
+            description: "Starts a new chat: deletes every message of the workspace's agent chat.",
+            input_schema: schema! {},
+            read_only: false,
+            destructive: true,
+        },
+        ToolDef {
+            name: "agent_settings_get",
+            title: "Get the AI Agent settings",
+            description: "The provider, the OpenAI-compatible endpoint, the model per provider and whether an API key is stored for the current provider. Never returns the key.",
+            input_schema: schema! {},
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "agent_settings_set",
+            title: "Change the AI Agent settings",
+            description: "Sets the provider, the OpenAI-compatible endpoint and/or the model of the resulting provider, and stores (`api_key`) or removes (`remove_api_key`) that provider's API key in the OS keychain.",
+            input_schema: schema! {
+                "provider": opt("openai-compatible, claude, gemini or openrouter"),
+                "endpoint": opt("OpenAI-compatible base URL (http:// or https://; empty resets to https://api.openai.com/v1)"),
+                "model": opt("model id for the resulting provider"),
+                "api_key": opt("API key to store in the OS keychain"),
+                "remove_api_key": opt_bool("remove the stored API key of the resulting provider")
+            },
+            read_only: false,
+            destructive: false,
+        },
     ]
 });
 
@@ -1047,6 +1170,15 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
             session.engine()?.copy_collection_assets(&Id(id), &collection.id);
             Ok(json!({"collection": collection.id.0, "name": collection.name}))
         }
+        "collection_update" => {
+            let id = string_arg(args, tool, "collection")?;
+            let patch = ContainerPatch::from_args(args, tool)?;
+            let mut collection = session.load_collection(&id)?;
+            let c = &mut collection;
+            patch.apply(&mut c.name, &mut c.description, &mut c.variables, &mut c.auth, &mut c.scripts);
+            session.save_collection(&collection)?;
+            Ok(json!({"collection": id}))
+        }
         "collection_delete" => {
             let id = string_arg(args, tool, "collection")?;
             session.workspace()?.delete_collection(&Id(id.clone()))?;
@@ -1071,6 +1203,33 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
             let mut collection = session.load_collection(&collection_id)?;
             match find_item_mut(&mut collection, &folder_id) {
                 Some(Item::Folder(folder)) => folder.name = name,
+                Some(Item::Request(_)) => {
+                    return Err(AutomationError::Failed { message: format!("`{folder_id}` is a request, not a folder") });
+                }
+                None => return Err(AutomationError::NotFound { kind: "folder".into(), id: folder_id }),
+            }
+            session.save_collection(&collection)?;
+            Ok(json!({"folder": folder_id}))
+        }
+        "folder_get" => {
+            let collection = session.load_collection(&string_arg(args, tool, "collection")?)?;
+            let folder_id = string_arg(args, tool, "folder")?;
+            match find_item(&collection, &folder_id) {
+                Some(Item::Folder(folder)) => Ok(json!({"folder": folder})),
+                Some(Item::Request(_)) => Err(AutomationError::Failed { message: format!("`{folder_id}` is a request, not a folder") }),
+                None => Err(AutomationError::NotFound { kind: "folder".into(), id: folder_id }),
+            }
+        }
+        "folder_update" => {
+            let collection_id = string_arg(args, tool, "collection")?;
+            let folder_id = string_arg(args, tool, "folder")?;
+            let patch = ContainerPatch::from_args(args, tool)?;
+            let mut collection = session.load_collection(&collection_id)?;
+            match find_item_mut(&mut collection, &folder_id) {
+                Some(Item::Folder(folder)) => {
+                    let f = folder.as_mut();
+                    patch.apply(&mut f.name, &mut f.description, &mut f.variables, &mut f.auth, &mut f.scripts);
+                }
                 Some(Item::Request(_)) => {
                     return Err(AutomationError::Failed { message: format!("`{folder_id}` is a request, not a folder") });
                 }
@@ -1840,6 +1999,26 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
                 .collect();
             Ok(json!({"text": resolution.text, "hits": hits}))
         }
+        "agent_settings_get" => crate::agent::settings_json(session.engine()?),
+        "agent_settings_set" => crate::agent::settings_set(session.engine()?, tool, args),
+        "agent_chat_get" => {
+            let limit = optional_integer(args, tool, "limit")?.unwrap_or(100);
+            if !(1..=postguy_store::agent_chat::MAX_MESSAGES).contains(&limit) {
+                return Err(AutomationError::BadArgument {
+                    tool: tool.to_string(),
+                    argument: "limit".to_string(),
+                    expected: format!("an integer between 1 and {}", postguy_store::agent_chat::MAX_MESSAGES),
+                    got: limit.to_string(),
+                });
+            }
+            let chat = session.engine()?.agent_chat()?;
+            let skip = chat.messages.len().saturating_sub(limit);
+            Ok(json!({"messages": chat.messages.get(skip..).unwrap_or_default()}))
+        }
+        "agent_chat_clear" => {
+            session.engine()?.save_agent_chat(&postguy_model::AgentChat::default())?;
+            Ok(json!({"cleared": true}))
+        }
         "update_check" => {
             let engine = session.engine()?;
             let check = match optional_string(args, tool, "feed")? {
@@ -1893,6 +2072,72 @@ fn cached_json(cached: &postguy_engine::CachedResponse) -> Value {
         },
         "warnings": cached.warnings,
         "script": cached.script,
+    })
+}
+
+/// The fields `collection_update` and `folder_update` replace; `None` keeps the stored value.
+struct ContainerPatch {
+    name: Option<String>,
+    description: Option<String>,
+    variables: Option<Vec<Variable>>,
+    /// `Some(None)` removes the auth (`"auth": null`).
+    auth: Option<Option<postguy_model::AuthConfig>>,
+    scripts: Option<postguy_model::Scripts>,
+}
+
+impl ContainerPatch {
+    fn from_args(args: &serde_json::Map<String, Value>, tool: &str) -> Result<ContainerPatch> {
+        let name = optional_string(args, tool, "name")?;
+        if let Some(name) = &name {
+            require_non_empty(tool, "name", name)?;
+        }
+        let auth = match args.get("auth") {
+            None => None,
+            Some(Value::Null) => Some(None),
+            Some(value) => Some(Some(serialized_arg(tool, "auth", "AuthConfig", value)?)),
+        };
+        Ok(ContainerPatch {
+            name,
+            description: optional_string(args, tool, "description")?,
+            variables: args.get("variables").map(|value| serialized_arg(tool, "variables", "list of Variable objects", value)).transpose()?,
+            auth,
+            scripts: args.get("scripts").map(|value| serialized_arg(tool, "scripts", "Scripts object", value)).transpose()?,
+        })
+    }
+
+    fn apply(
+        self,
+        name: &mut String,
+        description: &mut String,
+        variables: &mut Vec<Variable>,
+        auth: &mut Option<postguy_model::AuthConfig>,
+        scripts: &mut postguy_model::Scripts,
+    ) {
+        if let Some(value) = self.name {
+            *name = value;
+        }
+        if let Some(value) = self.description {
+            *description = value;
+        }
+        if let Some(value) = self.variables {
+            *variables = value;
+        }
+        if let Some(value) = self.auth {
+            *auth = value;
+        }
+        if let Some(value) = self.scripts {
+            *scripts = value;
+        }
+    }
+}
+
+/// Deserialize a model value passed as a tool argument, naming the type on failure.
+fn serialized_arg<T: serde::de::DeserializeOwned>(tool: &str, argument: &str, type_name: &str, value: &Value) -> Result<T> {
+    serde_json::from_value(value.clone()).map_err(|err| AutomationError::BadArgument {
+        tool: tool.to_string(),
+        argument: argument.to_string(),
+        expected: format!("a serialized {type_name} ({err})"),
+        got: "unparseable value".to_string(),
     })
 }
 

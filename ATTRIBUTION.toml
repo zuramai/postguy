@@ -697,6 +697,17 @@ usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.r
 sha256 = "327d197328f9feb1f88c36c9db04e9b00fe717d877459f92fcd892f5e4c349fa"
 
 [[asset]]
+path = "assets/icons/bot.svg"
+title = "Lucide icon: bot"
+author = "Lucide contributors"
+source = "github.com/lucide-icons/lucide at tag 1.59.0 (icons/bot.svg)"
+licence = "ISC"
+licence_file = "assets/icons/LICENSE-lucide.txt"
+kind = "icon"
+usage = "UI glyph drawn from generated path data (crates/ui-egui/src/icons_gen.rs)"
+sha256 = "e46fe72fc5b33d7a17b0112df85da9ded851860312e8353f4fe23d87a4ce77f5"
+
+[[asset]]
 path = "assets/icons/panel-bottom.svg"
 title = "Lucide icon: panel-bottom"
 author = "Lucide contributors"

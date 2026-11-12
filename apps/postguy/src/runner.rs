@@ -121,6 +121,13 @@ fn request_view(iteration: u32, run: &postguy_runner::RequestRun) -> RunRequestV
     }
 }
 
+impl RunnerUi {
+    /// Make the Runs list reload (another writer, such as the AI Agent, stored a run).
+    pub(crate) fn invalidate_runs(&mut self) {
+        self.runs_version = self.runs_version.wrapping_add(1);
+    }
+}
+
 impl App {
     /// Open (or focus) the Runner tab, optionally preselecting a collection and folder.
     pub(crate) fn open_runner(&mut self, collection: Option<&Id>, folder: Option<&Id>) {

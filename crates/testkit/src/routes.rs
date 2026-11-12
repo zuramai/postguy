@@ -21,6 +21,7 @@
 //! | `/releases/latest?version=V` | GitHub-style latest-release JSON for `vV` (default 99.0.0), assets on this server |
 //! | `/releases/download/<tag>/<name>` | 302 to `/releases/files/<name>` (the asset CDN hop) |
 //! | `/releases/files/<name>` | `SHA256SUMS.txt`, or [`RELEASE_PAYLOAD`] for `postguy-test.bin` / `postguy-tampered.bin` (the latter listed with a wrong sum) |
+//! | `/ai/v1/chat/completions` (POST) | scripted OpenAI-compatible completion for the AI Agent: needs `Bearer test-key`; a `{"call"..}`/`{"calls"..}` user message becomes tool calls, tool results reply `done: ..`, other text `echo: ..` |
 
 use base64::Engine as _;
 use hyper::header::{CONTENT_TYPE, LOCATION, SET_COOKIE, WWW_AUTHENTICATE};
@@ -84,6 +85,7 @@ pub fn route(request: Incoming) -> Reply {
         "/compressed" => compressed(&request.query),
         "/huge" => huge(&request.query),
         "/token" => token(&request),
+        "/ai/v1/chat/completions" => fake_chat(&request),
         "/json" => json_body(&request.query),
         "/releases/latest" => release_latest(&request),
         "/no-content" => Reply { status: StatusCode::NO_CONTENT, headers: Vec::new(), body: Vec::new(), chunks: Vec::new(), delay_ms: 0 },
@@ -284,6 +286,64 @@ fn auth_bearer(request: &Incoming) -> Reply {
         Some("Bearer postguy-token") => Reply::with_json(&json!({"authenticated": "bearer"})),
         _ => Reply::ok(b"auth required".to_vec()).tap_status(StatusCode::UNAUTHORIZED).with_header(WWW_AUTHENTICATE.as_str(), "Bearer"),
     }
+}
+
+/// A scripted OpenAI-compatible chat completion. Needs `Authorization: Bearer test-key`.
+/// After tool results it replies `done: <results joined by " | ">`. A user message holding
+/// `{"call": name, "args": {..}}` or `{"calls": [{"name", "args"}..]}` becomes tool calls;
+/// any other user text is echoed as `echo: <text>`.
+fn fake_chat(request: &Incoming) -> Reply {
+    if header_value(request, "authorization") != Some("Bearer test-key") {
+        return Reply::with_json(&json!({"error": {"message": "Incorrect API key provided"}})).tap_status(StatusCode::UNAUTHORIZED);
+    }
+    let body: Value = serde_json::from_slice(&request.body).unwrap_or(Value::Null);
+    let messages = body.get("messages").and_then(Value::as_array).cloned().unwrap_or_default();
+    let role = |message: &Value| message.get("role").and_then(Value::as_str).map(str::to_string).unwrap_or_default();
+    let content = |message: &Value| message.get("content").and_then(Value::as_str).map(str::to_string).unwrap_or_default();
+    let reply = |message: Value, finish: &str| {
+        Reply::with_json(&json!({"id": "fake", "choices": [{"index": 0, "message": message, "finish_reason": finish}]}))
+    };
+    let Some(last) = messages.last() else {
+        return reply(json!({"role": "assistant", "content": "echo: "}), "stop");
+    };
+    if role(last) == "tool" {
+        let results: Vec<String> =
+            messages.iter().rev().take_while(|message| role(message) == "tool").map(content).collect::<Vec<_>>().into_iter().rev().collect();
+        let joined: String = results.join(" | ").chars().take(2000).collect();
+        return reply(json!({"role": "assistant", "content": format!("done: {joined}")}), "stop");
+    }
+    let text = content(last);
+    let directive: Option<Value> = serde_json::from_str(&text).ok();
+    let calls: Vec<(String, Value)> = match &directive {
+        Some(value) if value.get("call").is_some() => {
+            vec![(value.get("call").and_then(Value::as_str).unwrap_or_default().to_string(), value.get("args").cloned().unwrap_or_else(|| json!({})))]
+        }
+        Some(value) if value.get("calls").is_some() => value
+            .get("calls")
+            .and_then(Value::as_array)
+            .map(|calls| {
+                calls
+                    .iter()
+                    .map(|call| {
+                        (
+                            call.get("name").and_then(Value::as_str).unwrap_or_default().to_string(),
+                            call.get("args").cloned().unwrap_or_else(|| json!({})),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    if calls.is_empty() {
+        return reply(json!({"role": "assistant", "content": format!("echo: {text}")}), "stop");
+    }
+    let tool_calls: Vec<Value> = calls
+        .iter()
+        .enumerate()
+        .map(|(index, (name, args))| json!({"id": format!("call_{index}"), "type": "function", "function": {"name": name, "arguments": args.to_string()}}))
+        .collect();
+    reply(json!({"role": "assistant", "content": null, "tool_calls": tool_calls}), "tool_calls")
 }
 
 /// Digest challenge/response, RFC 7616 with MD5 and `qop=auth` (the digest auth path). The

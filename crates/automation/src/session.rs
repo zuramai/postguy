@@ -25,6 +25,12 @@ impl Session {
         Session { root, engine: None }
     }
 
+    /// A session over an engine the caller already opened (the desktop app shares its own, since
+    /// a second `Engine::open` of the same workspace is refused by the workspace lock).
+    pub fn with_engine(root: Option<Root>, engine: Engine) -> Session {
+        Session { root, engine: Some(engine) }
+    }
+
     pub fn root(&self) -> Option<&Root> {
         self.root.as_ref()
     }

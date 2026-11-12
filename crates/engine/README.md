@@ -8,6 +8,12 @@ Facade and session: workspace handle, workspace edits, the send pipeline, consol
   tokio runtime (two background workers), the console ring buffer and the jar mutex. `send`
   blocks for CLI/automation and wraps the pipeline in `catch_unwind`; `send_async` hands the
   same work to the runtime for the UI. Settings updates are persisted atomically.
+- `ai` — the AI Agent's provider client: `ai_complete` builds one non-streaming completion for
+  the provider in `Settings.ai` (OpenAI-compatible, OpenRouter, Claude, Gemini; pure `wire`
+  module), sends it through `client_for` (proxy, TLS, CA bundle) inside `catch_unwind`, and
+  writes no console or history entry. `ai_api_key`/`set_ai_api_key` go through the key store
+  (the OS keychain by default; `set_key_store` swaps it for tests); `agent_chat`/
+  `save_agent_chat` read and write `.postguy/agent-chat.json`. Keys and headers are never logged.
 - `pipeline` — the send pipeline: scope chain (globals < collection < folders <
   environment < data < runtime < locals), body shortcodes (expanded before `{{var}}`; `asset://` paths for
   form-data/binary file rows), pre-request scripts (`scripts` module; `Settings.disable_scripts` skips them), auth
