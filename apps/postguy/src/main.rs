@@ -2591,6 +2591,7 @@ impl App {
             ToggleSidebar => self.shell.state.sidebar_open = !self.shell.state.sidebar_open,
             ToggleConsole => self.shell.state.console_open = !self.shell.state.console_open,
             ToggleRightPanel => self.shell.state.right_panel_open = !self.shell.state.right_panel_open,
+            ToggleAgentPanel => self.shell.state.agent_open = !self.shell.state.agent_open,
             ToggleTwoPane => self.shell.state.two_pane = !self.shell.state.two_pane,
             CloseTab => {
                 if let Some(id) = self.shell.tabs.active {

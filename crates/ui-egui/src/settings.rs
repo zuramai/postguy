@@ -1,11 +1,12 @@
 //! The Settings tab: a left navigation (General, Themes, Shortcuts, Data, Certificates, Proxy,
-//! About) and, per page, headed groups of rows with the label and description on the left and
-//! the control on the right. Every change saves immediately through the app (unknown keys are
-//! preserved by the model's `extras`). Fields that nothing reads yet are not shown; they stay in
-//! the model so older and newer files round-trip.
+//! AI Agent, About) and, per page, headed groups of rows with the label and description on the
+//! left and the control on the right. Every change saves immediately through the app (unknown
+//! keys are preserved by the model's `extras`), except the AI Agent page, which saves with its
+//! own button because its API key goes to the OS keychain. Fields that nothing reads yet are not
+//! shown; they stay in the model so older and newer files round-trip.
 
 use egui::{Align, Layout, Margin, Rect, ScrollArea, Sense, Stroke, Ui, UiBuilder, WidgetInfo, WidgetType, pos2, vec2};
-use postguy_model::{HttpVersion, ProxyMode, ProxyProtocol, Settings, Theme};
+use postguy_model::{AiModels, AiProvider, HttpVersion, ProxyMode, ProxyProtocol, Settings, Theme};
 
 use crate::theme::Theme as UiTheme;
 use crate::widgets;
@@ -27,17 +28,19 @@ pub enum SettingsSection {
     Data,
     Certificates,
     Proxy,
+    AiAgent,
     About,
 }
 
 impl SettingsSection {
-    const ALL: [(SettingsSection, &'static str, &'static str); 7] = [
+    const ALL: [(SettingsSection, &'static str, &'static str); 8] = [
         (SettingsSection::General, "settings", "General"),
         (SettingsSection::Themes, "palette", "Themes"),
         (SettingsSection::Shortcuts, "keyboard", "Shortcuts"),
         (SettingsSection::Data, "hard-drive", "Data"),
         (SettingsSection::Certificates, "shield-check", "Certificates"),
         (SettingsSection::Proxy, "network", "Proxy"),
+        (SettingsSection::AiAgent, "bot", "AI Agent"),
         (SettingsSection::About, "info", "About"),
     ];
 
@@ -52,6 +55,38 @@ pub struct SettingsState {
     pub section: SettingsSection,
     /// Where the update check stands, shown under About (the app keeps it current).
     pub update_status: String,
+    /// The AI Agent page's unsaved form.
+    pub ai: AiDraft,
+}
+
+/// The AI Agent page form. It is saved only with its Save button; the typed key is sent to the
+/// keychain and cleared, never shown again.
+#[derive(Debug, Clone, Default)]
+pub struct AiDraft {
+    /// Filled from the settings the first time the page shows.
+    pub loaded: bool,
+    pub provider: AiProvider,
+    pub endpoint: String,
+    pub models: AiModels,
+    /// A key the user typed (never filled from the keychain).
+    pub api_key: String,
+    pub key_status: AiKeyStatus,
+    pub saving: bool,
+    /// The last save result: (text, is an error).
+    pub message: Option<(String, bool)>,
+}
+
+/// Whether the keychain holds a key for the selected provider.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum AiKeyStatus {
+    /// Not checked yet; the page asks the app to check.
+    #[default]
+    Unknown,
+    Checking,
+    Stored,
+    Missing,
+    /// The keychain could not be read.
+    Failed(String),
 }
 
 /// What the app should do.
@@ -62,6 +97,12 @@ pub enum SettingsAction {
     ResetSettings,
     /// About > Check now.
     CheckForUpdates,
+    /// AI Agent > Save: the app saves `SettingsState::ai` (settings, then the key).
+    SaveAi,
+    /// AI Agent > Remove key for the selected provider.
+    RemoveAiKey,
+    /// Ask the keychain whether the selected provider has a key.
+    CheckAiKey,
 }
 
 /// The editor.
@@ -73,6 +114,7 @@ pub struct SettingsEditor<'a> {
 impl SettingsEditor<'_> {
     pub fn show(&mut self, ui: &mut Ui) -> Option<SettingsAction> {
         let theme = UiTheme::current(ui.ctx());
+        let mut ai_action = None;
         let mut changed = false;
         let mut reset = false;
         let mut check_updates = false;
@@ -104,6 +146,7 @@ impl SettingsEditor<'_> {
                     SettingsSection::Data => reset = data(ui),
                     SettingsSection::Certificates => changed |= certificates(ui, self.settings),
                     SettingsSection::Proxy => changed |= proxy(ui, self.settings),
+                    SettingsSection::AiAgent => ai_agent(ui, self.settings, &mut self.state.ai, &mut ai_action),
                     SettingsSection::About => (changed, check_updates) = about(ui, self.settings, &self.state.update_status),
                 }
             });
@@ -114,6 +157,8 @@ impl SettingsEditor<'_> {
             Some(SettingsAction::ResetSettings)
         } else if check_updates {
             Some(SettingsAction::CheckForUpdates)
+        } else if ai_action.is_some() {
+            ai_action
         } else if changed {
             Some(SettingsAction::Save)
         } else {
@@ -454,14 +499,109 @@ fn proxy(ui: &mut Ui, settings: &mut Settings) -> bool {
     changed
 }
 
+/// The AI Agent page. Edits stay in `draft` until Save; the app reports the result back into it.
+fn ai_agent(ui: &mut Ui, settings: &Settings, draft: &mut AiDraft, action: &mut Option<SettingsAction>) {
+    let theme = UiTheme::current(ui.ctx());
+    if !draft.loaded {
+        draft.provider = settings.ai.provider;
+        draft.endpoint = settings.ai.openai_endpoint.clone();
+        draft.models = settings.ai.models.clone();
+        draft.loaded = true;
+        draft.key_status = AiKeyStatus::Unknown;
+    }
+    if draft.key_status == AiKeyStatus::Unknown {
+        draft.key_status = AiKeyStatus::Checking;
+        *action = Some(SettingsAction::CheckAiKey);
+    }
+
+    group(ui, "Provider");
+    setting_row(ui, "Provider", Some("The service your messages are sent to."), |ui| {
+        let mut chosen = Some(draft.provider.slug().to_string());
+        let groups = [widgets::SelectGroup {
+            label: None,
+            items: AiProvider::ALL.iter().map(|provider| widgets::SelectItem::new(provider.slug(), provider.label())).collect(),
+        }];
+        if widgets::select(ui, "ai-provider", &mut chosen, &groups, AiProvider::OpenAiCompatible.label())
+            && let Some(provider) = chosen.as_deref().and_then(AiProvider::from_slug)
+            && provider != draft.provider
+        {
+            draft.provider = provider;
+            draft.key_status = AiKeyStatus::Unknown;
+            draft.message = None;
+        }
+        false
+    });
+    if draft.provider == AiProvider::OpenAiCompatible {
+        labelled_field(
+            ui,
+            "Endpoint",
+            Some(("Base URL of an OpenAI-compatible API. Postguy posts to <endpoint>/chat/completions.", false)),
+            &mut draft.endpoint,
+            postguy_model::agent::DEFAULT_OPENAI_ENDPOINT,
+            false,
+        );
+    }
+    let placeholder = draft.provider.model_placeholder();
+    labelled_field(ui, "Model", Some(("The model id the provider expects.", false)), draft.models.get_mut(draft.provider), placeholder, false);
+
+    let key_note = match &draft.key_status {
+        AiKeyStatus::Stored => ("A key is saved in the system keychain. Type a new one to replace it.".to_string(), false),
+        AiKeyStatus::Missing | AiKeyStatus::Unknown => ("Stored in the system keychain, never in settings.json.".to_string(), false),
+        AiKeyStatus::Checking => ("Checking the keychain…".to_string(), false),
+        AiKeyStatus::Failed(error) => (error.clone(), true),
+    };
+    labelled_field(ui, "API key", Some((&key_note.0, key_note.1)), &mut draft.api_key, "Paste your API key", true);
+    if draft.key_status == AiKeyStatus::Stored {
+        ui.add_space(8.0);
+        if widgets::text_button(ui, widgets::ButtonKind::Ghost, Some("trash"), "Remove key", !draft.saving).clicked() {
+            *action = Some(SettingsAction::RemoveAiKey);
+        }
+    }
+
+    ui.add_space(12.0);
+    let note = "Your messages, and the collections, requests, environments (secret values included) and run results the agent reads, are sent to the provider you choose. Nothing is sent until you press Send.";
+    widgets::plain_text(ui, note, egui::TextStyle::Small.resolve(ui.style()), theme.palette.text_muted);
+    ui.add_space(12.0);
+    if widgets::text_button(ui, widgets::ButtonKind::Primary, Some("save"), "Save", !draft.saving).clicked() {
+        *action = Some(SettingsAction::SaveAi);
+    }
+    if let Some((text, error)) = &draft.message {
+        ui.add_space(8.0);
+        let color = if *error { theme.palette.danger } else { theme.palette.text_muted };
+        widgets::plain_text(ui, text, egui::TextStyle::Small.resolve(ui.style()), color);
+    }
+}
+
+/// A full-width text field under its label and description (a warning when the flag is set),
+/// labelled for screen readers and the control channel.
+fn labelled_field(ui: &mut Ui, label: &str, description: Option<(&str, bool)>, value: &mut String, hint: &str, password: bool) {
+    let theme = UiTheme::current(ui.ctx());
+    ui.add_space(12.0);
+    widgets::plain_text(ui, label, egui::TextStyle::Body.resolve(ui.style()), theme.palette.text);
+    if let Some((description, warn)) = description {
+        ui.add_space(2.0);
+        let color = if warn { theme.palette.warning } else { theme.palette.text_muted };
+        widgets::plain_text(ui, description, egui::TextStyle::Small.resolve(ui.style()), color);
+    }
+    ui.add_space(6.0);
+    let response =
+        ui.add(egui::TextEdit::singleline(value).password(password).hint_text(hint).desired_width(f32::INFINITY).margin(Margin::symmetric(8, 6)));
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::TextEdit, true, label));
+    ui.add_space(12.0);
+    rule(ui);
+}
+
 /// The About page; returns (a setting changed, the user asked for an update check now).
 fn about(ui: &mut Ui, settings: &mut Settings, update_status: &str) -> (bool, bool) {
     let theme = UiTheme::current(ui.ctx());
     group(ui, &format!("Postguy {}", env!("CARGO_PKG_VERSION")));
-    for (label, value) in
-        [("Licence", "MIT OR Apache-2.0"), ("Privacy", "No telemetry"), ("Third-party notices", "ATTRIBUTION.md and NOTICE in the repository")]
-    {
-        setting_row(ui, label, None, |ui| {
+    let privacy = "The network is used only for requests you send, update checks you allow and AI Agent messages you send.";
+    for (label, description, value) in [
+        ("Licence", None, "MIT OR Apache-2.0"),
+        ("Privacy", Some(privacy), "No telemetry"),
+        ("Third-party notices", None, "ATTRIBUTION.md and NOTICE in the repository"),
+    ] {
+        setting_row(ui, label, description, |ui| {
             ui.label(egui::RichText::new(value).color(theme.palette.text_muted));
             false
         });
