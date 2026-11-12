@@ -29,6 +29,8 @@ pub enum EngineError {
     Skipped { reason: String },
     /// The release feed or a release download failed or could not be trusted.
     Update { message: String },
+    /// The AI provider refused or failed a completion; the message says what to fix.
+    Ai { message: String },
 }
 
 impl std::fmt::Display for EngineError {
@@ -51,6 +53,7 @@ impl std::fmt::Display for EngineError {
             EngineError::Skipped { reason } => write!(f, "{reason}"),
             EngineError::Run { message } => write!(f, "{message}"),
             EngineError::Update { message } => write!(f, "update: {message}"),
+            EngineError::Ai { message } => write!(f, "AI provider: {message}"),
         }
     }
 }
