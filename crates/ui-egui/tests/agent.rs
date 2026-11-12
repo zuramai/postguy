@@ -52,10 +52,10 @@ fn a_pending_approval_offers_approve_and_decline() {
     harness.state_mut().shell.state.agent_open = true;
     harness.state_mut().shell.agent.rows = vec![AgentRow::Approval { id: 7, summary: "Delete collection “Shop”".into(), decision: None }];
     harness.state_mut().shell.agent.busy = Some("Waiting for approval".into());
-    // The busy spinner keeps repainting, so step a fixed number of frames instead of `run`.
-    harness.run_steps(3);
+    // `run` fails on a frame that keeps asking for repaints: a waiting approval must not animate.
+    harness.run();
     harness.get_by_label("Decline").click();
-    harness.run_steps(3);
+    harness.run();
     assert_eq!(harness.state().last, Some(AgentAction::Decline(7)));
     assert!(harness.query_by_label("Stop").is_some(), "a running turn can be stopped");
 }

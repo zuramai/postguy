@@ -201,8 +201,12 @@ pub fn agent_panel(ui: &mut Ui, state: &mut AgentPanelState) -> Option<AgentActi
             }
         }
         if let Some(label) = &state.busy {
+            // A pending approval waits on the user, not the agent: no spinner, so no per-frame repaint.
+            let waiting = state.rows.iter().any(|row| matches!(row, AgentRow::Approval { decision: None, .. }));
             ui.horizontal(|ui| {
-                ui.spinner();
+                if !waiting {
+                    ui.spinner();
+                }
                 ui.label(egui::RichText::new(label).small().color(palette.text_muted));
             });
         }
