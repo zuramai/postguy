@@ -15,6 +15,7 @@
 //!   .postguy/
 //!     runs/<collection-id>/<run-id>.json   the newest 20 collection runs
 //!     secrets.json             0600; values of variables marked secret
+//!     agent-chat.json          the AI Agent chat (capped; the API key is in the OS keychain)
 //!     lock                     workspace lock with stale detection
 //! ```
 //!
@@ -25,9 +26,11 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod agent_chat;
 pub mod change;
 pub mod config_dir;
 pub mod history;
+pub mod keychain;
 pub mod lock;
 pub mod paths;
 pub mod runs;
