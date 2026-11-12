@@ -483,6 +483,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "data" => SettingsSection::Data,
                     "certificates" => SettingsSection::Certificates,
                     "proxy" => SettingsSection::Proxy,
+                    "ai-agent" => SettingsSection::AiAgent,
                     "about" => SettingsSection::About,
                     _ => SettingsSection::General,
                 };
