@@ -49,6 +49,31 @@ impl Automation {
         Automation { session: Mutex::new(Session::with_engine(root, engine)), cancels: Arc::new(Mutex::new(HashMap::new())) }
     }
 
+    /// The open engine, cloned out of the session (cheap; never held across a call).
+    pub(crate) fn engine(&self) -> Result<postguy_engine::Engine> {
+        let session = self.session.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        Ok(session.engine()?.clone())
+    }
+
+    /// Resolve an output path argument the same way the tools do (confined to the root).
+    pub(crate) fn resolve_output(&self, given: &str) -> Result<std::path::PathBuf> {
+        let session = self.session.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.resolve(given)
+    }
+
+    /// Register a cancellation handle under `key` for `request_cancel`.
+    pub(crate) fn register_cancel(&self, key: &str, cancel: &Cancel) {
+        if let Ok(mut cancels) = self.cancels.lock() {
+            cancels.insert(key.to_string(), cancel.clone());
+        }
+    }
+
+    pub(crate) fn unregister_cancel(&self, key: &str) {
+        if let Ok(mut cancels) = self.cancels.lock() {
+            cancels.remove(key);
+        }
+    }
+
     /// Resolve a path the CALLER supplies outside the tools (a `--script` file): the same
     /// confinement rules apply, including the identical outside-root refusal.
     pub fn resolve_user_path(&self, given: &str) -> Result<std::path::PathBuf> {
@@ -83,6 +108,10 @@ impl Automation {
         }
         if tool_name == "collection_run" {
             return self.run_collection(tool_name, &args);
+        }
+        // The agent loop calls back into `call`, so it must not hold the session lock either.
+        if tool_name == "agent_chat" {
+            return self.agent_chat_tool(tool_name, &args);
         }
         let mut session = self.session.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         dispatch(tool_name, &args, &mut session)
@@ -1027,6 +1056,55 @@ static TOOLS: std::sync::LazyLock<Vec<ToolDef>> = std::sync::LazyLock::new(|| {
             read_only: false,
             destructive: false,
         },
+        ToolDef {
+            name: "agent_chat",
+            title: "Ask the AI Agent",
+            description: "Sends one message to the AI Agent (Settings → AI Agent: provider, model and the API key in the OS keychain) and runs the workspace tools it asks for until it replies. The turn is saved to the workspace's agent chat. Returns the reply, the steps run, Runner links for collection runs and the destructive steps that were declined. Cancel with request_cancel `agent`.",
+            input_schema: schema! {
+                "message": req("what to ask the agent"),
+                "allow_destructive": opt_bool("approve deletes and overwrites the agent asks for (default false: they are declined)")
+            },
+            read_only: false,
+            destructive: false,
+        },
+        ToolDef {
+            name: "agent_chat_get",
+            title: "Read the AI Agent chat",
+            description: "The newest messages of the workspace's agent chat (default 100), oldest first.",
+            input_schema: schema! { "limit": (json!({"type": "integer", "minimum": 1, "maximum": 500}), false) },
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "agent_chat_clear",
+            title: "Clear the AI Agent chat",
+            description: "Starts a new chat: deletes every message of the workspace's agent chat.",
+            input_schema: schema! {},
+            read_only: false,
+            destructive: true,
+        },
+        ToolDef {
+            name: "agent_settings_get",
+            title: "Get the AI Agent settings",
+            description: "The provider, the OpenAI-compatible endpoint, the model per provider and whether an API key is stored for the current provider. Never returns the key.",
+            input_schema: schema! {},
+            read_only: true,
+            destructive: false,
+        },
+        ToolDef {
+            name: "agent_settings_set",
+            title: "Change the AI Agent settings",
+            description: "Sets the provider, the OpenAI-compatible endpoint and/or the model of the resulting provider, and stores (`api_key`) or removes (`remove_api_key`) that provider's API key in the OS keychain.",
+            input_schema: schema! {
+                "provider": opt("openai-compatible, claude, gemini or openrouter"),
+                "endpoint": opt("OpenAI-compatible base URL (http:// or https://; empty resets to https://api.openai.com/v1)"),
+                "model": opt("model id for the resulting provider"),
+                "api_key": opt("API key to store in the OS keychain"),
+                "remove_api_key": opt_bool("remove the stored API key of the resulting provider")
+            },
+            read_only: false,
+            destructive: false,
+        },
     ]
 });
 
@@ -1920,6 +1998,26 @@ fn dispatch(tool: &str, args: &serde_json::Map<String, Value>, session: &mut Ses
                 })
                 .collect();
             Ok(json!({"text": resolution.text, "hits": hits}))
+        }
+        "agent_settings_get" => crate::agent::settings_json(session.engine()?),
+        "agent_settings_set" => crate::agent::settings_set(session.engine()?, tool, args),
+        "agent_chat_get" => {
+            let limit = optional_integer(args, tool, "limit")?.unwrap_or(100);
+            if !(1..=postguy_store::agent_chat::MAX_MESSAGES).contains(&limit) {
+                return Err(AutomationError::BadArgument {
+                    tool: tool.to_string(),
+                    argument: "limit".to_string(),
+                    expected: format!("an integer between 1 and {}", postguy_store::agent_chat::MAX_MESSAGES),
+                    got: limit.to_string(),
+                });
+            }
+            let chat = session.engine()?.agent_chat()?;
+            let skip = chat.messages.len().saturating_sub(limit);
+            Ok(json!({"messages": chat.messages.get(skip..).unwrap_or_default()}))
+        }
+        "agent_chat_clear" => {
+            session.engine()?.save_agent_chat(&postguy_model::AgentChat::default())?;
+            Ok(json!({"cleared": true}))
         }
         "update_check" => {
             let engine = session.engine()?;
